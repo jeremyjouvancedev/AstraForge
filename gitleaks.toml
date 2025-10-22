@@ -1,0 +1,6 @@
+title = "AstraForge Gitleaks Config"
+[allowlist]
+regexes = [
+  "AstraForge",
+  "unsafe-secret-key"
+]

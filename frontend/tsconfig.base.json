@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "allowJs": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  }
+}

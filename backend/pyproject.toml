@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astraforge-backend"
+version = "0.1.0"
+description = "AstraForge backend service (Django + Celery)."
+readme = "README.md"
+authors = [
+  { name = "AstraForge Contributors", email = "opensource@astraforge.dev" }
+]
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+  "Django>=5.0,<6.0",
+  "djangorestframework>=3.15",
+  "djangorestframework-simplejwt>=5.3",
+  "drf-spectacular>=0.27",
+  "django-cors-headers>=4.3",
+  "django-environ>=0.11",
+  "psycopg[binary]>=3.1",
+  "celery>=5.3",
+  "redis>=5.0",
+  "pydantic>=2.6",
+  "langchain>=0.1",
+  "langgraph>=0.0.18",
+  "structlog>=24.1",
+  "opentelemetry-sdk>=1.24",
+  "opentelemetry-exporter-otlp>=1.24",
+  "django-redis>=5.4"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-django",
+  "pytest-asyncio",
+  "mypy",
+  "ruff",
+  "types-requests",
+  "factory-boy"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["astraforge*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "astraforge.config.settings"
+pythonpath = ["."]
+addopts = "-ra"

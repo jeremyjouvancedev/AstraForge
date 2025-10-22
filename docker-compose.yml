@@ -1,0 +1,58 @@
+version: "3.9"
+services:
+  backend-migrate:
+    build:
+      context: ./backend
+    command: python manage.py migrate
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+      REDIS_URL: redis://redis:6379/0
+      EXECUTOR: codex
+      UNSAFE_DISABLE_AUTH: "1"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: astraforge
+      POSTGRES_USER: astraforge
+      POSTGRES_PASSWORD: astraforge
+    ports:
+      - "5432:5432"
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+  backend:
+    build:
+      context: ./backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+      REDIS_URL: redis://redis:6379/0
+      EXECUTOR: codex
+      UNSAFE_DISABLE_AUTH: "1"
+    depends_on:
+      - postgres
+      - redis
+      - backend-migrate
+    ports:
+      - "8000:8000"
+  frontend:
+    build:
+      context: ./frontend
+    command: pnpm dev --host 0.0.0.0 --port 5173
+    volumes:
+      - ./frontend:/app
+    environment:
+      VITE_API_URL: http://backend:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
