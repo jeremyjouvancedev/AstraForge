@@ -67,18 +67,28 @@ class RequestSerializer(serializers.Serializer):
                 "provider": repository_link.provider,
                 "repository": repository_link.repository,
                 "base_url": repository_link.effective_base_url(),
+                "access_token": repository_link.access_token,
             }
         }
         return Request(payload=payload, metadata=metadata, **validated_data)
 
     def to_representation(self, instance: Request):
-        project = instance.metadata.get("project", {})
+        project_internal = instance.metadata.get("project", {}) or {}
+        project_public = dict(project_internal)
+        project_public.pop("access_token", None)
+        metadata_public = dict(instance.metadata)
+        project_meta = metadata_public.get("project")
+        if isinstance(project_meta, dict):
+            metadata_public = dict(metadata_public)
+            sanitized_project = dict(project_meta)
+            sanitized_project.pop("access_token", None)
+            metadata_public["project"] = sanitized_project
         return {
             "id": instance.id,
             "tenant_id": instance.tenant_id,
             "source": instance.source,
             "sender": instance.sender,
-            "project": project,
+            "project": project_public,
             "state": instance.state.value,
             "payload": {
                 "title": instance.payload.title,
@@ -94,7 +104,7 @@ class RequestSerializer(serializers.Serializer):
                 ],
             },
             "artifacts": instance.artifacts,
-            "metadata": instance.metadata,
+            "metadata": metadata_public,
         }
 
 

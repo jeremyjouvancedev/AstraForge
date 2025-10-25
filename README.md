@@ -35,6 +35,12 @@ python manage.py migrate
 python manage.py runserver
 ```
 
+### Runner
+
+```bash
+docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
+```
+
 ### Frontend
 
 ```bash

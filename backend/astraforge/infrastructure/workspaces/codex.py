@@ -9,6 +9,7 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
+from urllib.parse import quote, urlparse, urlunparse
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Tuple
 
@@ -90,6 +91,40 @@ def _should_execute_commands() -> bool:
     }
 
 
+def _should_skip_image_pull() -> bool:
+    value = os.getenv("CODEX_CLI_SKIP_PULL", "")
+    return value.lower() in {"1", "true", "yes"}
+
+
+def _format_spec_prompt(spec: DevelopmentSpec) -> str:
+    payload = spec.as_dict()
+    lines = [
+        "You are Codex CLI applying the following development specification.",
+        "",
+        f"Title: {payload.get('title', '').strip()}",
+        f"Summary: {payload.get('summary', '').strip()}",
+        "",
+    ]
+
+    def _append_section(label: str, items: list[str]) -> None:
+        if not items:
+            return
+        lines.append(f"{label}:")
+        for item in items:
+            clean = str(item).strip()
+            if clean:
+                lines.append(f"- {clean}")
+        lines.append("")
+
+    _append_section("Requirements", payload.get("requirements", []))  # type: ignore[arg-type]
+    _append_section("Implementation steps", payload.get("implementation_steps", []))  # type: ignore[arg-type]
+    _append_section("Risks", payload.get("risks", []))  # type: ignore[arg-type]
+    _append_section("Acceptance criteria", payload.get("acceptance_criteria", []))  # type: ignore[arg-type]
+
+    prompt_text = "\n".join(line for line in lines if line is not None)
+    return prompt_text.strip()
+
+
 @dataclass
 class CodexWorkspaceOperator(WorkspaceOperator):
     """Coordinates provisioning, proxy bootstrap, and Codex CLI execution."""
@@ -98,6 +133,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
     proxy_base_port: int = 5200
     image: str | None = None
     runner: CommandRunner = field(default_factory=lambda: CommandRunner(dry_run=not _should_execute_commands()))
+    skip_image_pull: bool = field(default_factory=_should_skip_image_pull)
 
     def prepare(
         self,
@@ -143,7 +179,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         *,
         stream: Callable[[dict[str, Any]], None],
     ) -> ExecutionOutcome:
-        command = self._codex_command(workspace)
+        command = self._codex_command(workspace, spec)
         stream(
             {
                 "type": "status",
@@ -187,14 +223,26 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             stream=stream,
             allow_failure=True,
         )
+        if self.skip_image_pull:
+            stream(
+                {
+                    "type": "status",
+                    "stage": "workspace",
+                    "message": "Skipping remote image pull; using local Codex CLI image",
+                }
+            )
+            pull_args: list[str] = []
+        else:
+            pull_args = ["--pull", "always"]
         pull_command = [
             "docker",
             "run",
             "-d",
-            "--pull",
-            "always",
+            *pull_args,
             "--name",
             container_name,
+            "--add-host",
+            "host.docker.internal:host-gateway",
             image,
             "sleep",
             "infinity",
@@ -228,6 +276,8 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                     "-d",
                     "--name",
                     container_name,
+                    "--add-host",
+                    "host.docker.internal:host-gateway",
                     image,
                     "sleep",
                     "infinity",
@@ -249,6 +299,20 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         mode: str,
         stream: Callable[[dict[str, Any]], None],
     ) -> str:
+        external_proxy = (
+            os.getenv("CODEX_WORKSPACE_PROXY_URL")
+            or os.getenv("LLM_PROXY_URL")
+            or "http://host.docker.internal:8080"
+        )
+        if external_proxy and external_proxy.lower() != "local":
+            stream(
+                {
+                    "type": "status",
+                    "stage": "proxy",
+                    "message": f"Using external LLM proxy at {external_proxy}",
+                }
+            )
+            return external_proxy
         port = self.proxy_base_port + (hash(identifier) % 2000)
         if mode == "docker":
             command = [
@@ -290,16 +354,73 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         *,
         target_path: str,
     ) -> None:
-        base_url = project.get("base_url") or "https://gitlab.com"
-        repository = project.get("repository", "")
-        repo_url = f"{base_url}/{repository}.git" if repository else base_url
+        base_url = (project.get("base_url") or "https://gitlab.com").rstrip("/")
+        repository = (project.get("repository") or "").strip()
+        provider = (project.get("provider") or "").lower()
+        access_token = project.get("access_token") or project.get("token")
+        if not access_token and project.get("id"):
+            try:  # pragma: no cover - fallback for missing metadata
+                from astraforge.integrations.models import RepositoryLink
+
+                link = RepositoryLink.objects.filter(id=project["id"]).first()
+                if link and link.access_token:
+                    access_token = link.access_token
+                    provider = provider or link.provider.lower()
+                    base_override = link.effective_base_url()
+                    if base_override:
+                        base_url = base_override.rstrip("/")
+            except Exception:
+                pass
+
+        if repository.startswith(("http://", "https://")):
+            repo_url = repository if repository.endswith(".git") else f"{repository}.git"
+        elif repository:
+            suffix = "" if repository.endswith(".git") else ".git"
+            repo_url = f"{base_url}/{repository}{suffix}"
+        else:
+            repo_url = base_url
+
+        safe_token = None
+        redacted_repo_url = repo_url
+        if access_token:
+            parsed = urlparse(repo_url)
+            safe_token = quote(access_token, safe="")
+            username = "oauth2" if provider == "gitlab" else "x-access-token"
+            authed_netloc = f"{username}:{safe_token}@{parsed.netloc}"
+            repo_url = urlunparse(parsed._replace(netloc=authed_netloc))
+            redacted_repo_url = urlunparse(parsed._replace(netloc=f"{username}:****@{parsed.netloc}"))
+
         command = self._wrap_exec(identifier, mode, ["git", "clone", repo_url, target_path])
-        self.runner.run(command, stream=stream, allow_failure=True)
+
+        def _masked_stream(event: dict[str, Any]) -> None:
+            if access_token and isinstance(event, dict):
+                masked_event = dict(event)
+                if isinstance(masked_event.get("command"), str):
+                    masked_event["command"] = masked_event["command"].replace(access_token, "****")
+                    if safe_token:
+                        masked_event["command"] = masked_event["command"].replace(safe_token, "****")
+                if isinstance(masked_event.get("message"), str):
+                    masked_event["message"] = masked_event["message"].replace(access_token, "****")
+                    if safe_token:
+                        masked_event["message"] = masked_event["message"].replace(safe_token, "****")
+                stream(masked_event)
+            else:
+                stream(event)
+
+        try:
+            self.runner.run(command, stream=_masked_stream, allow_failure=False)
+        except subprocess.CalledProcessError as exc:
+            if access_token and isinstance(exc.output, str):
+                sanitized = exc.output.replace(access_token, "****")
+                if safe_token:
+                    sanitized = sanitized.replace(safe_token, "****")
+                exc.output = sanitized
+            raise
         stream(
             {
                 "type": "status",
                 "stage": "clone",
-                "message": f"Repository clone initiated from {repo_url}",
+                "message": f"Repository clone initiated from {redacted_repo_url}",
             }
         )
 
@@ -329,8 +450,25 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             }
         )
 
-    def _codex_command(self, workspace: WorkspaceContext) -> List[str]:
-        base = ["codex", "--spec", f"{workspace.path}/.codex/spec.json"]
+    def _codex_command(self, workspace: WorkspaceContext, spec: DevelopmentSpec) -> List[str]:
+        def _override(key: str, value: Any) -> str:
+            return f"{key}={json.dumps(value)}"
+
+        overrides: List[str] = []
+        if workspace.proxy_url:
+            overrides.extend(["-c", _override("workspace.proxy_url", workspace.proxy_url)])
+        overrides.extend(["-c", _override("auth.api_key", "sk-astraforge-stub")])
+        prompt = _format_spec_prompt(spec) or "Apply the development specification."
+        spec_path = f"{workspace.path}/.codex/spec.json"
+        overrides.extend(["-c", _override("workspace.spec_path", spec_path)])
+        overrides.extend(["-c", _override("workspace.spec_text", prompt)])
+        overrides.extend(
+            [
+                "-c",
+                _override("projects.\"/workspace\".trust_level", "trusted"),
+            ]
+        )
+        base = ["codex", "exec", "--skip-git-repo-check", *overrides, prompt]
         return self._wrap_exec(workspace.metadata.get("container", workspace.ref), workspace.mode, base)
 
     def _wrap_exec(self, identifier: str, mode: str, command: List[str]) -> List[str]:

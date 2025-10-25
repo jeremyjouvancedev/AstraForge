@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/cn";
 import { useRequestDetail } from "@/features/requests/hooks/use-request-detail";
 import {
   RunLogEvent,
@@ -119,41 +120,45 @@ export default function RequestRunPage() {
         </div>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-semibold uppercase tracking-wide">
-            Status overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ol className="space-y-4">
-            {progress.map(({ status, state }) => (
-              <li
-                key={status.id}
-                className="rounded border border-border/60 p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{status.label}</p>
-                    <p className="text-sm text-muted-foreground">{status.description}</p>
-                  </div>
-                  <span
-                    className={
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Progress</h2>
+        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-lg">
+          <div className="relative flex items-center gap-1 px-4 py-6">
+            <div className="absolute left-10 right-10 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-transparent via-zinc-800 to-transparent" />
+            <ol className="relative z-10 flex w-full items-center justify-between gap-6">
+              {progress.map(({ status, state }) => (
+                <li
+                  key={status.id}
+                  className="flex w-full max-w-[10rem] flex-col items-center gap-2 text-center"
+                >
+                  <div
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-full border text-xs font-semibold",
                       state === "done"
-                        ? "rounded-full bg-green-500/15 px-3 py-1 text-xs font-semibold text-green-600"
+                        ? "border-green-500/60 bg-green-500/10 text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.25)]"
                         : state === "active"
-                        ? "rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-600"
-                        : "rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground"
-                    }
+                        ? "border-blue-500/60 bg-blue-500/10 text-blue-300 shadow-[0_0_14px_rgba(59,130,246,0.25)] animate-pulse"
+                        : "border-zinc-700 bg-zinc-900 text-zinc-500"
+                    )}
+                    aria-label={`${status.label} status ${state}`}
                   >
-                    {state === "done" ? "Done" : state === "active" ? "In progress" : "Pending"}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </CardContent>
-      </Card>
+                    {status.label
+                      .split(/\s+/)
+                      .map((word) => word[0])
+                      .join("")
+                      .slice(0, 3)
+                      .toUpperCase()}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-zinc-100">{status.label}</p>
+                    <p className="text-xs text-zinc-400">{status.description}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </section>
 
       <RunLogViewer events={events} className="border" />
 

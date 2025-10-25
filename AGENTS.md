@@ -1,6 +1,6 @@
 # Global Rules
 
-- Always keep up to date architecture.md on the root repo with the architecture in mermaid format
+- Always keep up to date docs/architecture.md on the root repo with the architecture in mermaid format
 
 # Repository Guidelines
 

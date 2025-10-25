@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/cn";
 import type { RunLogEvent } from "@/features/requests/hooks/use-run-log-stream";
 
@@ -20,55 +20,120 @@ const stageLabels: Record<string, string> = {
   provisioning: "Provisioning",
 };
 
-function formatLabel(event: RunLogEvent) {
-  if (event.stage && stageLabels[event.stage]) {
-    return stageLabels[event.stage];
+function formatStage(stage?: string | null) {
+  if (!stage) return null;
+  return stageLabels[stage] ?? stage;
+}
+
+function classify(line: string): "command" | "path" | "error" | "ok" | "neutral" {
+  if (line.startsWith("$")) return "command";
+  if (line.startsWith("✖")) return "error";
+  if (line.startsWith("✔") || line.startsWith("…")) return "ok";
+  if (line.startsWith("/") || line.startsWith("./") || line.startsWith("../")) return "path";
+  if (/\.py\b|\.ts\b|\.tsx\b|\.js\b/.test(line)) return "path";
+  if (line.startsWith("›")) return "neutral";
+  return "neutral";
+}
+
+function formatEvent(event: RunLogEvent): Array<{ line: string; tone: ReturnType<typeof classify> }> {
+  const entries: Array<{ line: string; tone: ReturnType<typeof classify> }> = [];
+  const stageLabel = formatStage(event.stage);
+  const prefix = stageLabel ? `[${stageLabel}] ` : "";
+
+  switch (event.type) {
+    case "heartbeat":
+      entries.push({ line: "… Connected to run log stream", tone: "ok" });
+      break;
+    case "status":
+      entries.push({ line: `${prefix}${event.message ?? "Status update"}`, tone: "neutral" });
+      break;
+    case "command":
+      if (event.command) {
+        entries.push({ line: `$ ${event.command}`, tone: "command" });
+      }
+      if (event.message) {
+        entries.push({ line: `› ${event.message}`, tone: "neutral" });
+      }
+      if (event.output) {
+        entries.push({ line: event.output, tone: classify(event.output) });
+      }
+      break;
+    case "log":
+      if (event.message) {
+        entries.push({ line: event.message, tone: classify(event.message) });
+      }
+      break;
+    case "error":
+      entries.push({ line: `✖ ${prefix}${event.message ?? "An error occurred"}`, tone: "error" });
+      if (event.output) {
+        entries.push({ line: event.output, tone: "error" });
+      }
+      break;
+    case "completed":
+      entries.push({ line: "✔ Execution finished", tone: "ok" });
+      break;
+    default: {
+      if (event.message) {
+        entries.push({ line: `${prefix}${event.message}`, tone: "neutral" });
+      } else if (stageLabel) {
+        entries.push({ line: `${stageLabel}`, tone: "neutral" });
+      }
+      if (event.output) {
+        entries.push({ line: event.output, tone: classify(event.output) });
+      }
+    }
   }
-  if (event.type === "command") {
-    return "Command";
-  }
-  if (event.type === "error") {
-    return "Error";
-  }
-  return "Event";
+
+  return entries.filter((entry) => Boolean(entry.line?.trim()));
 }
 
 export function RunLogViewer({ events, className }: RunLogViewerProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const lines = useMemo(() => events.flatMap(formatEvent), [events]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [lines]);
+
   return (
-    <Card className={cn("border-dashed", className)}>
-      <CardHeader>
-        <CardTitle className="text-sm font-semibold">Run activity</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm text-muted-foreground">
-        {events.length === 0 ? (
-          <p>No events yet. Start the implementation to stream progress.</p>
+    <div
+      className={cn(
+        "overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg",
+        className
+      )}
+    >
+      <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/80 px-4 py-2">
+        <span className="h-2.5 w-2.5 rounded-full bg-red-500" aria-hidden />
+        <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" aria-hidden />
+        <span className="h-2.5 w-2.5 rounded-full bg-green-500" aria-hidden />
+        <span className="ml-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Run Log</span>
+      </div>
+      <div
+        ref={containerRef}
+        className="h-72 overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100"
+      >
+        {lines.length === 0 ? (
+          <p className="text-emerald-500/70">Connecting to Codex run stream…</p>
         ) : (
-          <ul className="space-y-2">
-            {events.map((event, index) => (
-              <li
-                key={`${event.type ?? "event"}-${index}`}
-                className="rounded border border-border/60 bg-background/40 p-3"
-              >
-                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-foreground">
-                  <span className="font-semibold">{formatLabel(event)}</span>
-                  {event.stage && <span>{event.stage}</span>}
-                </div>
-                {event.message && <p className="mt-1 whitespace-pre-wrap text-sm">{event.message}</p>}
-                {event.type === "command" && event.command && (
-                  <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs text-foreground/80">
-                    <code>{event.command}</code>
-                  </pre>
-                )}
-                {event.output && (
-                  <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs text-foreground/80">
-                    <code>{event.output}</code>
-                  </pre>
-                )}
-              </li>
-            ))}
-          </ul>
+          lines.map(({ line, tone }, index) => (
+            <div
+              key={`${line}-${index}`}
+              className={cn(
+                "whitespace-pre-wrap break-words",
+                tone === "command" && "text-sky-300",
+                tone === "error" && "text-red-300",
+                tone === "ok" && "text-emerald-300",
+                tone === "path" && "text-amber-200",
+                tone === "neutral" && "text-emerald-100"
+              )}
+            >
+              {line}
+            </div>
+          ))
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

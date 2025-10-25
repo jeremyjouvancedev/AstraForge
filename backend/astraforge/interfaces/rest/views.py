@@ -111,12 +111,16 @@ class RunLogStreamView(APIView):
         run_log = container.resolve_run_log()
 
         def event_stream():
+            handshake = {"request_id": request_id, "type": "heartbeat", "message": "stream_ready"}
+            yield "event: message\n"
+            yield "data: " + json.dumps(handshake) + "\n\n"
             for event in run_log.stream(request_id):
                 yield "event: message\n"
                 yield "data: " + json.dumps(event) + "\n\n"
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
         return response
 
 

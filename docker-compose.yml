@@ -14,6 +14,7 @@ services:
       RUN_LOG_STREAMER: memory
       CELERY_TASK_ALWAYS_EAGER: "1"
       UNSAFE_DISABLE_AUTH: "1"
+      CODEX_CLI_SKIP_PULL: "1"
     depends_on:
       - postgres
       - redis
@@ -46,8 +47,8 @@ services:
       CELERY_TASK_ALWAYS_EAGER: "1"
       ASTRAFORGE_EXECUTE_COMMANDS: "1"
       UNSAFE_DISABLE_AUTH: "1"
-      LLM_PROXY_URL: http://llm-proxy:8080
       LOG_LEVEL: DEBUG
+      CODEX_CLI_SKIP_PULL: "1"
     depends_on:
       - postgres
       - redis
@@ -64,8 +65,8 @@ services:
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY not set}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"
   frontend:
     build:
       context: ./frontend
