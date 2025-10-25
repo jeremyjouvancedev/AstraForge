@@ -25,6 +25,10 @@ env = environ.Env(
     CONNECTOR=(str, "direct_user"),
     VCS_PROVIDER=(str, "gitlab"),
     PROVISIONER=(str, "k8s"),
+    LLM_PROXY_URL=(str, "http://llm-proxy:8080"),
+    LOG_LEVEL=(str, "INFO"),
+    REQUEST_REPOSITORY=(str, "database"),
+    CSRF_TRUSTED_ORIGINS=(list[str], ["http://localhost:5173", "http://127.0.0.1:5173"]),
 )
 
 environ.Env.read_env(
@@ -34,6 +38,10 @@ environ.Env.read_env(
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=["http://localhost:5173", "http://127.0.0.1:5173"],
+)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -46,6 +54,8 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "corsheaders",
     "astraforge.accounts",
+    "astraforge.integrations",
+    "astraforge.requests",
     "astraforge.interfaces.rest",
 ]
 
@@ -143,8 +153,33 @@ SPECTACULAR_SETTINGS = {
 
 CORS_ALLOW_ALL_ORIGINS = True
 
+LLM_PROXY_URL = env("LLM_PROXY_URL")
+LOG_LEVEL = env("LOG_LEVEL")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "structured": {
+            "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "structured",
+        }
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": LOG_LEVEL,
+    },
+}
+
 CELERY_BROKER_URL = env("REDIS_URL")
 CELERY_RESULT_BACKEND = env("REDIS_URL")
+CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
+CELERY_TASK_EAGER_PROPAGATES = env.bool("CELERY_TASK_EAGER_PROPAGATES", default=True)
 CELERY_TASK_DEFAULT_QUEUE = "astraforge.default"
 CELERY_TASK_ROUTES = {
     "astraforge.application.tasks.*": {"queue": "astraforge.core"},

@@ -10,6 +10,7 @@ from astraforge.domain.providers.interfaces import Provisioner
 @dataclass
 class KubernetesProvisioner(Provisioner):
     namespace_prefix: str
+    name: str = "k8s"
 
     def spawn(self, repo: str, toolchain: str) -> str:  # pragma: no cover
         return f"{self.namespace_prefix}-{repo}-{toolchain}"

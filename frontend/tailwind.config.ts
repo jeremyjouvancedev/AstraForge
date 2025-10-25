@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import { fontFamily } from "tailwindcss/defaultTheme";
 import tailwindcssAnimate from "tailwindcss-animate";
 
 const config: Config = {
@@ -6,6 +7,20 @@ const config: Config = {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: [
+          "var(--font-sans)",
+          "SF Pro Text",
+          "SF Pro Display",
+          "SF UI Text",
+          ...fontFamily.sans
+        ]
+      },
+      borderRadius: {
+        lg: "1rem",
+        md: "0.875rem",
+        sm: "0.75rem"
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

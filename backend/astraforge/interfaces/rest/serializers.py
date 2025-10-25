@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from astraforge.accounts.models import ApiKey
+from astraforge.integrations.models import RepositoryLink
 from astraforge.domain.models.request import Attachment, Request, RequestPayload
 
 
@@ -27,10 +28,25 @@ class RequestSerializer(serializers.Serializer):
     tenant_id = serializers.CharField(default="tenant-default")
     source = serializers.CharField(default="direct_user")
     sender = serializers.EmailField(required=False, allow_blank=True)
+    project_id = serializers.UUIDField()
     payload = RequestPayloadSerializer()
 
     def create(self, validated_data):
         payload_data = validated_data.pop("payload")
+        project_id = validated_data.pop("project_id")
+        request_obj = self.context.get("request")
+        if request_obj is None or request_obj.user.is_anonymous:
+            raise serializers.ValidationError(
+                {"project_id": "Authentication required to select a project."}
+            )
+        try:
+            repository_link = RepositoryLink.objects.get(
+                id=project_id, user=request_obj.user
+            )
+        except RepositoryLink.DoesNotExist as exc:
+            raise serializers.ValidationError(
+                {"project_id": "Select a project linked to your account."}
+            ) from exc
         attachments = [Attachment(**att) for att in payload_data.get("attachments", [])]
         payload = RequestPayload(
             title=payload_data["title"],
@@ -45,14 +61,24 @@ class RequestSerializer(serializers.Serializer):
             request_id = str(uuid.uuid4())
         validated_data["id"] = request_id
         validated_data.setdefault("sender", "")
-        return Request(payload=payload, **validated_data)
+        metadata = {
+            "project": {
+                "id": str(repository_link.id),
+                "provider": repository_link.provider,
+                "repository": repository_link.repository,
+                "base_url": repository_link.effective_base_url(),
+            }
+        }
+        return Request(payload=payload, metadata=metadata, **validated_data)
 
     def to_representation(self, instance: Request):
+        project = instance.metadata.get("project", {})
         return {
             "id": instance.id,
             "tenant_id": instance.tenant_id,
             "source": instance.source,
             "sender": instance.sender,
+            "project": project,
             "state": instance.state.value,
             "payload": {
                 "title": instance.payload.title,
@@ -98,6 +124,27 @@ class ExecutionRequestSerializer(serializers.Serializer):
     branch = serializers.CharField()
 
 
+class DevelopmentSpecSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    summary = serializers.CharField()
+    requirements = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False
+    )
+    implementation_steps = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False
+    )
+    risks = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False
+    )
+    acceptance_criteria = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False
+    )
+
+
+class ExecuteRequestSerializer(serializers.Serializer):
+    spec = DevelopmentSpecSerializer(required=False)
+
+
 class RegisterSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True)
@@ -132,3 +179,47 @@ class ApiKeySerializer(serializers.ModelSerializer):
 
 class ApiKeyCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
+
+
+class RepositoryLinkSerializer(serializers.ModelSerializer):
+    access_token = serializers.CharField(write_only=True, trim_whitespace=False)
+    token_preview = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = RepositoryLink
+        fields = [
+            "id",
+            "provider",
+            "repository",
+            "base_url",
+            "access_token",
+            "token_preview",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "token_preview",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate(self, attrs):
+        provider = attrs.get("provider")
+        base_url = attrs.get("base_url") or ""
+        if provider == RepositoryLink.Provider.GITLAB:
+            attrs["base_url"] = (
+                base_url or RepositoryLink.DEFAULT_GITLAB_URL
+            )
+        elif base_url:
+            raise serializers.ValidationError(
+                {"base_url": "Only GitLab links support custom base URLs."}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        return RepositoryLink.objects.create(user=request.user, **validated_data)
+
+    def get_token_preview(self, obj: RepositoryLink) -> str:
+        return obj.token_preview()

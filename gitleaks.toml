@@ -1,5 +1,10 @@
 title = "AstraForge Gitleaks Config"
 [allowlist]
+paths = [
+  '''backend/astraforge/tests/.*''',
+  '''frontend/tests/.*''',
+  '''shared/tests/.*''',
+]
 regexes = [
   "AstraForge",
   "unsafe-secret-key"

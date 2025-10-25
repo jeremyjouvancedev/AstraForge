@@ -10,6 +10,9 @@ services:
       DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
+      PROVISIONER: docker
+      RUN_LOG_STREAMER: memory
+      CELERY_TASK_ALWAYS_EAGER: "1"
       UNSAFE_DISABLE_AUTH: "1"
     depends_on:
       - postgres
@@ -31,19 +34,38 @@ services:
     build:
       context: ./backend
     command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - ./backend:/app
+    privileged: true
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
+      PROVISIONER: docker
+      RUN_LOG_STREAMER: memory
+      CELERY_TASK_ALWAYS_EAGER: "1"
+      ASTRAFORGE_EXECUTE_COMMANDS: "1"
       UNSAFE_DISABLE_AUTH: "1"
+      LLM_PROXY_URL: http://llm-proxy:8080
+      LOG_LEVEL: DEBUG
     depends_on:
       - postgres
       - redis
       - backend-migrate
+      - llm-proxy
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+  llm-proxy:
+    build:
+      context: ./llm-proxy
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY not set}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    expose:
+      - "8080"
   frontend:
     build:
       context: ./frontend

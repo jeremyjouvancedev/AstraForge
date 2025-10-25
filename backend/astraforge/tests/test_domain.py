@@ -26,3 +26,16 @@ def test_request_invalid_transition_raises():
         pass
     else:  # pragma: no cover - fail
         raise AssertionError("expected ValueError")
+
+
+def test_request_transition_allows_reexecution_from_patch_ready():
+    payload = RequestPayload(title="Test", description="", context={})
+    request = Request(
+        id="1", tenant_id="tenant", source="direct_user", sender="", payload=payload
+    )
+
+    request.transition(RequestState.SPEC_READY)
+    request.transition(RequestState.EXECUTING)
+    request.transition(RequestState.PATCH_READY)
+    request.transition(RequestState.EXECUTING)
+    assert request.state is RequestState.EXECUTING

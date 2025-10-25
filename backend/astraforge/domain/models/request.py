@@ -61,15 +61,19 @@ class Request:
 
 _ALLOWED_TRANSITIONS: Dict[RequestState, List[RequestState]] = {
     RequestState.RECEIVED: [RequestState.SPEC_READY, RequestState.FAILED],
-    RequestState.SPEC_READY: [RequestState.CHAT_REVIEWED, RequestState.FAILED],
+    RequestState.SPEC_READY: [
+        RequestState.CHAT_REVIEWED,
+        RequestState.EXECUTING,
+        RequestState.FAILED,
+    ],
     RequestState.CHAT_REVIEWED: [RequestState.PLAN_READY, RequestState.FAILED],
     RequestState.PLAN_READY: [RequestState.EXECUTING, RequestState.FAILED],
     RequestState.EXECUTING: [RequestState.PATCH_READY, RequestState.FAILED],
-    RequestState.PATCH_READY: [RequestState.MR_OPENED, RequestState.FAILED],
+    RequestState.PATCH_READY: [RequestState.EXECUTING, RequestState.MR_OPENED, RequestState.FAILED],
     RequestState.MR_OPENED: [RequestState.REVIEWED, RequestState.FAILED],
     RequestState.REVIEWED: [RequestState.DONE, RequestState.FAILED],
     RequestState.DONE: [],
-    RequestState.FAILED: [],
+    RequestState.FAILED: [RequestState.SPEC_READY, RequestState.EXECUTING],
 }
 
 

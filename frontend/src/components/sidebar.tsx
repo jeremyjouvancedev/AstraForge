@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { GitMerge, Inbox, ListChecks } from "lucide-react";
+import { GitMerge, Inbox, Link2, ListChecks } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -7,7 +7,8 @@ import { useAuth } from "@/lib/auth";
 const navItems = [
   { to: "/", label: "Requests", icon: Inbox },
   { to: "/runs", label: "Runs", icon: ListChecks },
-  { to: "/merge-requests", label: "Merge Requests", icon: GitMerge }
+  { to: "/merge-requests", label: "Merge Requests", icon: GitMerge },
+  { to: "/repositories", label: "Repositories", icon: Link2 }
 ];
 
 export function Sidebar() {

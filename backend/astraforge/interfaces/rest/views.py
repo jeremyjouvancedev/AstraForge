@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 from django.contrib.auth import authenticate, login, logout
+import json
+
 from django.http import StreamingHttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from astraforge.accounts.models import ApiKey
+from astraforge.application import tasks as app_tasks
 from astraforge.application.use_cases import ApplyPlan, GeneratePlan, SubmitRequest
 from astraforge.bootstrap import container, repository
+from astraforge.integrations.models import RepositoryLink
 from astraforge.interfaces.rest import serializers
+from astraforge.interfaces.rest.renderers import EventStreamRenderer
 
 
 class RequestViewSet(
@@ -30,10 +35,13 @@ class RequestViewSet(
     lookup_field = "id"
 
     def create(self, request, *args, **kwargs):
+        if not RepositoryLink.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Link a project before submitting requests.")
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request_obj = serializer.save()
         SubmitRequest(repository=repository)(request_obj)
+        app_tasks.generate_spec_task.delay(str(request_obj.id))
         headers = self.get_success_headers(serializer.data)
         return Response(
             serializer.data, status=status.HTTP_201_CREATED, headers=headers
@@ -43,6 +51,21 @@ class RequestViewSet(
         items = repository.list()
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="execute")
+    def execute(self, request, id=None):
+        serializer = serializers.ExecuteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request_id = str(id)
+        try:
+            repository.get(request_id)
+        except KeyError as exc:
+            raise NotFound(f"Request {request_id} not found") from exc
+        app_tasks.execute_request_task.delay(
+            request_id,
+            serializer.validated_data.get("spec"),
+        )
+        return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
 
     def get_object(self):
         from django.http import Http404
@@ -61,22 +84,40 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     def create(self, request, *args, **kwargs):  # pragma: no cover - stub
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
+        request_id = str(serializer.validated_data["request_id"])
+        container.resolve_run_log().publish(
+            request_id,
+            {
+                "type": "user_message",
+                "request_id": request_id,
+                "message": serializer.validated_data["message"],
+            },
+        )
+        return Response({"status": "received"}, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):  # pragma: no cover - stub
-        return Response(status=status.HTTP_202_ACCEPTED)
+        request_id = str(pk)
+        app_tasks.submit_merge_request_task.delay(request_id)
+        return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
 
 
 class RunLogStreamView(APIView):
     permission_classes = [IsAuthenticated]
+    renderer_classes = [EventStreamRenderer]
 
     def get(self, request, pk):  # pragma: no cover - SSE placeholder
-        def event_stream():
-            yield "event: message\n"
-            yield "data: log stream placeholder\n\n"
+        request_id = str(pk)
+        run_log = container.resolve_run_log()
 
-        return StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        def event_stream():
+            for event in run_log.stream(request_id):
+                yield "event: message\n"
+                yield "data: " + json.dumps(event) + "\n\n"
+
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        return response
 
 
 class PlanViewSet(viewsets.ViewSet):  # pragma: no cover - skeleton
@@ -145,6 +186,22 @@ class ApiKeyViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         api_key.is_active = False
         api_key.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RepositoryLinkViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = serializers.RepositoryLinkSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return RepositoryLink.objects.filter(user=self.request.user).order_by("created_at")
+
+    def perform_create(self, serializer):
+        serializer.save()
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")

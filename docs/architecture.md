@@ -40,7 +40,7 @@ AstraForge is an AI-assisted DevOps orchestrator that translates natural languag
 - **Hexagonal Architecture**: Domain layer is pure and framework-agnostic. Application layer orchestrates use-cases. Interfaces and infrastructure provide adapters for persistence, messaging, and external services.
 - **Plugin System**: Provider registries allow connectors, executors, VCS integrations, event buses, provisioners, and vector stores to be added without touching core logic.
 - **Event-Driven Pipelines**: Redis Streams (or pluggable buses) transport versioned events across request lifecycle stages. Workers subscribe to events and advance the state machine.
-- **Isolated Workspaces**: Work execution flows through provisioners that launch Kubernetes jobs/pods per request with ephemeral credentials and secrets sourced from Vault/K8s Secrets.
+- **Isolated Workspaces**: Work execution flows through provisioners that launch Docker or Kubernetes workspaces per request. In local development the Docker provisioner automatically falls back to building a lightweight Codex CLI stub image if a remote registry image is unavailable, ensuring the bootstrap flow succeeds without external dependencies.
 
 ## Key Modules
 

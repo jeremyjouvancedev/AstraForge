@@ -1,3 +1,7 @@
+# Global Rules
+
+- Always keep up to date architecture.md on the root repo with the architecture in mermaid format
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
@@ -31,3 +35,20 @@
 ## Security & Configuration Tips
 - Run `gitleaks detect --config gitleaks.toml` before pushing to avoid secret leaks.
 - Update `opa/` policies alongside feature work and document notable decisions in `docs/`.
+
+
+# TODO
+
+## Engine 
+- [ ] Add claude code
+- [ ] Add Kimi Cli
+- [ ] Add Open Coder
+- [ ] Add Gemini Coder
+
+## Feature
+- [ ] Can choose base default docker image
+- [ ] Can batch modify
+- [ ] Can generate documentation
+- [ ] Can generate architecture mindmap
+- [ ] Add context7 mcp (for documentation latest version knowledge)
+- [ ] Add playwright mcp to launch and test the App

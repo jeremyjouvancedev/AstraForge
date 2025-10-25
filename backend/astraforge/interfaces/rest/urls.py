@@ -13,6 +13,7 @@ from astraforge.interfaces.rest.views import (
     ExecutionViewSet,
     LoginView,
     LogoutView,
+    RepositoryLinkViewSet,
     PlanViewSet,
     RegisterView,
     RequestViewSet,
@@ -23,6 +24,7 @@ router = DefaultRouter()
 router.register(r"requests", RequestViewSet, basename="request")
 router.register(r"chat", ChatViewSet, basename="chat")
 router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
+router.register(r"repository-links", RepositoryLinkViewSet, basename="repository-link")
 
 urlpatterns = [
     path("", include(router.urls)),
