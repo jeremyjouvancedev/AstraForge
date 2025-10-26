@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install .[dev]
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install deps
+        run: |
+          cd frontend
+          pnpm install
+      - name: Lint & test
+        run: |
+          cd frontend
+          pnpm lint
+          pnpm test -- --run
+  docker-images:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t ghcr.io/example/astraforge-backend:ci backend
+      - name: Build frontend image
+        run: docker build -t ghcr.io/example/astraforge-frontend:ci frontend

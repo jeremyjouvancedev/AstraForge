@@ -1,0 +1,15 @@
+repos:
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: Frontend lint
+        entry: bash
+        language: system
+        pass_filenames: false
+        args:
+          - -lc
+          - "cd frontend && pnpm lint"

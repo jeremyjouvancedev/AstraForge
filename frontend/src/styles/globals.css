@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 240 11.1% 96.5%;
+  --foreground: 240 3.3% 11.8%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 3.3% 11.8%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 3.3% 11.8%;
+  --primary: 211.3 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 18.5% 94.7%;
+  --secondary-foreground: 240 3.3% 11.8%;
+  --muted: 240 10.6% 90.8%;
+  --muted-foreground: 240 2.2% 44.1%;
+  --accent: 240 10.6% 90.8%;
+  --accent-foreground: 240 3.3% 11.8%;
+  --destructive: 3.2 100% 59.4%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 5.9% 83.3%;
+  --input: 240 5.9% 83.3%;
+  --ring: 211.3 100% 50%;
+  --radius: 0.875rem;
+  --font-sans: "SF Pro Text", "SF Pro Display", "SF UI Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.dark {
+  --background: 240 7.1% 5.5%;
+  --foreground: 240 11.1% 96.5%;
+  --card: 240 3.4% 11.4%;
+  --card-foreground: 240 11.1% 96.5%;
+  --popover: 240 3.4% 11.4%;
+  --popover-foreground: 240 11.1% 96.5%;
+  --primary: 210.1 100% 52%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 3.4% 11.4%;
+  --secondary-foreground: 240 11.1% 96.5%;
+  --muted: 240 3.4% 11.4%;
+  --muted-foreground: 230 3.2% 63.5%;
+  --accent: 240 2.2% 17.6%;
+  --accent-foreground: 240 11.1% 96.5%;
+  --destructive: 3.4 100% 61.4%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 2.2% 17.6%;
+  --input: 240 2.2% 17.6%;
+  --ring: 210.1 100% 52%;
+  --radius: 0.875rem;
+  --font-sans: "SF Pro Text", "SF Pro Display", "SF UI Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    font-feature-settings: "kern", "liga", "clig", "calt";
+    text-rendering: optimizeLegibility;
+  }
+}
