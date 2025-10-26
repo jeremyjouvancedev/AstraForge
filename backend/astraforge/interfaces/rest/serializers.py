@@ -18,7 +18,7 @@ class AttachmentSerializer(serializers.Serializer):
 
 class RequestPayloadSerializer(serializers.Serializer):
     title = serializers.CharField()
-    description = serializers.CharField()
+    description = serializers.CharField(trim_whitespace=False)
     context = serializers.JSONField(required=False)
     attachments = AttachmentSerializer(many=True, required=False)
 
@@ -110,7 +110,7 @@ class RequestSerializer(serializers.Serializer):
 
 class ChatSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
-    message = serializers.CharField()
+    message = serializers.CharField(trim_whitespace=False)
 
 
 class PlanRequestSerializer(serializers.Serializer):

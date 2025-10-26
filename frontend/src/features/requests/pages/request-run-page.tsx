@@ -10,6 +10,7 @@ import {
   useRunLogStream,
 } from "@/features/requests/hooks/use-run-log-stream";
 import { RunLogViewer } from "@/features/requests/components/run-log-viewer";
+import { RunChatPanel } from "@/features/requests/components/run-chat-panel";
 
 const STATUS_STAGES: Array<{
   id: string;
@@ -104,7 +105,7 @@ export default function RequestRunPage() {
   }, [events]);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
       <header className="space-y-2">
         <div className="flex items-center justify-between">
           <div>
@@ -120,62 +121,68 @@ export default function RequestRunPage() {
         </div>
       </header>
 
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Progress</h2>
-        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-lg">
-          <div className="relative flex items-center gap-1 px-4 py-6">
-            <div className="absolute left-10 right-10 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-transparent via-zinc-800 to-transparent" />
-            <ol className="relative z-10 flex w-full items-center justify-between gap-6">
-              {progress.map(({ status, state }) => (
-                <li
-                  key={status.id}
-                  className="flex w-full max-w-[10rem] flex-col items-center gap-2 text-center"
-                >
-                  <div
-                    className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-full border text-xs font-semibold",
-                      state === "done"
-                        ? "border-green-500/60 bg-green-500/10 text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.25)]"
-                        : state === "active"
-                        ? "border-blue-500/60 bg-blue-500/10 text-blue-300 shadow-[0_0_14px_rgba(59,130,246,0.25)] animate-pulse"
-                        : "border-zinc-700 bg-zinc-900 text-zinc-500"
-                    )}
-                    aria-label={`${status.label} status ${state}`}
-                  >
-                    {status.label
-                      .split(/\s+/)
-                      .map((word) => word[0])
-                      .join("")
-                      .slice(0, 3)
-                      .toUpperCase()}
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-zinc-100">{status.label}</p>
-                    <p className="text-xs text-zinc-400">{status.description}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
+      <div className="grid gap-6 lg:grid-cols-[minmax(260px,320px)_1fr]">
+        <RunChatPanel requestId={requestId} className="lg:sticky lg:top-6 lg:h-[calc(100vh-12rem)]" />
+
+        <div className="flex flex-col gap-6">
+          <section className="space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Progress</h2>
+            <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-lg">
+              <div className="relative flex items-center gap-1 px-4 py-6">
+                <div className="absolute left-10 right-10 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-transparent via-zinc-800 to-transparent" />
+                <ol className="relative z-10 flex w-full items-center justify-between gap-6">
+                  {progress.map(({ status, state }) => (
+                    <li
+                      key={status.id}
+                      className="flex w-full max-w-[10rem] flex-col items-center gap-2 text-center"
+                    >
+                      <div
+                        className={cn(
+                          "flex h-10 w-10 items-center justify-center rounded-full border text-xs font-semibold",
+                          state === "done"
+                            ? "border-green-500/60 bg-green-500/10 text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.25)]"
+                            : state === "active"
+                            ? "border-blue-500/60 bg-blue-500/10 text-blue-300 shadow-[0_0_14px_rgba(59,130,246,0.25)] animate-pulse"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-500"
+                        )}
+                        aria-label={`${status.label} status ${state}`}
+                      >
+                        {status.label
+                          .split(/\s+/)
+                          .map((word) => word[0])
+                          .join("")
+                          .slice(0, 3)
+                          .toUpperCase()}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-zinc-100">{status.label}</p>
+                        <p className="text-xs text-zinc-400">{status.description}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          </section>
+
+          <RunLogViewer events={events} className="border" />
+
+          {errorEvent && (
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold text-destructive">
+                  Execution error
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-destructive/90 whitespace-pre-wrap">
+                  {errorEvent.message ?? "The run reported an error. Check the logs above for details."}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
-      </section>
-
-      <RunLogViewer events={events} className="border" />
-
-      {errorEvent && (
-        <Card className="border-destructive/40">
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold text-destructive">
-              Execution error
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-destructive/90 whitespace-pre-wrap">
-              {errorEvent.message ?? "The run reported an error. Check the logs above for details."}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      </div>
     </div>
   );
 }

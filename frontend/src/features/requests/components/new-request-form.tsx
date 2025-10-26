@@ -48,20 +48,21 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
       queryClient.invalidateQueries({ queryKey: ["requests"] });
       const resetProjectId = projects[0]?.id ?? "";
       form.reset({ projectId: resetProjectId, prompt: "" });
-      navigate(`/requests/${response.id}`);
+      navigate(`/requests/${response.id}/run`);
     }
   });
 
   const onSubmit = form.handleSubmit((values) => {
-    const prompt = values.prompt.trim();
-    if (!prompt) {
+    const rawPrompt = values.prompt;
+    const normalized = rawPrompt.trim();
+    if (!normalized) {
       return;
     }
 
-    const title = createTitleFromPrompt(prompt);
+    const title = createTitleFromPrompt(normalized);
     mutation.mutate({
       title,
-      description: prompt,
+      description: rawPrompt,
       projectId: values.projectId,
     });
   });
@@ -85,7 +86,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
           {form.formState.errors.prompt && (
             <p className="px-6 text-sm text-destructive">{form.formState.errors.prompt.message}</p>
           )}
-          <div className="flex items-center justify-between rounded-b-[2rem] border-t px-4 py-3 text-sm text-muted-foreground">
+          <div className="flex items-center justify-between gap-4 rounded-b-[2rem] border-t px-4 py-3 text-sm text-muted-foreground">
             <div className="flex items-center gap-3">
               <Plus size={16} />
               <Monitor size={16} />

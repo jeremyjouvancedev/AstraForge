@@ -1,21 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   created_at: string;
 }
 
-interface ChatThread {
+export interface ChatThread {
   id: string;
   request_id: string;
   messages: ChatMessage[];
 }
 
+export const chatThreadQueryKey = (requestId: string) => ["chat-thread", requestId] as const;
+
 export function useChatThread(requestId: string) {
   return useQuery({
-    queryKey: ["chat-thread", requestId],
+    queryKey: chatThreadQueryKey(requestId),
     queryFn: async (): Promise<ChatThread> => ({
       id: `${requestId}-thread`,
       request_id: requestId,

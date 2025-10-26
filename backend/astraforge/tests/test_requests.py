@@ -92,6 +92,31 @@ def test_create_request_succeeds_with_project(api_client, user, request_payload,
     assert captured.get("id") == payload["id"]
 
 
+def test_create_request_preserves_description_whitespace(api_client, user, request_payload, monkeypatch):
+    RepositoryLink.objects.create(
+        user=user,
+        provider=RepositoryLink.Provider.GITLAB,
+        repository="org/project",
+        access_token="token-123",
+    )
+    link = RepositoryLink.objects.get(user=user)
+
+    monkeypatch.setattr(
+        "astraforge.interfaces.rest.views.app_tasks.generate_spec_task.delay",
+        lambda request_id: None,
+    )
+
+    body = request_payload(link.id)
+    raw_description = "   Improve build pipeline?\n\nAdd caching please.   "
+    body["payload"]["description"] = raw_description
+
+    response = api_client.post(reverse("request-list"), body, format="json")
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["payload"]["description"] == raw_description
+
+
 def test_create_request_rejects_unknown_project(api_client, user, request_payload):
     RepositoryLink.objects.create(
         user=user,
@@ -198,6 +223,27 @@ def test_process_request_populates_metadata():
     assert "workspace" not in stored.metadata
     assert run_log.events[-1]["type"] == "spec_ready"
     assert spec.summary == "Implementation summary"
+
+
+def test_chat_endpoint_preserves_message_whitespace(api_client, monkeypatch):
+    captured: dict[str, dict[str, object]] = {}
+
+    class _RunLogStub:
+        def publish(self, request_id: str, event: dict[str, object]) -> None:
+            captured["event"] = event
+
+    monkeypatch.setattr(
+        "astraforge.interfaces.rest.views.container.resolve_run_log",
+        lambda: _RunLogStub(),
+    )
+
+    raw_message = "  keep my spacing please  "
+    body = {"request_id": str(uuid.uuid4()), "message": raw_message}
+
+    response = api_client.post(reverse("chat-list"), body, format="json")
+
+    assert response.status_code == 202
+    assert captured["event"]["message"] == raw_message
 
 
 def test_execute_request_runs_workspace():

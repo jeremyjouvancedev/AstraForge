@@ -6,16 +6,29 @@ import { Textarea } from "@/components/ui/textarea";
 interface ChatComposerProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  value?: string;
+  onChange?: (value: string) => void;
+  placeholder?: string;
 }
 
-export function ChatComposer({ onSend, disabled }: ChatComposerProps) {
-  const [message, setMessage] = useState("");
+export function ChatComposer({ onSend, disabled, value, onChange, placeholder }: ChatComposerProps) {
+  const [uncontrolledValue, setUncontrolledValue] = useState("");
+  const isControlled = typeof value === "string" && typeof onChange === "function";
+  const message = isControlled ? value : uncontrolledValue;
+
+  const updateMessage = (next: string) => {
+    if (isControlled && onChange) {
+      onChange(next);
+    } else {
+      setUncontrolledValue(next);
+    }
+  };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!message.trim()) return;
-    onSend(message.trim());
-    setMessage("");
+    onSend(message);
+    updateMessage("");
   };
 
   return (
@@ -23,8 +36,8 @@ export function ChatComposer({ onSend, disabled }: ChatComposerProps) {
       <Textarea
         rows={4}
         value={message}
-        onChange={(event) => setMessage(event.target.value)}
-        placeholder="Ask questions, refine the spec, or provide approvals."
+        onChange={(event) => updateMessage(event.target.value)}
+        placeholder={placeholder ?? "Ask questions, refine the spec, or provide approvals."}
         disabled={disabled}
       />
       <div className="flex justify-end gap-2">
