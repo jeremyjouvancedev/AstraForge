@@ -103,9 +103,9 @@ class ExecuteRequest:
         request = self.repository.get(request_id)
         current_spec = spec_override or request.metadata.get("spec")
         if current_spec is None:
-            raise ValueError("Specification not available; generate it before execution")
-
-        spec = self._hydrate_spec(current_spec)
+            spec = self._default_spec_from_request(request)
+        else:
+            spec = self._hydrate_spec(current_spec)
         request.metadata["spec"] = spec.as_dict()
         self.repository.save(request)
 
@@ -193,6 +193,29 @@ class ExecuteRequest:
             risks=list(data.get("risks", []) or []),
             acceptance_criteria=list(data.get("acceptance_criteria", []) or []),
         )
+
+    def _default_spec_from_request(self, request: Request) -> DevelopmentSpec:
+        prompt = request.payload.description or ""
+        title = request.payload.title or self._fallback_title(prompt)
+        summary = prompt or title
+        implementation_steps: list[str] = []
+        if prompt:
+            implementation_steps.append(prompt)
+        return DevelopmentSpec(
+            title=title or "User request",
+            summary=summary or "User request",
+            implementation_steps=implementation_steps,
+        )
+
+    @staticmethod
+    def _fallback_title(prompt: str) -> str:
+        clean = prompt.strip()
+        if not clean:
+            return "User request"
+        first_line = clean.split("\n", 1)[0].strip()
+        candidate = first_line if first_line else clean
+        limit = 72
+        return candidate if len(candidate) <= limit else f"{candidate[: limit - 3]}..."
 
 
 @dataclass

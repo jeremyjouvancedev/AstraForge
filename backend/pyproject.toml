@@ -40,7 +40,8 @@ dev = [
   "mypy",
   "ruff",
   "types-requests",
-  "factory-boy"
+  "factory-boy",
+  "fakeredis"
 ]
 
 [tool.setuptools.packages.find]

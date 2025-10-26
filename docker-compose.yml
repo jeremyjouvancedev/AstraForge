@@ -11,8 +11,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
       PROVISIONER: docker
-      RUN_LOG_STREAMER: memory
-      CELERY_TASK_ALWAYS_EAGER: "1"
+      RUN_LOG_STREAMER: redis
+      CELERY_TASK_ALWAYS_EAGER: "0"
       UNSAFE_DISABLE_AUTH: "1"
       CODEX_CLI_SKIP_PULL: "1"
     depends_on:
@@ -43,8 +43,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
       PROVISIONER: docker
-      RUN_LOG_STREAMER: memory
-      CELERY_TASK_ALWAYS_EAGER: "1"
+      RUN_LOG_STREAMER: redis
+      CELERY_TASK_ALWAYS_EAGER: "0"
       ASTRAFORGE_EXECUTE_COMMANDS: "1"
       UNSAFE_DISABLE_AUTH: "1"
       LOG_LEVEL: DEBUG
@@ -56,6 +56,32 @@ services:
       - llm-proxy
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+  backend-worker:
+    build:
+      context: ./backend
+    command: celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default
+    privileged: true
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+      REDIS_URL: redis://redis:6379/0
+      EXECUTOR: codex
+      PROVISIONER: docker
+      RUN_LOG_STREAMER: redis
+      CELERY_TASK_ALWAYS_EAGER: "0"
+      ASTRAFORGE_EXECUTE_COMMANDS: "1"
+      UNSAFE_DISABLE_AUTH: "1"
+      LOG_LEVEL: DEBUG
+      CODEX_CLI_SKIP_PULL: "1"
+    depends_on:
+      - postgres
+      - redis
+      - backend-migrate
+      - llm-proxy
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock

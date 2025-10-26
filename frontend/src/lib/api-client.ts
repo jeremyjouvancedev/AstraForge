@@ -47,25 +47,20 @@ export interface CreateRequestResponse {
 }
 
 export interface CreateRequestInput {
-  title: string;
-  description: string;
-  context?: string;
+  prompt: string;
   projectId: string;
+  sender?: string;
+  source?: string;
+  tenantId?: string;
 }
 
 export async function createRequest(input: CreateRequestInput) {
-  const payload: ApiRequestPayload = {
-    title: input.title,
-    description: input.description,
-    context: input.context ? { notes: input.context } : {},
-  };
-
   const response = await apiClient.post<CreateRequestResponse>("/requests/", {
-    source: "direct_user",
-    tenant_id: "tenant-default",
-    sender: "user@example.com",
+    source: input.source ?? "direct_user",
+    tenant_id: input.tenantId ?? "tenant-default",
+    sender: input.sender ?? "user@example.com",
     project_id: input.projectId,
-    payload,
+    prompt: input.prompt,
   });
   return response.data;
 }

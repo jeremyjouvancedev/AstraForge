@@ -37,10 +37,7 @@ def request_payload():
             "source": "direct_user",
             "sender": "requester@example.com",
             "project_id": str(project_id),
-            "payload": {
-                "title": "Fix flaky test",
-                "description": "Stabilize the integration suite by adding retries.",
-            },
+            "prompt": "Stabilize the integration suite by adding retries.",
         }
 
     return _build
@@ -59,13 +56,26 @@ def test_create_request_requires_project(api_client, request_payload):
 
 
 def test_create_request_succeeds_with_project(api_client, user, request_payload, monkeypatch):
-    captured = {}
+    captured: dict[str, object] = {}
 
-    def fake_delay(request_id: str):
+    class _RunLogStub:
+        def __init__(self):
+            self.events: list[dict[str, object]] = []
+
+        def publish(self, request_id: str, event: dict[str, object]) -> None:
+            self.events.append(event)
+
+    run_log = _RunLogStub()
+
+    def fake_delay(request_id: str, *_, **__):
         captured["id"] = request_id
 
     monkeypatch.setattr(
-        "astraforge.interfaces.rest.views.app_tasks.generate_spec_task.delay",
+        "astraforge.interfaces.rest.views.container.resolve_run_log",
+        lambda: run_log,
+    )
+    monkeypatch.setattr(
+        "astraforge.interfaces.rest.views.app_tasks.execute_request_task.delay",
         fake_delay,
     )
 
@@ -84,12 +94,17 @@ def test_create_request_succeeds_with_project(api_client, user, request_payload,
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["payload"]["title"] == body["payload"]["title"]
+    assert payload["payload"]["title"] == "Stabilize the integration suite by adding retries."
+    assert payload["payload"]["description"] == body["prompt"]
+    assert payload["metadata"]["prompt"] == body["prompt"]
     assert payload["project"]["id"] == str(link.id)
     assert payload["state"] == "RECEIVED"
     assert payload["metadata"]["project"]["repository"] == "org/project"
     assert payload["metadata"].get("spec") is None
     assert captured.get("id") == payload["id"]
+    assert run_log.events and run_log.events[0]["message"] == body["prompt"]
+    assert run_log.events[0]["type"] == "user_prompt"
+    assert run_log.events[0]["request_id"] == payload["id"]
 
 
 def test_create_request_preserves_description_whitespace(api_client, user, request_payload, monkeypatch):
@@ -102,13 +117,13 @@ def test_create_request_preserves_description_whitespace(api_client, user, reque
     link = RepositoryLink.objects.get(user=user)
 
     monkeypatch.setattr(
-        "astraforge.interfaces.rest.views.app_tasks.generate_spec_task.delay",
-        lambda request_id: None,
+        "astraforge.interfaces.rest.views.app_tasks.execute_request_task.delay",
+        lambda request_id, *_, **__: None,
     )
 
     body = request_payload(link.id)
     raw_description = "   Improve build pipeline?\n\nAdd caching please.   "
-    body["payload"]["description"] = raw_description
+    body["prompt"] = raw_description
 
     response = api_client.post(reverse("request-list"), body, format="json")
 
@@ -255,7 +270,7 @@ def test_execute_request_runs_workspace():
         source="direct_user",
         sender="user@example.com",
         payload=payload,
-        state=RequestState.SPEC_READY,
+        state=RequestState.RECEIVED,
         metadata={
             "project": {
                 "repository": "org/project",
@@ -263,8 +278,6 @@ def test_execute_request_runs_workspace():
             }
         },
     )
-    spec_obj = _StubSpecGenerator().generate(request)
-    request.metadata["spec"] = spec_obj.as_dict()
     repo.save(request)
     run_log = _StubRunLog()
     operator = _StubWorkspaceOperator()
@@ -277,6 +290,8 @@ def test_execute_request_runs_workspace():
 
     stored = repo.get("req-2")
     assert stored.state == RequestState.PATCH_READY
+    assert stored.metadata["spec"]["summary"] == "desc"
+    assert stored.metadata["spec"]["implementation_steps"] == ["desc"]
     assert stored.metadata["workspace"]["mode"] == "docker"
     assert stored.metadata["execution"]["diff"] == "diff"
     assert outcome.diff == "diff"

@@ -1,6 +1,6 @@
 # AstraForge Architecture Overview
 
-AstraForge is an AI-assisted DevOps orchestrator that translates natural language requests into code changes, captures human approvals, and opens merge requests with automated review feedback. The platform is organized as a polyglot monorepo with clear boundaries between domain logic, adapters, and infrastructure to support a modular, production-ready deployment.
+AstraForge is an AI-assisted DevOps orchestrator that translates natural language requests into code changes, captures human approvals, and opens merge requests with automated review feedback. Requests now carry the raw user prompt end-to-end: the API stores it with minimal normalization, immediately queues workspace execution, and streams every event back to the client. The platform is organized as a polyglot monorepo with clear boundaries between domain logic, adapters, and infrastructure to support a modular, production-ready deployment.
 
 ```mermaid
 graph TD
@@ -15,6 +15,7 @@ graph TD
     subgraph Storage
         PG[(Postgres)]
         Redis[(Redis)]
+        RunLog[(Redis Run Log Stream)]
     end
     subgraph Workspace Orchestration
         Provisioner[Docker Provisioner]
@@ -25,12 +26,15 @@ graph TD
     LLMProxy[LLM Proxy Service]
 
     FE -->|HTTP/WebSocket| API
+    API -->|SSE| FE
     API --> PG
     API --> Redis
     Worker --> PG
     Worker --> Redis
     API --> Worker
     Worker --> Registry
+    API -->|publish prompt| RunLog
+    Worker -->|emit events| RunLog
     Registry --> Provisioner
     Provisioner -->|docker run| Workspace
     Provisioner -. build fallback .-> CLIImage
@@ -75,6 +79,7 @@ graph TD
 ## Core Architectural Principles
 
 - **Hexagonal Architecture**: Domain layer is pure and framework-agnostic. Application layer orchestrates use-cases. Interfaces and infrastructure provide adapters for persistence, messaging, and external services.
+- **Prompt-first Execution**: The API accepts raw free-form prompts, derives lightweight metadata, and immediately hands execution to the workspace operator—no intermediate JSON templating or manual spec review step required.
 - **Plugin System**: Provider registries allow connectors, executors, VCS integrations, event buses, provisioners, and vector stores to be added without touching core logic.
 - **Event-Driven Pipelines**: Redis Streams (or pluggable buses) transport versioned events across request lifecycle stages. Workers subscribe to events and advance the state machine.
 - **Isolated Workspaces**: Work execution flows through provisioners that launch Docker or Kubernetes workspaces per request. In local development the Docker provisioner automatically falls back to building a lightweight Codex CLI stub image if a remote registry image is unavailable, ensuring the bootstrap flow succeeds without external dependencies.
@@ -82,6 +87,8 @@ graph TD
 ## Workspace Orchestration Highlights
 
 - Docker provisioner prefers remote Codex CLI images but will build `backend/codex_cli_stub` (`npm install -g @openai/codex`) to keep local runs self-contained.
+- Local Docker Compose deployments run a dedicated `backend-worker` container executing `celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default`; backend services set `CELERY_TASK_ALWAYS_EAGER=0` so work is handed off to Redis and processed asynchronously.
+- Raw prompts are persisted with the request and transformed on-demand into lightweight development specs so the Codex CLI receives meaningful context without a separate planning task.
 - When the registry image is unavailable, the bootstrapper compiles a local image, tags it `astraforge/codex-cli:latest`, and retries the launch.
 - Each workspace boots with `codex-proxy --listen …` to offer a local LLM proxy; the Python wrapper forwards `codex exec` invocations to the real CLI while wiring `~/.codex/config.toml` with an `astraforge-proxy` model provider that points at the proxy and exports the backend-provided API key into the CLI environment. Development environments default to `http://host.docker.internal:8080` while allowing `CODEX_WORKSPACE_PROXY_URL=local` to force the in-container stub.
 - Containers run with `--add-host host.docker.internal:host-gateway` so the CLI can reach host-side proxies when required; setting `CODEX_WORKSPACE_PROXY_URL` instructs the workspace operator to bypass the local stub and point Codex at an external proxy endpoint.
@@ -104,6 +111,7 @@ graph TD
 - DRF API with OIDC-authenticated endpoints for requests, chat messages, and administrative features.
 - Celery tasks for long-running processing (spec generation, plan execution, MR creation).
 - Redis Streams for event propagation with pluggable event bus implementations.
+- `RedisRunLogStreamer` persists per-request events so Django's SSE endpoint and Celery workers share the same run log feed, even when they run in separate containers.
 - Provider registry resolves connectors, executors, and VCS providers based on environment configuration.
 - Observability stack: Prometheus metrics, OTEL traces, structured JSON logs.
 

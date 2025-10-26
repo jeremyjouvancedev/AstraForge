@@ -34,12 +34,20 @@ _DEFAULT_PROXY = (
 )
 _DEFAULT_API_KEY = os.getenv(_DEFAULT_API_KEY_ENV, "sk-astraforge-stub")
 _DEFAULT_MODEL = os.getenv("CODEX_WRAPPER_DEFAULT_MODEL", "gpt-5-codex")
-_DEFAULT_PROVIDER_KEY = os.getenv("CODEX_WRAPPER_MODEL_PROVIDER_KEY", "astraforge-proxy")
-_DEFAULT_PROVIDER_NAME = os.getenv("CODEX_WRAPPER_MODEL_PROVIDER_NAME", "AstraForge Proxy")
-_DEFAULT_PROVIDER_WIRE_API = os.getenv("CODEX_WRAPPER_MODEL_PROVIDER_WIRE_API", "responses")
-_DEFAULT_PROVIDER_ENV_KEY = os.getenv("CODEX_WRAPPER_PROVIDER_ENV_KEY", "ASTRAFORGE_PROXY_API_KEY")
+_DEFAULT_PROVIDER_KEY = os.getenv(
+    "CODEX_WRAPPER_MODEL_PROVIDER_KEY", "astraforge-proxy"
+)
+_DEFAULT_PROVIDER_NAME = os.getenv(
+    "CODEX_WRAPPER_MODEL_PROVIDER_NAME", "AstraForge Proxy"
+)
+_DEFAULT_PROVIDER_WIRE_API = os.getenv(
+    "CODEX_WRAPPER_MODEL_PROVIDER_WIRE_API", "responses"
+)
+_DEFAULT_PROVIDER_ENV_KEY = os.getenv(
+    "CODEX_WRAPPER_PROVIDER_ENV_KEY", "ASTRAFORGE_PROXY_API_KEY"
+)
 _DEFAULT_REASONING_EFFORT = os.getenv("CODEX_WRAPPER_MODEL_REASONING_EFFORT", "high")
-_DEFAULT_PROFILE = os.getenv("CODEX_WRAPPER_DEFAULT_PROFILE", "full-auto")
+_DEFAULT_PROFILE = os.getenv("CODEX_WRAPPER_DEFAULT_PROFILE", "full_auto")
 
 
 def _normalize_argv(argv: Sequence[str]) -> list[str]:
@@ -60,7 +68,11 @@ def _convert_spec_flags(args: list[str]) -> list[str]:
         token = args[i]
         if token == "--spec":
             if i + 1 >= len(args):
-                print("[codex-wrapper] Missing value for --spec flag.", file=sys.stderr, flush=True)
+                print(
+                    "[codex-wrapper] Missing value for --spec flag.",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 sys.exit(2)
             spec_value = args[i + 1]
             processed.extend(["-c", f"workspace.spec_path={json.dumps(spec_value)}"])
@@ -204,13 +216,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     proxy_override = _extract_proxy_override(rewritten)
     proxy_url = proxy_override or _DEFAULT_PROXY
     api_key_override = _extract_config_override(rewritten, "auth.api_key")
-    api_key = api_key_override if isinstance(api_key_override, str) and api_key_override else _DEFAULT_API_KEY
+    api_key = (
+        api_key_override
+        if isinstance(api_key_override, str) and api_key_override
+        else _DEFAULT_API_KEY
+    )
     _ensure_config(proxy_url)
     _emit_config_preview()
 
     real_cli = _resolve_real_cli()
     command_display = shlex.join([real_cli, *rewritten])
-    print(f"[codex-wrapper] delegating to {real_cli} via: {command_display}", flush=True)
+    print(
+        f"[codex-wrapper] delegating to {real_cli} via: {command_display}", flush=True
+    )
     command = [real_cli, *rewritten]
     try:
         child_env = os.environ.copy()

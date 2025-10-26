@@ -59,10 +59,8 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
       return;
     }
 
-    const title = createTitleFromPrompt(normalized);
     mutation.mutate({
-      title,
-      description: rawPrompt,
+      prompt: rawPrompt,
       projectId: values.projectId,
     });
   });
@@ -129,16 +127,4 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
       </Card>
     </div>
   );
-}
-
-function createTitleFromPrompt(prompt: string): string {
-  const firstLine = prompt.split("\n")[0]?.trim() ?? "";
-  if (firstLine.length >= 12) {
-    return truncate(firstLine, 72);
-  }
-  return truncate(prompt, 72);
-}
-
-function truncate(value: string, limit: number): string {
-  return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }

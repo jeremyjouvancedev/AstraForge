@@ -60,7 +60,7 @@ class Request:
 
 
 _ALLOWED_TRANSITIONS: Dict[RequestState, List[RequestState]] = {
-    RequestState.RECEIVED: [RequestState.SPEC_READY, RequestState.FAILED],
+    RequestState.RECEIVED: [RequestState.SPEC_READY, RequestState.EXECUTING, RequestState.FAILED],
     RequestState.SPEC_READY: [
         RequestState.CHAT_REVIEWED,
         RequestState.EXECUTING,

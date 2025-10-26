@@ -7,20 +7,7 @@ from rest_framework import serializers
 
 from astraforge.accounts.models import ApiKey
 from astraforge.integrations.models import RepositoryLink
-from astraforge.domain.models.request import Attachment, Request, RequestPayload
-
-
-class AttachmentSerializer(serializers.Serializer):
-    uri = serializers.CharField()
-    name = serializers.CharField()
-    content_type = serializers.CharField()
-
-
-class RequestPayloadSerializer(serializers.Serializer):
-    title = serializers.CharField()
-    description = serializers.CharField(trim_whitespace=False)
-    context = serializers.JSONField(required=False)
-    attachments = AttachmentSerializer(many=True, required=False)
+from astraforge.domain.models.request import Request, RequestPayload
 
 
 class RequestSerializer(serializers.Serializer):
@@ -29,10 +16,10 @@ class RequestSerializer(serializers.Serializer):
     source = serializers.CharField(default="direct_user")
     sender = serializers.EmailField(required=False, allow_blank=True)
     project_id = serializers.UUIDField()
-    payload = RequestPayloadSerializer()
+    prompt = serializers.CharField(trim_whitespace=False)
 
     def create(self, validated_data):
-        payload_data = validated_data.pop("payload")
+        raw_prompt = validated_data.pop("prompt")
         project_id = validated_data.pop("project_id")
         request_obj = self.context.get("request")
         if request_obj is None or request_obj.user.is_anonymous:
@@ -47,12 +34,11 @@ class RequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"project_id": "Select a project linked to your account."}
             ) from exc
-        attachments = [Attachment(**att) for att in payload_data.get("attachments", [])]
         payload = RequestPayload(
-            title=payload_data["title"],
-            description=payload_data["description"],
-            context=payload_data.get("context", {}),
-            attachments=attachments,
+            title=self._derive_title(raw_prompt),
+            description=raw_prompt,
+            context={},
+            attachments=[],
         )
         request_id = str(validated_data.get("id") or "")
         if not request_id:
@@ -70,6 +56,7 @@ class RequestSerializer(serializers.Serializer):
                 "access_token": repository_link.access_token,
             }
         }
+        metadata["prompt"] = raw_prompt
         return Request(payload=payload, metadata=metadata, **validated_data)
 
     def to_representation(self, instance: Request):
@@ -106,6 +93,16 @@ class RequestSerializer(serializers.Serializer):
             "artifacts": instance.artifacts,
             "metadata": metadata_public,
         }
+
+    @staticmethod
+    def _derive_title(prompt: str) -> str:
+        candidate = ""
+        if prompt:
+            first_line = prompt.split("\n", 1)[0].strip()
+            candidate = first_line if len(first_line) >= 12 else prompt.strip()
+        candidate = candidate or "User request"
+        limit = 72
+        return candidate if len(candidate) <= limit else f"{candidate[: limit - 3]}..."
 
 
 class ChatSerializer(serializers.Serializer):

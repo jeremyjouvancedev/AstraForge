@@ -41,7 +41,15 @@ class RequestViewSet(
         serializer.is_valid(raise_exception=True)
         request_obj = serializer.save()
         SubmitRequest(repository=repository)(request_obj)
-        app_tasks.generate_spec_task.delay(str(request_obj.id))
+        container.resolve_run_log().publish(
+            str(request_obj.id),
+            {
+                "type": "user_prompt",
+                "request_id": str(request_obj.id),
+                "message": request_obj.payload.description,
+            },
+        )
+        app_tasks.execute_request_task.delay(str(request_obj.id))
         headers = self.get_success_headers(serializer.data)
         return Response(
             serializer.data, status=status.HTTP_201_CREATED, headers=headers
