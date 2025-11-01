@@ -116,7 +116,7 @@ export function RunLogViewer({ events, className, fillHeight = false }: RunLogVi
         ref={containerRef}
         className={cn(
           "flex-1 overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100",
-          fillHeight ? "min-h-[18rem]" : "max-h-72"
+          fillHeight ? "min-h-[18rem] max-h-[70vh]" : "max-h-72"
         )}
       >
         {lines.length === 0 ? (
