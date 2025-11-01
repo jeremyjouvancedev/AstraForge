@@ -5,6 +5,7 @@ import type { RunLogEvent } from "@/features/requests/hooks/use-run-log-stream";
 interface RunLogViewerProps {
   events: RunLogEvent[];
   className?: string;
+  fillHeight?: boolean;
 }
 
 const stageLabels: Record<string, string> = {
@@ -87,7 +88,7 @@ function formatEvent(event: RunLogEvent): Array<{ line: string; tone: ReturnType
   return entries.filter((entry) => Boolean(entry.line?.trim()));
 }
 
-export function RunLogViewer({ events, className }: RunLogViewerProps) {
+export function RunLogViewer({ events, className, fillHeight = false }: RunLogViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lines = useMemo(() => events.flatMap(formatEvent), [events]);
 
@@ -100,7 +101,7 @@ export function RunLogViewer({ events, className }: RunLogViewerProps) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg",
+        "flex flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg",
         className
       )}
     >
@@ -112,7 +113,10 @@ export function RunLogViewer({ events, className }: RunLogViewerProps) {
       </div>
       <div
         ref={containerRef}
-        className="h-72 overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100"
+        className={cn(
+          "overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100",
+          fillHeight ? "flex-1 min-h-[18rem]" : "h-72"
+        )}
       >
         {lines.length === 0 ? (
           <p className="text-emerald-500/70">Connecting to Codex run stream…</p>

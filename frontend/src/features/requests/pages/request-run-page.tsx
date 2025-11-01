@@ -105,7 +105,7 @@ export default function RequestRunPage() {
   }, [events]);
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
+    <div className="flex min-h-screen w-full flex-col gap-6 px-6 pb-10 pt-6 lg:px-10 lg:pb-12">
       <header className="space-y-2">
         <div className="flex items-center justify-between">
           <div>
@@ -121,10 +121,13 @@ export default function RequestRunPage() {
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(260px,320px)_1fr]">
-        <RunChatPanel requestId={requestId} className="lg:sticky lg:top-6 lg:h-[calc(100vh-12rem)]" />
+      <div className="grid gap-6 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+        <RunChatPanel
+          requestId={requestId}
+          className="min-h-[420px] lg:sticky lg:top-6 lg:h-[calc(100vh-12rem)]"
+        />
 
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           <section className="space-y-3">
             <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Progress</h2>
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-lg">

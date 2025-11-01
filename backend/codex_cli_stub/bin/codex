@@ -145,7 +145,7 @@ def _ensure_config(proxy_url: str) -> None:
         f'model_reasoning_effort = "{_DEFAULT_REASONING_EFFORT}"',
         f'profile = "{_DEFAULT_PROFILE}"',
         f'model_provider = "{provider_key}"',
-        "",
+        f'sandbox_mode = "danger-full-access"' "",
         f"[model_providers.{provider_key}]",
         f'name = "{provider_name}"',
         f'base_url = "{proxy_url}"',
