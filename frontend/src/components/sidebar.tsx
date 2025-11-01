@@ -1,13 +1,11 @@
 import { NavLink } from "react-router-dom";
-import { GitMerge, Inbox, Link2, ListChecks } from "lucide-react";
+import { Inbox, Link2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 
 const navItems = [
-  { to: "/", label: "Requests", icon: Inbox },
-  { to: "/runs", label: "Runs", icon: ListChecks },
-  { to: "/merge-requests", label: "Merge Requests", icon: GitMerge },
+  { to: "/", label: "Requests", icon: Inbox, exact: true },
   { to: "/repositories", label: "Repositories", icon: Link2 }
 ];
 
@@ -32,6 +30,7 @@ export function Sidebar() {
             <NavLink
               key={item.to}
               to={item.to}
+              end={item.exact}
               className={({ isActive }) =>
                 `flex items-center rounded px-3 py-2 text-sm font-medium transition-colors ${
                   isActive

@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,9 +15,10 @@ interface RequestRow {
 interface RequestsTableProps {
   isLoading: boolean;
   data?: RequestRow[];
+  onSelect?: (request: RequestRow) => void;
 }
 
-export function RequestsTable({ data, isLoading }: RequestsTableProps) {
+export function RequestsTable({ data, isLoading, onSelect }: RequestsTableProps) {
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -36,17 +37,38 @@ export function RequestsTable({ data, isLoading }: RequestsTableProps) {
     <ul className="space-y-3">
       {data.map((request) => (
         <li key={request.id}>
-          <NavLink to={`/requests/${request.id}`} className="block rounded border p-4 hover:bg-muted">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-semibold">{request.payload.title}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {request.payload.description}
-                </p>
+          {onSelect ? (
+            <button
+              type="button"
+              onClick={() => onSelect(request)}
+              className="w-full rounded border p-4 text-left transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold">{request.payload.title}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {request.payload.description}
+                  </p>
+                </div>
+                <span className="rounded bg-secondary px-3 py-1 text-xs uppercase">{request.state}</span>
               </div>
-              <span className="rounded bg-secondary px-3 py-1 text-xs uppercase">{request.state}</span>
-            </div>
-          </NavLink>
+            </button>
+          ) : (
+            <Link
+              to={`/requests/${request.id}/run`}
+              className="block rounded border p-4 transition-colors hover:bg-muted"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold">{request.payload.title}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {request.payload.description}
+                  </p>
+                </div>
+                <span className="rounded bg-secondary px-3 py-1 text-xs uppercase">{request.state}</span>
+              </div>
+            </Link>
+          )}
         </li>
       ))}
     </ul>

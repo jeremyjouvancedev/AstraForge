@@ -1,7 +1,6 @@
-import { useMemo } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import { useRequestDetail } from "@/features/requests/hooks/use-request-detail";
@@ -59,6 +58,17 @@ const STATUS_STAGES: Array<{
   },
 ];
 
+interface StoredRunRecord {
+  id: string;
+  status?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  events?: RunLogEvent[];
+  diff?: string | null;
+  error?: string | null;
+  artifacts?: Record<string, unknown>;
+}
+
 function deriveProgress(events: RunLogEvent[]) {
   const results = STATUS_STAGES.map((status) => ({
     status,
@@ -93,16 +103,161 @@ export default function RequestRunPage() {
   const requestId = params.id ?? "";
   const { data } = useRequestDetail(requestId);
   const { events } = useRunLogStream(requestId, { enabled: Boolean(requestId) });
+  const historyJsonl =
+    data?.metadata && typeof data.metadata["history_jsonl"] === "string"
+      ? (data.metadata["history_jsonl"] as string)
+      : null;
+  const storedMessages =
+    data?.metadata && Array.isArray(data.metadata["chat_messages"])
+      ? (data.metadata["chat_messages"] as Array<Record<string, unknown>>)
+      : null;
 
-  const progress = useMemo(() => deriveProgress(events), [events]);
+  const storedRuns: StoredRunRecord[] = useMemo(() => {
+    if (!data?.metadata) {
+      return [];
+    }
+    const rawRuns = data.metadata["runs"];
+    if (!Array.isArray(rawRuns)) {
+      return [];
+    }
+    return rawRuns
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+        const record = entry as Record<string, unknown>;
+        const id = typeof record["id"] === "string" ? (record["id"] as string) : null;
+        if (!id) {
+          return null;
+        }
+        const status =
+          typeof record["status"] === "string"
+            ? (record["status"] as string)
+            : (typeof record["state"] === "string" ? (record["state"] as string) : undefined);
+        const startedAt =
+          typeof record["started_at"] === "string"
+            ? (record["started_at"] as string)
+            : (typeof record["started_at"] === "number"
+                ? new Date(record["started_at"] as number).toISOString()
+                : null);
+        const finishedAt =
+          typeof record["finished_at"] === "string"
+            ? (record["finished_at"] as string)
+            : (typeof record["finished_at"] === "number"
+                ? new Date(record["finished_at"] as number).toISOString()
+                : null);
+        const eventsList = Array.isArray(record["events"])
+          ? ((record["events"] as unknown[]).filter(
+              (item) => item && typeof item === "object"
+            ) as RunLogEvent[])
+          : [];
+        const artifacts =
+          record["artifacts"] && typeof record["artifacts"] === "object"
+            ? (record["artifacts"] as Record<string, unknown>)
+            : undefined;
+        const diff = typeof record["diff"] === "string" ? (record["diff"] as string) : null;
+        const error = typeof record["error"] === "string" ? (record["error"] as string) : null;
+        return {
+          id,
+          status,
+          started_at: startedAt,
+          finished_at: finishedAt,
+          events: eventsList,
+          diff,
+          error,
+          artifacts,
+        };
+      })
+      .filter((value): value is StoredRunRecord => value !== null);
+  }, [data?.metadata]);
+
+  const liveRunIds = useMemo(() => {
+    const ids = new Set<string>();
+    events.forEach((eventItem) => {
+      if (eventItem.run_id) {
+        ids.add(eventItem.run_id);
+      }
+    });
+    return ids;
+  }, [events]);
+
+  const combinedRuns = useMemo(() => {
+    const runsMap = new Map<string, StoredRunRecord>();
+    storedRuns.forEach((run) => {
+      runsMap.set(run.id, run);
+    });
+    liveRunIds.forEach((runId) => {
+      if (!runsMap.has(runId)) {
+        runsMap.set(runId, {
+          id: runId,
+          status: "running",
+          started_at: null,
+          finished_at: null,
+          events: [],
+        });
+      }
+    });
+    return Array.from(runsMap.values()).sort((a, b) => {
+      const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
+      const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
+      if (aTime === bTime) {
+        return b.id.localeCompare(a.id);
+      }
+      return bTime - aTime;
+    });
+  }, [storedRuns, liveRunIds]);
+
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedRunId && combinedRuns.length > 0) {
+      setSelectedRunId(combinedRuns[0].id);
+    }
+  }, [combinedRuns, selectedRunId]);
+
+  const selectedRun = useMemo(
+    () => combinedRuns.find((run) => run.id === selectedRunId) ?? null,
+    [combinedRuns, selectedRunId]
+  );
+
+  const selectedRunEvents = useMemo(() => {
+    const baseline =
+      selectedRun?.events?.filter((event): event is RunLogEvent => Boolean(event)) ?? [];
+    const liveEvents = events.filter(
+      (event) => selectedRunId && event.run_id === selectedRunId
+    );
+    const dedupe = new Set<string>();
+    const mergeOrder: RunLogEvent[] = [];
+    [...baseline, ...liveEvents].forEach((event) => {
+      const key = [
+        event.run_id ?? "",
+        event.type ?? "",
+        event.stage ?? "",
+        event.message ?? "",
+        event.command ?? "",
+        event.output ?? "",
+        event.exit_code ?? "",
+        event.cwd ?? "",
+      ].join("|");
+      if (dedupe.has(key)) {
+        return;
+      }
+      dedupe.add(key);
+      mergeOrder.push(event);
+    });
+    return mergeOrder;
+  }, [selectedRun?.events, events, selectedRunId]);
+
   const errorEvent = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-      if (events[i]?.type === "error") {
-        return events[i];
+    for (let i = selectedRunEvents.length - 1; i >= 0; i -= 1) {
+      if (selectedRunEvents[i]?.type === "error") {
+        return selectedRunEvents[i];
       }
     }
     return undefined;
-  }, [events]);
+  }, [selectedRunEvents]);
+
+  const progress = useMemo(() => deriveProgress(selectedRunEvents), [selectedRunEvents]);
 
   return (
     <div className="flex min-h-screen w-full flex-col gap-6 px-6 pb-10 pt-6 lg:px-10 lg:pb-12">
@@ -115,19 +270,73 @@ export default function RequestRunPage() {
               Tracking execution progress for request {requestId}.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to={`/requests/${requestId}`}>Back to spec</Link>
-          </Button>
         </div>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
         <RunChatPanel
           requestId={requestId}
+          history={historyJsonl}
+          storedMessages={storedMessages}
           className="min-h-[420px] lg:sticky lg:top-6 lg:h-[calc(100vh-12rem)]"
         />
 
         <div className="flex min-w-0 flex-col gap-6">
+          <section className="space-y-3">
+            <header className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Run History</h2>
+                <p className="text-sm text-muted-foreground">
+                  Select a run to view its log, diff, and status.
+                </p>
+              </div>
+            </header>
+            {combinedRuns.length === 0 ? (
+              <Card>
+                <CardContent className="p-4 text-sm text-muted-foreground">
+                  No runs recorded yet. Trigger an execution to see progress here.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {combinedRuns.map((run) => {
+                  const isSelected = run.id === selectedRunId;
+                  const statusLabel = run.status ?? "unknown";
+                  const startedAt = run.started_at
+                    ? new Date(run.started_at).toLocaleString()
+                    : "Pending…";
+                  const finishedAt = run.finished_at
+                    ? new Date(run.finished_at).toLocaleString()
+                    : undefined;
+                  return (
+                    <button
+                      key={run.id}
+                      type="button"
+                      onClick={() => setSelectedRunId(run.id)}
+                      className={cn(
+                        "rounded-xl border px-4 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isSelected
+                          ? "border-primary bg-primary/10 text-primary-foreground"
+                          : "border-border/60 hover:border-primary/40 hover:bg-primary/5"
+                      )}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                        Run
+                      </p>
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {statusLabel.replace(/_/g, " ").toUpperCase()}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">Started: {startedAt}</p>
+                      {finishedAt && (
+                        <p className="text-xs text-muted-foreground/80">Finished: {finishedAt}</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           <section className="space-y-3">
             <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Progress</h2>
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-lg">
@@ -168,7 +377,7 @@ export default function RequestRunPage() {
             </div>
           </section>
 
-          <RunLogViewer events={events} className="border" />
+          <RunLogViewer events={selectedRunEvents} className="border" />
 
           {errorEvent && (
             <Card className="border-destructive/40">

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,9 @@ import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRepositoryLinks } from "@/features/repositories/hooks/use-repository-links";
 
 export default function RequestsPage() {
-  const { data, isLoading } = useRequests();
+  const navigate = useNavigate();
+
+  const { data: requests, isLoading: requestsLoading } = useRequests();
   const {
     data: repositoryLinks,
     isLoading: linksLoading,
@@ -17,8 +19,19 @@ export default function RequestsPage() {
 
   const hasProjects = (repositoryLinks?.length ?? 0) > 0;
 
+  const handleRequestSelect = (requestId: string) => {
+    navigate(`/requests/${requestId}/run`);
+  };
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
+      <header className="space-y-1">
+        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+          AstraForge Workspace
+        </p>
+        <h1 className="text-2xl font-semibold">Request Inbox</h1>
+      </header>
+
       {linksLoading ? (
         <Card>
           <CardHeader>
@@ -58,14 +71,19 @@ export default function RequestsPage() {
           </CardContent>
         </Card>
       )}
+
       <section>
         <header className="mb-4">
-          <h2 className="text-lg font-semibold">Request Inbox</h2>
+          <h2 className="text-lg font-semibold">Recent Requests</h2>
           <p className="text-sm text-muted-foreground">
             Track requests flowing through the AstraForge orchestration lifecycle.
           </p>
         </header>
-        <RequestsTable data={data} isLoading={isLoading} />
+        <RequestsTable
+          data={requests}
+          isLoading={requestsLoading}
+          onSelect={(request) => handleRequestSelect(request.id)}
+        />
       </section>
     </div>
   );

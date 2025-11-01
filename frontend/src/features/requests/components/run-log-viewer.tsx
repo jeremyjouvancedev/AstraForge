@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/cn";
-import type { RunLogEvent } from "@/features/requests/hooks/use-run-log-stream";
+import type { RunLogEvent } from "@/lib/api-client";
 
 interface RunLogViewerProps {
   events: RunLogEvent[];
@@ -19,6 +19,7 @@ const stageLabels: Record<string, string> = {
   execution: "Execution",
   mr: "Merge Request",
   provisioning: "Provisioning",
+  git: "Git",
 };
 
 function formatStage(stage?: string | null) {
@@ -114,8 +115,8 @@ export function RunLogViewer({ events, className, fillHeight = false }: RunLogVi
       <div
         ref={containerRef}
         className={cn(
-          "overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100",
-          fillHeight ? "flex-1 min-h-[18rem]" : "h-72"
+          "flex-1 overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100",
+          fillHeight ? "min-h-[18rem]" : "max-h-72"
         )}
       >
         {lines.length === 0 ? (

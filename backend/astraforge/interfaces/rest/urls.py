@@ -8,6 +8,7 @@ from rest_framework.routers import DefaultRouter
 from astraforge.interfaces.rest.views import (
     ApiKeyViewSet,
     ChatViewSet,
+    MergeRequestViewSet,
     CsrfTokenView,
     CurrentUserView,
     ExecutionViewSet,
@@ -17,6 +18,7 @@ from astraforge.interfaces.rest.views import (
     PlanViewSet,
     RegisterView,
     RequestViewSet,
+    RunViewSet,
     RunLogStreamView,
 )
 
@@ -25,6 +27,8 @@ router.register(r"requests", RequestViewSet, basename="request")
 router.register(r"chat", ChatViewSet, basename="chat")
 router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
 router.register(r"repository-links", RepositoryLinkViewSet, basename="repository-link")
+router.register(r"runs", RunViewSet, basename="run")
+router.register(r"merge-requests", MergeRequestViewSet, basename="merge-request")
 
 urlpatterns = [
     path("", include(router.urls)),

@@ -5,14 +5,9 @@ import ShellLayout from "@/components/shell-layout";
 import { useAuth } from "@/lib/auth";
 
 const RequestsPage = lazy(() => import("@/features/requests/pages/requests-page"));
-const RequestDetailPage = lazy(
-  () => import("@/features/requests/pages/request-detail-page")
-);
 const RequestRunPage = lazy(
   () => import("@/features/requests/pages/request-run-page")
 );
-const RunsPage = lazy(() => import("@/features/runs/pages/runs-page"));
-const MergeRequestsPage = lazy(() => import("@/features/mr/pages/mr-dashboard-page"));
 const LoginPage = lazy(() => import("@/features/auth/pages/login-page"));
 const RegisterPage = lazy(() => import("@/features/auth/pages/register-page"));
 const RepositoryLinksPage = lazy(
@@ -39,10 +34,9 @@ const routes: RouteObject[] = [
     element: <ProtectedShell />,
     children: [
       { index: true, element: <RequestsPage /> },
-      { path: "/requests/:id", element: <RequestDetailPage /> },
       { path: "/requests/:id/run", element: <RequestRunPage /> },
-      { path: "/runs", element: <RunsPage /> },
-      { path: "/merge-requests", element: <MergeRequestsPage /> },
+      { path: "/runs", element: <Navigate to="/" replace /> },
+      { path: "/merge-requests", element: <Navigate to="/" replace /> },
       { path: "/repositories", element: <RepositoryLinksPage /> }
     ]
   },

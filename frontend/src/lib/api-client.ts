@@ -84,6 +84,14 @@ export async function fetchRequestDetail(id: string) {
   return response.data;
 }
 
+export async function sendChatMessage(payload: { requestId: string; message: string }) {
+  const response = await apiClient.post<{ status: string }>("/chat/", {
+    request_id: payload.requestId,
+    message: payload.message
+  });
+  return response.data;
+}
+
 export async function executeRequest(payload: {
   requestId: string;
   spec?: DevelopmentSpecDto;
@@ -157,4 +165,71 @@ export async function createRepositoryLink(payload: CreateRepositoryLinkPayload)
 
 export async function deleteRepositoryLink(id: string) {
   await apiClient.delete(`/repository-links/${id}/`);
+}
+
+export interface RunLogEvent {
+  request_id: string;
+  run_id?: string;
+  type?: string;
+  stage?: string;
+  message?: string;
+  command?: string;
+  cwd?: string | null;
+  output?: string;
+  exit_code?: number;
+  [key: string]: unknown;
+}
+
+export interface RunSummary {
+  id: string;
+  request_id: string;
+  request_title: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  diff_size: number;
+}
+
+export interface RunDetail extends RunSummary {
+  events: RunLogEvent[];
+  diff: string;
+  reports?: Record<string, unknown>;
+  artifacts?: Record<string, unknown>;
+  error?: string;
+}
+
+export async function fetchRuns() {
+  const response = await apiClient.get<RunSummary[]>("/runs/");
+  return response.data;
+}
+
+export async function fetchRunDetail(id: string) {
+  const response = await apiClient.get<RunDetail>(`/runs/${encodeURIComponent(id)}/`);
+  return response.data;
+}
+
+export interface MergeRequestItem {
+  id: string;
+  request_id: string;
+  request_title: string;
+  title: string;
+  description: string;
+  target_branch?: string;
+  source_branch?: string;
+  status: string;
+  ref: string;
+  diff: string;
+  created_at: string;
+}
+
+export async function fetchMergeRequests() {
+  const response = await apiClient.get<MergeRequestItem[]>("/merge-requests/");
+  return response.data;
+}
+
+export async function fetchMergeRequestDetail(id: string) {
+  const response = await apiClient.get<MergeRequestItem>(
+    `/merge-requests/${encodeURIComponent(id)}/`
+  );
+  return response.data;
 }

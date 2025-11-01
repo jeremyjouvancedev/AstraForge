@@ -97,6 +97,9 @@ def _should_skip_image_pull() -> bool:
 
 
 def _format_spec_prompt(spec: DevelopmentSpec) -> str:
+    raw_prompt = getattr(spec, "raw_prompt", None)
+    if raw_prompt:
+        return str(raw_prompt).strip()
     payload = spec.as_dict()
     lines = [
         "You are Codex CLI applying the following development specification.",
@@ -145,6 +148,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         project = request.metadata.get("project", {})
         repo_slug = project.get("repository", "unknown-repo")
         branch = project.get("branch", "main")
+        feature_branch = f"astraforge/{request.id}"
         workspace_ref = self.provisioner.spawn(repo=repo_slug.replace("/", "-"), toolchain="codex")
         mode, identifier = self._parse_ref(workspace_ref)
         image = self.image or getattr(self.provisioner, "image", "astraforge/codex-cli:latest")
@@ -160,6 +164,20 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         proxy_url = self._ensure_proxy(identifier, mode, stream)
         workspace_path = "/workspace" if mode == "docker" else f"/workspaces/{identifier}"
         self._clone_repository(identifier, mode, project, stream, target_path=workspace_path)
+        self._create_feature_branch(
+            identifier=identifier,
+            mode=mode,
+            workspace_path=workspace_path,
+            branch=feature_branch,
+            stream=stream,
+        )
+        self._restore_history_from_metadata(
+            identifier=identifier,
+            mode=mode,
+            workspace_path=workspace_path,
+            history_content=request.metadata.get("history_jsonl"),
+            stream=stream,
+        )
         self._write_spec_file(identifier, mode, spec, stream, workspace_path)
         return WorkspaceContext(
             ref=workspace_ref,
@@ -168,7 +186,12 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             branch=branch,
             path=workspace_path,
             proxy_url=proxy_url,
-            metadata={"container": identifier, "image": image},
+            metadata={
+                "container": identifier,
+                "image": image,
+                "feature_branch": feature_branch,
+                "base_branch": branch,
+            },
         )
 
     def run_codex(
@@ -188,7 +211,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             }
         )
         result = self._exec(workspace, command, stream=stream, allow_failure=True)
-        outcome = self._collect_results(workspace, stream)
+        outcome = self._collect_results(request, workspace, stream)
         outcome.reports.setdefault("codex_exit_code", result.exit_code)
         outcome.reports.setdefault("codex_stdout", result.stdout[:4000])
         return outcome
@@ -334,7 +357,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                 "--listen",
                 f"0.0.0.0:{port}",
             ]
-        self.runner.run(command, stream=stream, allow_failure=True)
+        self.runner.run(command, stream=stream, allow_failure=False)
         proxy_url = f"http://localhost:{port}"
         stream(
             {
@@ -424,6 +447,86 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             }
         )
 
+    def _create_feature_branch(
+        self,
+        *,
+        identifier: str,
+        mode: str,
+        workspace_path: str,
+        branch: str,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> None:
+        history_path = f"{workspace_path}/.codex/history.jsonl"
+        backup_path = f"{history_path}.bak"
+
+        self.runner.run(
+            self._wrap_exec(
+                identifier,
+                mode,
+                ["sh", "-c", f"if [ -f {history_path} ]; then cp {history_path} {backup_path}; fi"],
+            ),
+            stream=stream,
+            allow_failure=True,
+        )
+
+        checkout_command = self._wrap_exec(
+            identifier,
+            mode,
+            ["git", "-C", workspace_path, "checkout", "-B", branch],
+        )
+        self.runner.run(checkout_command, stream=stream, allow_failure=False)
+
+        fetch_command = self._wrap_exec(
+            identifier,
+            mode,
+            ["git", "-C", workspace_path, "fetch", "origin", branch],
+        )
+        fetch_result = self.runner.run(fetch_command, stream=stream, allow_failure=True)
+        if fetch_result.exit_code == 0:
+            remote_ref_check = self._wrap_exec(
+                identifier,
+                mode,
+                ["git", "-C", workspace_path, "rev-parse", "--verify", f"origin/{branch}"],
+            )
+            remote_ref = self.runner.run(remote_ref_check, stream=stream, allow_failure=True)
+            if remote_ref.exit_code == 0:
+                fast_forward_command = self._wrap_exec(
+                    identifier,
+                    mode,
+                    ["git", "-C", workspace_path, "merge", "--ff-only", f"origin/{branch}"],
+                )
+                merge_result = self.runner.run(fast_forward_command, stream=stream, allow_failure=True)
+                if merge_result.exit_code == 0:
+                    stream(
+                        {
+                            "type": "status",
+                            "stage": "git",
+                            "message": f"Fast-forwarded branch {branch} to remote tip",
+                        }
+                    )
+
+        self.runner.run(
+            self._wrap_exec(
+                identifier,
+                mode,
+                [
+                    "sh",
+                    "-c",
+                    f"if [ -f {backup_path} ]; then cp {backup_path} {history_path}; rm {backup_path}; fi",
+                ],
+            ),
+            stream=stream,
+            allow_failure=True,
+        )
+
+        stream(
+            {
+                "type": "status",
+                "stage": "workspace",
+                "message": f"Checked out feature branch {branch}",
+            }
+        )
+
     def _write_spec_file(
         self,
         identifier: str,
@@ -490,6 +593,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
 
     def _collect_results(
         self,
+        request: Request,
         workspace: WorkspaceContext,
         stream: Callable[[dict[str, Any]], None],
     ) -> ExecutionOutcome:
@@ -515,7 +619,248 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                 "message": status_message,
             }
         )
-        return ExecutionOutcome(diff=diff_output)
+        feature_branch = workspace.metadata.get("feature_branch")
+        commit_hash = self._commit_and_push(
+            request=request,
+            workspace=workspace,
+            branch=str(feature_branch) if isinstance(feature_branch, str) else None,
+            stream=stream,
+        )
+        history_content = self._read_history_file(workspace, stream)
+
+        artifacts: Dict[str, str] = {}
+        if isinstance(feature_branch, str) and feature_branch:
+            artifacts["branch"] = feature_branch
+        if history_content:
+            artifacts["history"] = history_content
+        if commit_hash:
+            artifacts["commit"] = commit_hash
+        return ExecutionOutcome(diff=diff_output, artifacts=artifacts)
+
+    def _commit_and_push(
+        self,
+        *,
+        request: Request,
+        workspace: WorkspaceContext,
+        branch: str | None,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> str | None:
+        if not branch:
+            return None
+        identifier = workspace.metadata.get("container", workspace.ref)
+        mode = workspace.mode
+        path = workspace.path
+
+        self._configure_git_identity(
+            identifier=identifier,
+            mode=mode,
+            workspace_path=path,
+            stream=stream,
+        )
+
+        self.runner.run(
+            self._wrap_exec(
+                identifier,
+                mode,
+                ["git", "-C", path, "add", "--all"],
+            ),
+            stream=stream,
+            allow_failure=True,
+        )
+        self.runner.run(
+            self._wrap_exec(
+                identifier,
+                mode,
+                [
+                    "git",
+                    "-C",
+                    path,
+                    "restore",
+                    "--staged",
+                    "--",
+                    ".codex/spec.json",
+                    ".codex/history.jsonl",
+                ],
+            ),
+            stream=stream,
+            allow_failure=True,
+        )
+        for protected in (".codex/spec.json", ".codex/history.jsonl"):
+            self.runner.run(
+                self._wrap_exec(
+                    identifier,
+                    mode,
+                    ["git", "-C", path, "reset", "HEAD", "--", protected],
+                ),
+                stream=stream,
+                allow_failure=True,
+            )
+            self.runner.run(
+                self._wrap_exec(
+                    identifier,
+                    mode,
+                    ["git", "-C", path, "rm", "--cached", "--ignore-unmatch", protected],
+                ),
+                stream=stream,
+                allow_failure=True,
+            )
+
+        status_command = self._wrap_exec(
+            identifier,
+            mode,
+            ["git", "-C", path, "status", "--porcelain"],
+        )
+        status_result = self.runner.run(status_command, stream=stream, allow_failure=True)
+        if not (status_result.stdout or "").strip():
+            stream(
+                {
+                    "type": "status",
+                    "stage": "git",
+                    "message": "Working tree clean; skipping commit and push",
+                }
+            )
+            return None
+
+        commit_message = f"AstraForge request {request.id}"
+        commit_command = self._wrap_exec(
+            identifier,
+            mode,
+            ["git", "-C", path, "commit", "-m", commit_message],
+        )
+        commit_result = self.runner.run(commit_command, stream=stream, allow_failure=True)
+        if commit_result.exit_code != 0:
+            stream(
+                {
+                    "type": "status",
+                    "stage": "git",
+                    "message": "Git commit reported no changes; skipping push",
+                }
+            )
+            return None
+
+        push_command = self._wrap_exec(
+            identifier,
+            mode,
+            ["git", "-C", path, "push", "-u", "origin", branch],
+        )
+        try:
+            push_result = self.runner.run(push_command, stream=stream, allow_failure=False)
+        except subprocess.CalledProcessError as exc:
+            output_text = (exc.output or "").lower()
+            non_fast_forward = "non-fast-forward" in output_text or "fetch first" in output_text
+            if not non_fast_forward:
+                raise
+            stream(
+                {
+                    "type": "status",
+                    "stage": "git",
+                    "message": f"Remote branch {branch} is ahead; rebasing before retry",
+                }
+            )
+            fetch_retry = self.runner.run(
+                self._wrap_exec(
+                    identifier,
+                    mode,
+                    ["git", "-C", path, "fetch", "origin", branch],
+                ),
+                stream=stream,
+                allow_failure=True,
+            )
+            if fetch_retry.exit_code != 0:
+                raise
+            rebase_command = self._wrap_exec(
+                identifier,
+                mode,
+                ["git", "-C", path, "pull", "--rebase", "origin", branch],
+            )
+            rebase_result = self.runner.run(rebase_command, stream=stream, allow_failure=True)
+            if rebase_result.exit_code != 0:
+                raise
+            retry_push = self.runner.run(push_command, stream=stream, allow_failure=True)
+            if retry_push.exit_code != 0:
+                raise
+        else:
+            push_result = push_result
+        stream(
+            {
+                "type": "status",
+                "stage": "git",
+                "message": f"Pushed branch {branch} to origin",
+            }
+        )
+        rev_parse = self.runner.run(
+            self._wrap_exec(identifier, mode, ["git", "-C", path, "rev-parse", "HEAD"]),
+            stream=stream,
+            allow_failure=True,
+        )
+        return (rev_parse.stdout or "").strip() if rev_parse.exit_code == 0 else None
+
+    def _configure_git_identity(
+        self,
+        *,
+        identifier: str,
+        mode: str,
+        workspace_path: str,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> None:
+        name = os.getenv("ASTRAFORGE_GIT_AUTHOR_NAME", "AstraForge Bot")
+        email = os.getenv("ASTRAFORGE_GIT_AUTHOR_EMAIL", "bot@astraforge.local")
+        commands = [
+            ["git", "-C", workspace_path, "config", "user.name", name],
+            ["git", "-C", workspace_path, "config", "user.email", email],
+        ]
+        for args in commands:
+            command = self._wrap_exec(identifier, mode, args)
+            self.runner.run(command, stream=stream, allow_failure=True)
+
+    def _restore_history_from_metadata(
+        self,
+        *,
+        identifier: str,
+        mode: str,
+        workspace_path: str,
+        history_content: str | None,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> None:
+        if not history_content:
+            return
+        encoded = base64.b64encode(history_content.encode("utf-8")).decode("ascii")
+        repo_history = f"{workspace_path}/.codex/history.jsonl"
+        home_history = "$HOME/.codex/history.jsonl"
+        script = (
+            f"mkdir -p {workspace_path}/.codex $HOME/.codex && "
+            f"echo '{encoded}' | base64 -d | tee {repo_history} {home_history} >/dev/null"
+        )
+        command = self._wrap_exec(identifier, mode, ["sh", "-c", script])
+        self.runner.run(command, stream=stream, allow_failure=True)
+        stream(
+            {
+                "type": "status",
+                "stage": "workspace",
+                "message": "Restored Codex history from previous run",
+            }
+        )
+
+    def _read_history_file(
+        self,
+        workspace: WorkspaceContext,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> str | None:
+        identifier = workspace.metadata.get("container", workspace.ref)
+        mode = workspace.mode
+        repo_history = f"{workspace.path}/.codex/history.jsonl"
+        home_history = "$HOME/.codex/history.jsonl"
+        for candidate in (home_history, repo_history):
+            command = self._wrap_exec(
+                identifier,
+                mode,
+                ["sh", "-c", f"if [ -f {candidate} ]; then cat {candidate}; fi"],
+            )
+            result = self.runner.run(command, stream=stream, allow_failure=True)
+            content = (result.stdout or "").strip()
+            if content:
+                return content
+        return None
 
     def _ensure_local_image(
         self,
