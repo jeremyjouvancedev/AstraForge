@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from django.contrib.auth import authenticate, login, logout
+import hashlib
 import json
 
+from django.contrib.auth import authenticate, login, logout
+
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
@@ -93,14 +96,46 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request_id = str(serializer.validated_data["request_id"])
+        message_content = serializer.validated_data["message"]
+        try:
+            request_obj = repository.get(request_id)
+        except KeyError as exc:
+            raise NotFound(f"Request {request_id} not found") from exc
         container.resolve_run_log().publish(
             request_id,
             {
                 "type": "user_message",
                 "request_id": request_id,
-                "message": serializer.validated_data["message"],
+                "message": message_content,
             },
         )
+        messages = list(request_obj.metadata.get("chat_messages", []))
+        messages.append(
+            {
+                "role": "user",
+                "message": message_content,
+                "created_at": timezone.now().isoformat(),
+            }
+        )
+        request_obj.metadata["chat_messages"] = messages
+        repository.save(request_obj)
+        summary = message_content.strip()
+        if summary:
+            title_candidate = summary.split("\n", 1)[0].strip() or summary
+        else:
+            title_candidate = request_obj.payload.title or "Follow-up request"
+        title = title_candidate if len(title_candidate) <= 72 else f"{title_candidate[:69]}..."
+        implementation_steps: list[str] = [summary] if summary else [title]
+        spec_payload = {
+            "title": title,
+            "summary": summary or title,
+            "requirements": [],
+            "implementation_steps": implementation_steps,
+            "risks": [],
+            "acceptance_criteria": [],
+            "raw_prompt": summary or title,
+        }
+        app_tasks.execute_request_task.delay(request_id, spec_payload)
         return Response({"status": "received"}, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["post"])
@@ -130,6 +165,252 @@ class RunLogStreamView(APIView):
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
+
+
+class RunViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        runs = self._collect_runs(include_events=False)
+        serializer = serializers.RunSummarySerializer(runs, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        run_id = str(pk) if pk is not None else ""
+        runs = self._collect_runs(include_events=True)
+        for run in runs:
+            if run["id"] == run_id:
+                serializer = serializers.RunDetailSerializer(run)
+                return Response(serializer.data)
+        raise NotFound("Run not found")
+
+    def _collect_runs(self, *, include_events: bool) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        for request_obj in repository.list():
+            runs_meta = list(request_obj.metadata.get("runs", []) or [])
+            if not runs_meta:
+                fallback = self._fallback_run(request_obj)
+                if fallback is not None:
+                    runs_meta = [fallback]
+            for run in runs_meta:
+                entry = self._build_run_entry(request_obj, run, include_events=include_events)
+                if entry is not None:
+                    items.append(entry)
+        items.sort(key=lambda entry: entry.get("started_at") or "", reverse=True)
+        return items
+
+    def _fallback_run(self, request_obj):
+        execution = request_obj.metadata.get("execution") or {}
+        if not execution:
+            return None
+        diff_text = execution.get("diff") or ""
+        created_at = getattr(request_obj, "created_at", None)
+        finished_at = getattr(request_obj, "updated_at", None)
+        workspace_meta = request_obj.metadata.get("workspace") or {}
+        execution_errors = request_obj.metadata.get("execution_errors") or []
+        diff_preview = ""
+        if diff_text:
+            preview_lines = diff_text.splitlines()
+            diff_preview = "\n".join(preview_lines[:8])
+            if len(preview_lines) > 8:
+                diff_preview += "\n…"
+        events: list[dict[str, object]] = [
+            {
+                "type": "status",
+                "stage": "execution",
+                "message": "Run metadata generated from stored execution artifacts.",
+                "request_id": str(request_obj.id),
+            }
+        ]
+        if workspace_meta:
+            workspace_message = (
+                f"Workspace {workspace_meta.get('mode', 'workspace')} "
+                f"at {workspace_meta.get('path', '/workspace')} "
+                f"(ref={workspace_meta.get('ref', 'unknown')})"
+            )
+            events.append(
+                {
+                    "type": "status",
+                    "stage": "workspace",
+                    "message": workspace_message,
+                    "request_id": str(request_obj.id),
+                }
+            )
+        if execution.get("reports"):
+            events.append(
+                {
+                    "type": "status",
+                    "stage": "codex",
+                    "message": "Execution reports available; see run details for full payload.",
+                    "request_id": str(request_obj.id),
+                }
+            )
+        if diff_preview:
+            events.append(
+                {
+                    "type": "log",
+                    "stage": "diff",
+                    "message": diff_preview,
+                    "request_id": str(request_obj.id),
+                }
+            )
+        status_value = (
+            request_obj.state.value if hasattr(request_obj.state, "value") else str(request_obj.state)
+        )
+        if execution_errors:
+            events.append(
+                {
+                    "type": "error",
+                    "stage": "execution",
+                    "message": execution_errors[-1].get("output")
+                    or execution_errors[-1].get("message")
+                    or "Execution reported errors; inspect run metadata.",
+                    "request_id": str(request_obj.id),
+                }
+            )
+            events.append(
+                {
+                    "type": "error",
+                    "stage": "failed",
+                    "message": "Run finished with errors.",
+                    "request_id": str(request_obj.id),
+                }
+            )
+        else:
+            events.append(
+                {
+                    "type": "completed",
+                    "stage": "execution",
+                    "message": "Run completed. Diff available below.",
+                    "request_id": str(request_obj.id),
+                }
+            )
+        return {
+            "id": hashlib.sha256(f"{request_obj.id}:execution".encode("utf-8")).hexdigest()[:16],
+            "status": status_value,
+            "started_at": created_at.isoformat() if created_at else None,
+            "finished_at": finished_at.isoformat() if finished_at else None,
+            "diff": diff_text,
+            "reports": execution.get("reports") or {},
+            "artifacts": execution.get("artifacts") or {},
+            "events": events,
+        }
+
+    def _build_run_entry(
+        self,
+        request_obj,
+        run: dict[str, object],
+        *,
+        include_events: bool,
+    ) -> dict[str, object] | None:
+        raw_id = run.get("id")
+        if raw_id:
+            run_id = str(raw_id)
+        else:
+            run_id = hashlib.sha256(
+                f"{request_obj.id}:{run.get('started_at')}".encode("utf-8")
+            ).hexdigest()[:16]
+        diff_text = run.get("diff") or ""
+        base: dict[str, object] = {
+            "id": run_id,
+            "request_id": str(request_obj.id),
+            "request_title": request_obj.payload.title,
+            "status": run.get("status", "unknown"),
+            "started_at": run.get("started_at"),
+            "finished_at": run.get("finished_at"),
+            "diff_size": len(diff_text),
+        }
+        if not include_events:
+            return base
+        detail = dict(base)
+        events = [dict(event) for event in (run.get("events") or [])]
+        if not events and diff_text:
+            events = [
+                {
+                    "type": "completed",
+                    "stage": "execution",
+                    "message": "Run completed; detailed event log unavailable.",
+                    "request_id": str(request_obj.id),
+                }
+            ]
+        for event in events:
+            event.setdefault("request_id", str(request_obj.id))
+            event.setdefault("run_id", run_id)
+        detail["events"] = events
+        detail["diff"] = diff_text
+        detail["reports"] = dict(run.get("reports") or {})
+        detail["artifacts"] = dict(run.get("artifacts") or {})
+        error_value = run.get("error")
+        if error_value:
+            detail["error"] = str(error_value)
+        return detail
+
+
+class MergeRequestViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        merge_requests = self._collect_merge_requests()
+        serializer = serializers.MergeRequestSerializer(merge_requests, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        mr_id = str(pk) if pk is not None else ""
+        merge_requests = self._collect_merge_requests()
+        for mr in merge_requests:
+            if mr["id"] == mr_id:
+                serializer = serializers.MergeRequestSerializer(mr)
+                return Response(serializer.data)
+        raise NotFound("Merge request not found")
+
+    def _collect_merge_requests(self) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        for request_obj in repository.list():
+            metadata_mr = request_obj.metadata.get("mr") or {}
+            if not metadata_mr:
+                continue
+            entry = self._build_entry(request_obj, metadata_mr)
+            items.append(entry)
+        items.sort(key=lambda entry: entry.get("created_at") or "", reverse=True)
+        return items
+
+    def _build_entry(
+        self,
+        request_obj,
+        metadata_mr: dict[str, object],
+    ) -> dict[str, object]:
+        ref_value = metadata_mr.get("ref")
+        source_branch = str(metadata_mr.get("source_branch", "") or "")
+        raw_identifier = ref_value or f"{request_obj.id}:{source_branch}"
+        if metadata_mr.get("id"):
+            mr_id = str(metadata_mr.get("id"))
+        else:
+            mr_id = hashlib.sha256(str(raw_identifier).encode("utf-8")).hexdigest()[:16]
+        ref = str(ref_value or "")
+        diff_source = metadata_mr.get("diff") or ""
+        if not diff_source:
+            execution_meta = request_obj.metadata.get("execution") or {}
+            diff_source = execution_meta.get("diff") or ""
+        if not diff_source:
+            for run in request_obj.metadata.get("runs", []) or []:
+                diff_text = run.get("diff")
+                if diff_text:
+                    diff_source = diff_text
+                    break
+        entry: dict[str, object] = {
+            "id": mr_id,
+            "ref": ref,
+            "request_id": str(request_obj.id),
+            "request_title": request_obj.payload.title,
+            "title": metadata_mr.get("title") or request_obj.payload.title,
+            "description": metadata_mr.get("description", ""),
+            "target_branch": metadata_mr.get("target_branch", ""),
+            "source_branch": metadata_mr.get("source_branch", ""),
+            "status": metadata_mr.get("status", "OPEN"),
+            "diff": diff_source or "",
+            "created_at": request_obj.updated_at.isoformat(),
+        }
+        return entry
 
 
 class PlanViewSet(viewsets.ViewSet):  # pragma: no cover - skeleton

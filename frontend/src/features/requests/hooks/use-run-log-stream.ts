@@ -1,14 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-export interface RunLogEvent {
-  request_id: string;
-  type?: string;
-  stage?: string;
-  message?: string;
-  command?: string;
-  cwd?: string | null;
-  [key: string]: unknown;
-}
+import type { RunLogEvent } from "@/lib/api-client";
+
+export type { RunLogEvent } from "@/lib/api-client";
 
 interface UseRunLogStreamOptions {
   enabled?: boolean;
@@ -35,9 +29,6 @@ export function useRunLogStream(
       try {
         const payload = JSON.parse(event.data) as RunLogEvent;
         setEvents((prev) => [...prev, payload]);
-        if (payload.type === "completed" || payload.type === "error") {
-          eventSource.close();
-        }
       } catch (error) {
         console.error("Failed to parse run log event", error);
       }

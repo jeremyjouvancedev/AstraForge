@@ -42,7 +42,13 @@ class VCSProvider(Protocol):
     """Interacts with Git hosting providers to open merge requests and comment on them."""
 
     def open_mr(
-        self, repo: str, branch: str, title: str, body: str, artifacts: Iterable[str]
+        self,
+        repo: str,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        body: str,
+        artifacts: Iterable[str],
     ) -> str:  # pragma: no cover
         ...
 

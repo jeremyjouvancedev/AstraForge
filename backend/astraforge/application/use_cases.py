@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import subprocess
+import uuid
 from typing import TYPE_CHECKING, Any, Protocol
 
 from astraforge.domain.models.request import ExecutionPlan, Request, RequestState
@@ -107,15 +109,42 @@ class ExecuteRequest:
         else:
             spec = self._hydrate_spec(current_spec)
         request.metadata["spec"] = spec.as_dict()
+
+        def _timestamp() -> str:
+            return datetime.now(timezone.utc).isoformat()
+
+        run_record: dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "request_id": request.id,
+            "status": "running",
+            "started_at": _timestamp(),
+            "finished_at": None,
+            "events": [],
+            "diff": None,
+            "reports": {},
+            "artifacts": {},
+        }
+        existing_runs = list(request.metadata.get("runs", []))
+        existing_runs.append(run_record)
+        request.metadata["runs"] = existing_runs
+
+        def publish(event: dict[str, Any]) -> None:
+            payload: dict[str, Any] = {
+                "request_id": request.id,
+                "run_id": run_record["id"],
+                **event,
+            }
+            run_record["events"].append(payload)
+            self.run_log.publish(request.id, payload)
+
         self.repository.save(request)
 
-        self._emit(
-            request,
+        publish(
             {
                 "type": "status",
                 "stage": "provisioning",
                 "message": "Provisioning workspace",
-            },
+            }
         )
         request.transition(RequestState.EXECUTING)
         self.repository.save(request)
@@ -125,7 +154,7 @@ class ExecuteRequest:
             workspace = self.workspace_operator.prepare(
                 request,
                 spec,
-                stream=lambda event: self._emit(request, event),
+                stream=publish,
             )
             request.metadata["workspace"] = workspace.as_dict()
             self.repository.save(request)
@@ -134,15 +163,23 @@ class ExecuteRequest:
                 request,
                 spec,
                 workspace,
-                stream=lambda event: self._emit(request, event),
+                stream=publish,
             )
             request.metadata["execution"] = outcome.as_dict()
+            history_content = outcome.artifacts.get("history")
+            if history_content:
+                request.metadata["history_jsonl"] = history_content
+            commit_hash = outcome.artifacts.get("commit")
+            if commit_hash:
+                request.metadata["last_commit"] = commit_hash
             request.transition(RequestState.PATCH_READY)
+            run_record["status"] = "completed"
+            run_record["finished_at"] = _timestamp()
+            run_record["diff"] = outcome.diff
+            run_record["reports"] = outcome.reports
+            run_record["artifacts"] = outcome.artifacts
             self.repository.save(request)
-            self._emit(
-                request,
-                {"type": "completed", "message": "Execution finished"},
-            )
+            publish({"type": "completed", "message": "Execution finished"})
             return outcome
         except subprocess.CalledProcessError as exc:
             request.metadata.setdefault("execution_errors", []).append(
@@ -153,32 +190,37 @@ class ExecuteRequest:
                 }
             )
             request.transition(RequestState.FAILED)
+            run_record["status"] = "failed"
+            run_record["finished_at"] = _timestamp()
             self.repository.save(request)
             message = exc.output.strip() if isinstance(exc.output, str) else str(exc)
-            self._emit(
-                request,
+            run_record["error"] = message or "Command execution failed"
+            publish(
                 {
                     "type": "error",
                     "stage": "failed",
                     "message": message or "Command execution failed",
-                },
+                }
             )
             raise RuntimeError(message or "Command execution failed") from exc
         except Exception as exc:
             request.transition(RequestState.FAILED)
+            run_record["status"] = "failed"
+            run_record["finished_at"] = _timestamp()
+            run_record["error"] = str(exc)
             self.repository.save(request)
-            self._emit(
-                request,
+            publish(
                 {
                     "type": "error",
                     "stage": "failed",
                     "message": str(exc),
-                },
+                }
             )
             raise
         finally:
             if workspace is not None:
                 self.workspace_operator.teardown(workspace)
+            self.repository.save(request)
 
     def _emit(self, request: Request, event: dict[str, object]) -> None:
         payload = {"request_id": request.id, **event}
@@ -192,6 +234,7 @@ class ExecuteRequest:
             implementation_steps=list(data.get("implementation_steps", []) or []),
             risks=list(data.get("risks", []) or []),
             acceptance_criteria=list(data.get("acceptance_criteria", []) or []),
+            raw_prompt=str(data.get("raw_prompt")) if data.get("raw_prompt") is not None else None,
         )
 
     def _default_spec_from_request(self, request: Request) -> DevelopmentSpec:
@@ -205,6 +248,7 @@ class ExecuteRequest:
             title=title or "User request",
             summary=summary or "User request",
             implementation_steps=implementation_steps,
+            raw_prompt=prompt or None,
         )
 
     @staticmethod
@@ -240,9 +284,11 @@ class SubmitMergeRequest:
         repository_slug = project.get("repository")
         if not repository_slug:
             raise ValueError("Request metadata is missing repository information")
+        source_branch = proposal.source_branch or f"astraforge/{request.id}"
         mr_ref = self.vcs.open_mr(
             repo=repository_slug,
-            branch=proposal.target_branch,
+            source_branch=source_branch,
+            target_branch=proposal.target_branch,
             title=proposal.title,
             body=proposal.description,
             artifacts=[outcome.diff],
@@ -363,7 +409,8 @@ class ApplyPlan:
             self.repository.save(request)
             mr_ref = self.vcs.open_mr(
                 repo=repo,
-                branch=branch,
+                source_branch=branch,
+                target_branch=branch,
                 title=request.payload.title,
                 body=request.payload.description,
                 artifacts=[change_set.diff_uri],

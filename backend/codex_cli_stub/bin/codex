@@ -178,6 +178,7 @@ def _ensure_config(proxy_url: str) -> None:
     _CONFIG_PATH.write_text(content, encoding="utf-8")
 
 
+
 def _emit_config_preview() -> None:
     if not _CONFIG_PATH.exists():
         print("[codex-wrapper] config.toml not found after ensure step", flush=True)

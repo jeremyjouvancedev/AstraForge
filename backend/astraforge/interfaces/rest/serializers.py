@@ -230,3 +230,38 @@ class RepositoryLinkSerializer(serializers.ModelSerializer):
 
     def get_token_preview(self, obj: RepositoryLink) -> str:
         return obj.token_preview()
+
+
+class RunSummarySerializer(serializers.Serializer):
+    id = serializers.CharField()
+    request_id = serializers.CharField()
+    request_title = serializers.CharField()
+    status = serializers.CharField()
+    started_at = serializers.CharField(allow_null=True)
+    finished_at = serializers.CharField(allow_null=True)
+    diff_size = serializers.IntegerField()
+
+
+class RunDetailSerializer(RunSummarySerializer):
+    events = serializers.ListField(
+        child=serializers.JSONField(),
+        allow_empty=True,
+    )
+    diff = serializers.CharField(allow_blank=True, required=False)
+    reports = serializers.JSONField(required=False)
+    artifacts = serializers.JSONField(required=False)
+    error = serializers.CharField(allow_blank=True, required=False)
+
+
+class MergeRequestSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    request_id = serializers.CharField()
+    request_title = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    target_branch = serializers.CharField(allow_blank=True, required=False)
+    source_branch = serializers.CharField(allow_blank=True, required=False)
+    status = serializers.CharField()
+    ref = serializers.CharField()
+    diff = serializers.CharField(allow_blank=True, required=False)
+    created_at = serializers.CharField()

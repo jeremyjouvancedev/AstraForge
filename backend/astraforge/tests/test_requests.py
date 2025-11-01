@@ -185,12 +185,13 @@ class _StubWorkspaceOperator:
             repository=request.metadata["project"]["repository"],
             branch="main",
             path="/workspace",
+            metadata={"feature_branch": f"astraforge/{request.id}"},
         )
 
     def run_codex(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
         self.executed = True
         stream({"type": "status", "stage": "codex", "message": "running"})
-        return ExecutionOutcome(diff="diff")
+        return ExecutionOutcome(diff="diff", artifacts={"branch": f"astraforge/{request.id}"})
 
     def teardown(self, workspace: WorkspaceContext) -> None:
         self.teardown_called = True
@@ -294,6 +295,143 @@ def test_execute_request_runs_workspace():
     assert stored.metadata["spec"]["implementation_steps"] == ["desc"]
     assert stored.metadata["workspace"]["mode"] == "docker"
     assert stored.metadata["execution"]["diff"] == "diff"
+    assert stored.metadata.get("history_jsonl") == "[]"
     assert outcome.diff == "diff"
     assert any(event.get("stage") == "codex" for event in run_log.events if "stage" in event)
     assert operator.prepared and operator.executed and operator.teardown_called
+    runs_meta = stored.metadata.get("runs")
+    assert runs_meta and len(runs_meta) == 1
+    run_entry = runs_meta[0]
+    assert run_entry["status"] == "completed"
+    assert run_entry["diff"] == "diff"
+    assert run_entry["events"]
+    assert all(event.get("run_id") == run_entry["id"] for event in run_entry["events"])
+    assert run_entry["artifacts"]["branch"].startswith("astraforge/")
+    assert run_entry["artifacts"]["history"] == "[]"
+
+
+def test_run_viewset_returns_run_history(api_client, user, monkeypatch):
+    repo = InMemoryRequestRepository()
+    monkeypatch.setattr("astraforge.bootstrap.repository", repo, raising=False)
+    monkeypatch.setattr("astraforge.interfaces.rest.views.repository", repo, raising=False)
+
+    payload = RequestPayload(title="Add feature", description="desc", context={})
+    request = Request(
+        id="req-api-run",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="user@example.com",
+        payload=payload,
+        metadata={
+            "project": {
+                "repository": "org/project",
+                "branch": "main",
+            }
+        },
+    )
+    repo.save(request)
+    run_log = _StubRunLog()
+    operator = _StubWorkspaceOperator()
+
+    ExecuteRequest(
+        repository=repo,
+        workspace_operator=operator,
+        run_log=run_log,
+    )(request_id="req-api-run")
+
+    run_list = api_client.get(reverse("run-list"))
+    assert run_list.status_code == 200
+    runs = run_list.json()
+    assert any(item["request_id"] == "req-api-run" for item in runs)
+
+    run_entry = repo.get("req-api-run").metadata["runs"][0]
+    detail = api_client.get(reverse("run-detail", args=[run_entry["id"]]))
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["diff"] == "diff"
+    assert payload["events"]
+    assert payload["diff_size"] == len("diff")
+    assert payload["artifacts"]["history"] == "[]"
+    assert payload["artifacts"]["branch"].startswith("astraforge/")
+    assert payload["artifacts"]["branch"].startswith("astraforge/")
+
+
+def test_run_viewset_falls_back_to_execution_metadata(api_client, user, monkeypatch):
+    repo = InMemoryRequestRepository()
+    monkeypatch.setattr("astraforge.bootstrap.repository", repo, raising=False)
+    monkeypatch.setattr("astraforge.interfaces.rest.views.repository", repo, raising=False)
+
+    payload = RequestPayload(title="Legacy run", description="desc", context={})
+    request = Request(
+        id="req-fallback-run",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="user@example.com",
+        payload=payload,
+        metadata={
+            "project": {"repository": "org/project", "branch": "main"},
+            "execution": {
+                "diff": "diff",
+                "reports": {"status": "completed"},
+            },
+        },
+    )
+    repo.save(request)
+
+    run_list = api_client.get(reverse("run-list"))
+    assert run_list.status_code == 200
+    runs = run_list.json()
+    assert any(item["request_id"] == "req-fallback-run" for item in runs)
+
+    fallback_id = next(item["id"] for item in runs if item["request_id"] == "req-fallback-run")
+    detail = api_client.get(reverse("run-detail", args=[fallback_id]))
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["diff"] == "diff"
+    assert payload["events"]
+    assert payload["reports"] == {"status": "completed"}
+    assert payload.get("artifacts") in ({}, None) or "branch" not in payload.get("artifacts", {})
+    assert payload["events"][0]["request_id"] == "req-fallback-run"
+    assert payload["events"][0]["run_id"] == fallback_id
+    stages = {event.get("stage") for event in payload["events"]}
+    assert "diff" in stages
+
+
+def test_merge_request_viewset_returns_merge_requests(api_client, user, monkeypatch):
+    repo = InMemoryRequestRepository()
+    monkeypatch.setattr("astraforge.bootstrap.repository", repo, raising=False)
+    monkeypatch.setattr("astraforge.interfaces.rest.views.repository", repo, raising=False)
+
+    payload = RequestPayload(title="Add feature", description="desc", context={})
+    request = Request(
+        id="req-api-mr",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="user@example.com",
+        payload=payload,
+        metadata={
+            "project": {"repository": "org/project", "branch": "main"},
+            "execution": {"diff": "diff"},
+            "mr": {
+                "id": "mr-1",
+                "ref": "https://gitlab.example.com/mr/1",
+                "title": "Add feature",
+                "description": "Details",
+                "target_branch": "main",
+                "source_branch": "feature/add",
+                "status": "OPEN",
+            },
+        },
+    )
+    repo.save(request)
+
+    response = api_client.get(reverse("merge-request-list"))
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(item["id"] == "mr-1" for item in payload)
+
+    detail = api_client.get(reverse("merge-request-detail", args=["mr-1"]))
+    assert detail.status_code == 200
+    mr_payload = detail.json()
+    assert mr_payload["diff"] == "diff"
+    assert mr_payload["target_branch"] == "main"

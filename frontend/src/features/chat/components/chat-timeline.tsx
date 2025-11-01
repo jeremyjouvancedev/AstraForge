@@ -29,7 +29,11 @@ export function ChatTimeline({ messages = [] }: ChatTimelineProps) {
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between text-xs uppercase text-muted-foreground">
               <span>{message.role}</span>
-              <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString()}</time>
+              <time dateTime={message.created_at}>
+                {Number.isNaN(Date.parse(message.created_at))
+                  ? message.created_at
+                  : new Date(message.created_at).toLocaleTimeString()}
+              </time>
             </div>
             <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
           </CardContent>

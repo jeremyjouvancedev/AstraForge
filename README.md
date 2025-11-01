@@ -78,3 +78,12 @@ The frontend stores the access token in local storage for subsequent API request
 - Makefile shortcuts for local development.
 
 See `docs/architecture.md` and `docs/adr/0001-initial-architecture.md` for additional details.
+
+
+# TODO
+
+- [ ] Generate MR name and description with AI
+- [ ] Switch to langchain 1.0.0
+- [ ] Can Restore a previous session / breakpoint + Ask a new questions
+- [ ] Can Launch on a trigger
+- [ ] 

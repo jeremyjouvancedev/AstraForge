@@ -16,9 +16,10 @@ class DevelopmentSpec:
     implementation_steps: List[str] = field(default_factory=list)
     risks: List[str] = field(default_factory=list)
     acceptance_criteria: List[str] = field(default_factory=list)
+    raw_prompt: str | None = None
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "title": self.title,
             "summary": self.summary,
             "requirements": list(self.requirements),
@@ -26,6 +27,9 @@ class DevelopmentSpec:
             "risks": list(self.risks),
             "acceptance_criteria": list(self.acceptance_criteria),
         }
+        if self.raw_prompt:
+            payload["raw_prompt"] = self.raw_prompt
+        return payload
 
 
 @dataclass(slots=True)
