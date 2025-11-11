@@ -12,6 +12,12 @@ interface RunChatPanelProps {
   history?: string | null;
   storedMessages?: Array<Record<string, unknown>> | null;
   className?: string;
+  seedMessage?: {
+    id?: string;
+    content: string;
+    createdAt?: string;
+    role?: TimelineRole;
+  };
 }
 
 type TimelineRole = "user" | "assistant" | "system";
@@ -131,7 +137,7 @@ function mergeMessages(historyMessages: TimelineMessage[], storedMessages: Timel
   return combined;
 }
 
-export function RunChatPanel({ requestId, history, storedMessages, className }: RunChatPanelProps) {
+export function RunChatPanel({ requestId, history, storedMessages, className, seedMessage }: RunChatPanelProps) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [pendingMessages, setPendingMessages] = useState<TimelineMessage[]>([]);
@@ -156,11 +162,11 @@ export function RunChatPanel({ requestId, history, storedMessages, className }: 
     if (currentSignature && currentSignature !== baseSignature) {
       setPendingMessages((current) =>
         current.filter((message) => {
+          const normalizedContent = (message.content || "").trim();
           const existsInBase = baseMessages.some(
             (base) =>
-              base.content === message.content &&
               base.role === message.role &&
-              base.created_at === message.created_at
+              (base.content || "").trim() === normalizedContent
           );
           return !existsInBase;
         })
@@ -185,6 +191,28 @@ export function RunChatPanel({ requestId, history, storedMessages, className }: 
     () => [...baseMessages, ...pendingMessages],
     [baseMessages, pendingMessages]
   );
+
+  const normalizedSeed = useMemo(() => {
+    if (!seedMessage?.content?.trim()) return null;
+    const createdAt = seedMessage.createdAt
+      ? parseIsoTimestamp(seedMessage.createdAt, -1)
+      : new Date().toISOString();
+    return {
+      id: seedMessage.id ?? "request-seed",
+      role: seedMessage.role ?? "user",
+      content: seedMessage.content.trim(),
+      created_at: createdAt,
+    } satisfies TimelineMessage;
+  }, [seedMessage]);
+
+  const displayedConversation = useMemo(() => {
+    if (!normalizedSeed) return conversation;
+    const alreadyIncluded = conversation.some(
+      (msg) => msg.content === normalizedSeed.content && msg.role === normalizedSeed.role
+    );
+    if (alreadyIncluded) return conversation;
+    return [normalizedSeed, ...conversation];
+  }, [conversation, normalizedSeed]);
 
   const handleSend = (message: string) => {
     const trimmed = message.trim();
@@ -214,13 +242,13 @@ export function RunChatPanel({ requestId, history, storedMessages, className }: 
       <div className="flex flex-1 flex-col gap-4">
         <ScrollArea className="flex-1 bg-transparent">
           <div className="space-y-4 px-2 pt-2">
-            {conversation.length === 0 ? (
+            {displayedConversation.length === 0 ? (
               <p className="text-sm text-muted-foreground">Aucune conversation pour le moment.</p>
             ) : (
-              <ChatTimeline messages={conversation} />
+              <ChatTimeline messages={displayedConversation} />
             )}
           </div>
-        </ScrollArea>      
+        </ScrollArea>
           <ChatComposer
             onSend={handleSend}
             value={draft}

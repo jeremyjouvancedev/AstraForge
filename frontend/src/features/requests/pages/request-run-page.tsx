@@ -184,6 +184,8 @@ export default function RequestRunPage() {
   }, [selectedRunEvents]);
 
   const requestPayload = (data?.payload ?? null) as Record<string, unknown> | null;
+  const requestPrompt =
+    typeof requestPayload?.["prompt"] === "string" ? (requestPayload["prompt"] as string) : null;
   const requestTitle =
     (typeof requestPayload?.["title"] === "string" ? (requestPayload["title"] as string) : null) ??
     "Request";
@@ -319,12 +321,23 @@ export default function RequestRunPage() {
             requestId={requestId}
             history={historyJsonl}
             storedMessages={storedMessages}
+            seedMessage={
+              requestPrompt
+                ? {
+                    content: requestPrompt,
+                    createdAt:
+                      (typeof data?.created_at === "string" ? data.created_at : null) ??
+                      selectedRun?.started_at ??
+                      undefined,
+                  }
+                : undefined
+            }
             className="flex-1"
           />
         </aside>
 
         <section className="flex w-full min-w-0 flex-1 flex-col gap-4 min-h-0">
-          <Card className="flex flex-1 min-h-0 min-w-0 flex-col rounded-[32px] border border-border/70 bg-background shadow-sm">
+          <Card className="flex flex-1 min-h-0 min-w-0 flex-col rounded-[32px] border border-border/70 bg-card shadow-sm">
             <Tabs
               value={activePane}
               onValueChange={(v) => setActivePane(v as "log" | "diff")}
@@ -355,7 +368,7 @@ export default function RequestRunPage() {
               </div>
 
               {combinedRuns.length > 1 ? (
-                <div className="flex w-full flex-col gap-2 border-b border-border/60 px-6 pb-4">
+                <div className="flex w-full flex-col gap-2 border-b border-border/60 bg-card/80 px-6 pb-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Autres executions</p>
                   <RunHistoryRail />
                 </div>
@@ -363,7 +376,7 @@ export default function RequestRunPage() {
 
               <TabsContent
                 value="diff"
-                className="mt-0 flex flex-1 min-h-0 flex-col px-6 py-5 data-[state=inactive]:hidden"
+                className="mt-0 flex flex-1 min-h-0 flex-col overflow-hidden px-6 py-5 data-[state=inactive]:hidden"
               >
                 {selectedRun ? (
                   selectedRun.diff ? (
@@ -389,7 +402,7 @@ export default function RequestRunPage() {
 
               <TabsContent
                 value="log"
-                className="mt-0 flex flex-1 min-h-0 flex-col px-6 py-5 data-[state=inactive]:hidden"
+                className="mt-0 flex flex-1 min-h-0 flex-col overflow-hidden px-6 py-5 data-[state=inactive]:hidden"
               >
                 {selectedRun ? (
                   <div className="flex flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/70 bg-background/90">

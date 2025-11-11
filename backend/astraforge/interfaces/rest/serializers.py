@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import serializers
 
 from astraforge.accounts.models import ApiKey
@@ -57,6 +58,13 @@ class RequestSerializer(serializers.Serializer):
             }
         }
         metadata["prompt"] = raw_prompt
+        metadata["chat_messages"] = [
+            {
+                "role": "user",
+                "message": raw_prompt,
+                "created_at": timezone.now().isoformat(),
+            }
+        ]
         return Request(payload=payload, metadata=metadata, **validated_data)
 
     def to_representation(self, instance: Request):
