@@ -68,42 +68,55 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-semibold">Qu'allons-nous coder maintenant ?</h2>
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+          Launch a run
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold">What should AstraForge build next?</h2>
         <p className="text-sm text-muted-foreground">
-          Posez une question avec <span className="font-medium">/plan</span>
+          Give as much context as possible.
         </p>
       </div>
-      <Card className="rounded-[2rem] border border-border/60 shadow-lg">
+      <Card className="rounded-[2.5rem] border border-border/50 bg-gradient-to-br from-background via-card to-accent/10 shadow-xl shadow-primary/10">
         <form onSubmit={onSubmit} className="flex flex-col">
           <Textarea
             rows={5}
-            className="resize-none rounded-t-[2rem] rounded-b-none border-0 px-6 py-6 text-base shadow-none focus-visible:ring-0"
-            placeholder="Decrivez votre besoin de developpement"
+            className="resize-none rounded-t-[2.5rem] rounded-b-none border-0 bg-transparent px-8 py-8 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0"
+            placeholder="Describe the feature, constraints, test coverage, and any artifacts we should reference…"
             {...form.register("prompt")}
           />
           {form.formState.errors.prompt && (
-            <p className="px-6 text-sm text-destructive">{form.formState.errors.prompt.message}</p>
+            <p className="px-8 pb-1 text-sm text-destructive">
+              {form.formState.errors.prompt.message}
+            </p>
           )}
-          <div className="flex items-center justify-between gap-4 rounded-b-[2rem] border-t px-4 py-3 text-sm text-muted-foreground">
-            <div className="flex items-center gap-3">
-              <Plus size={16} />
-              <Monitor size={16} />
+          <div className="flex flex-col gap-4 rounded-b-[2.5rem] border-t border-border/60 bg-card/40 px-6 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Plus size={16} />
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+                <Monitor size={16} />
+              </div>
               <div className="relative">
                 <select
                   aria-label="Project"
-                  className="rounded-md border bg-transparent px-3 py-1 text-sm font-medium text-foreground"
+                  className="rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60"
                   {...form.register("projectId")}
                   disabled={mutation.isLoading}
                 >
                   {projects.map((project) => (
                     <option key={project.id} value={project.id}>
-                      {project.provider === "gitlab" ? "GitLab" : "GitHub"} - {project.repository}
+                      {project.provider === "gitlab" ? "GitLab" : "GitHub"} · {project.repository}
                     </option>
                   ))}
                 </select>
               </div>
-              <GitBranch size={16} />
-              <Layers size={16} />
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
+                <GitBranch size={16} />
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
+                <Layers size={16} />
+              </div>
             </div>
             <div className="flex items-center gap-2">
               {form.formState.errors.projectId && (
@@ -111,14 +124,10 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
                   {form.formState.errors.projectId.message}
                 </p>
               )}
-              <div className="flex h-9 w-9 items-center justify-center rounded-full border text-foreground">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/60 text-muted-foreground">
                 <Mic size={16} />
               </div>
-              <Button
-                type="submit"
-                disabled={mutation.isLoading}
-                className="h-9 w-9 rounded-full p-0"
-              >
+              <Button type="submit" disabled={mutation.isLoading} className="h-11 w-11 p-0">
                 <ArrowUp size={16} />
               </Button>
             </div>

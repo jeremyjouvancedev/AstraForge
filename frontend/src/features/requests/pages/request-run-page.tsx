@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DiffPreview } from "@/components/diff-preview";
@@ -17,61 +16,13 @@ import {
 import { RunLogViewer } from "@/features/requests/components/run-log-viewer";
 import { RunChatPanel } from "@/features/requests/components/run-chat-panel";
 import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
   Clock,
   GitBranch,
-  GitCommit,
-  GitPullRequest,
   Server,
-  CheckCircle2,
-  AlertTriangle,
 } from "lucide-react";
-
-const STATUS_STAGES: Array<{
-  id: string;
-  label: string;
-  description: string;
-  stages: string[];
-  types?: string[];
-}> = [
-  {
-    id: "provisioning",
-    label: "Spawning VM",
-    description: "Allocating and connecting to the workspace provisioner.",
-    stages: ["provisioning"],
-  },
-  {
-    id: "setup",
-    label: "Setup environment",
-    description: "Preparing container runtime, proxies, and base tooling.",
-    stages: ["workspace", "proxy"],
-  },
-  {
-    id: "init",
-    label: "Init script",
-    description: "Cloning repository and uploading the generated specification.",
-    stages: ["clone", "spec"],
-    types: ["spec_ready"],
-  },
-  {
-    id: "codex",
-    label: "Codex output steps",
-    description: "Codex CLI is applying the plan and streaming logs.",
-    stages: ["codex"],
-  },
-  {
-    id: "outputs",
-    label: "Output script",
-    description: "Gathering execution artifacts and computing diff report.",
-    stages: ["diff"],
-  },
-  {
-    id: "changes",
-    label: "Changes",
-    description: "Review generated changes, tests, and any merge request metadata.",
-    stages: ["mr"],
-    types: ["completed"],
-  },
-];
 
 interface StoredRunRecord {
   id: string;
@@ -85,22 +36,53 @@ interface StoredRunRecord {
   reports?: Record<string, unknown>;
 }
 
-function deriveProgress(events: RunLogEvent[]) {
-  const results = STATUS_STAGES.map((status) => ({
-    status,
-    state: "pending" as "pending" | "active" | "done",
-  }));
-  let activeAssigned = false;
-  results.forEach((item) => {
-    const matched = events.find((event) => {
-      if (event.stage && item.status.stages.includes(event.stage)) return true;
-      if (item.status.types && event.type && item.status.types.includes(event.type)) return true;
-      return false;
-    });
-    if (matched) item.state = "done";
-    else if (!activeAssigned) { item.state = "active"; activeAssigned = true; }
+interface DiffFileStat {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+function deriveDiffFiles(diffText: string | null | undefined): DiffFileStat[] {
+  if (!diffText) return [];
+  const files: DiffFileStat[] = [];
+  const lines = diffText.split(/\r?\n/);
+  let current: DiffFileStat | null = null;
+
+  const pushCurrent = () => {
+    if (current && current.path !== "/dev/null") {
+      files.push(current);
+    }
+  };
+
+  lines.forEach((line) => {
+    if (line.startsWith("diff --git ")) {
+      pushCurrent();
+      const match = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+      const path = match ? match[2] : line.replace("diff --git", "").trim();
+      current = { path, additions: 0, deletions: 0 };
+      return;
+    }
+    if (!current) return;
+    if (line.startsWith("+++ ")) {
+      if (line.startsWith("+++ b/")) {
+        current.path = line.slice(6).trim();
+      }
+      return;
+    }
+    if (line.startsWith("--- ")) {
+      return;
+    }
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      current.additions += 1;
+      return;
+    }
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      current.deletions += 1;
+    }
   });
-  return results;
+
+  pushCurrent();
+  return files;
 }
 
 function summarizeDiff(diffText: string | null | undefined) {
@@ -119,6 +101,7 @@ function summarizeDiff(diffText: string | null | undefined) {
 export default function RequestRunPage() {
   const params = useParams<{ id: string }>();
   const requestId = params.id ?? "";
+  const navigate = useNavigate();
   const { data } = useRequestDetail(requestId);
   const { events } = useRunLogStream(requestId, { enabled: Boolean(requestId) });
   const historyJsonl =
@@ -200,28 +183,36 @@ export default function RequestRunPage() {
     return undefined;
   }, [selectedRunEvents]);
 
-  const progress = useMemo(() => deriveProgress(selectedRunEvents), [selectedRunEvents]);
+  const requestPayload = (data?.payload ?? null) as Record<string, unknown> | null;
+  const requestTitle =
+    (typeof requestPayload?.["title"] === "string" ? (requestPayload["title"] as string) : null) ??
+    "Request";
   const metadata = (data?.metadata ?? null) as Record<string, unknown> | null;
   const workspaceMeta = metadata && typeof metadata["workspace"] === "object" ? (metadata["workspace"] as Record<string, unknown>) : undefined;
   const repositorySlug = data?.project?.repository ?? "Unlinked repository";
   const baseBranch = workspaceMeta && typeof workspaceMeta["base_branch"] === "string" ? (workspaceMeta["base_branch"] as string) : undefined;
   const selectedArtifacts = selectedRun?.artifacts && typeof selectedRun.artifacts === "object" ? (selectedRun.artifacts as Record<string, unknown>) : undefined;
   const featureBranch = selectedArtifacts && typeof selectedArtifacts["branch"] === "string" ? (selectedArtifacts["branch"] as string) : undefined;
-  const commitHash = selectedArtifacts && typeof selectedArtifacts["commit"] === "string" ? (selectedArtifacts["commit"] as string) : undefined;
   const startedAtDate = selectedRun?.started_at ? new Date(selectedRun.started_at) : null;
   const finishedAtDate = selectedRun?.finished_at ? new Date(selectedRun.finished_at) : null;
   const durationSeconds = startedAtDate && finishedAtDate ? Math.max(0, Math.round((finishedAtDate.getTime() - startedAtDate.getTime()) / 1000)) : null;
-  const formatTimestamp = (d: Date | null) => (d ? d.toLocaleString() : "Not started");
+  const formatTimestamp = (d: Date | null) => (d ? d.toLocaleString() : "Non demarre");
   const formatDuration = (s: number | null) => {
-    if (s === null) return finishedAtDate ? "Under a second" : "In progress…";
+    if (s === null) return finishedAtDate ? "Moins d'une seconde" : "En cours";
     if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60); const r = s % 60; return r === 0 ? `${m}m` : `${m}m ${r}s`;
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return r === 0 ? `${m}m` : `${m}m ${r}s`;
   };
-  const runStatusLabel = (selectedRun?.status ?? "pending").replace(/_/g, " ");
   const diffStats = summarizeDiff(selectedRun?.diff);
+  const diffFiles = useMemo(() => deriveDiffFiles(selectedRun?.diff), [selectedRun?.diff]);
+  const limitedDiffFiles = diffFiles.slice(0, 5);
 
   const [activePane, setActivePane] = useState<"log" | "diff">("log");
-  useEffect(() => { setActivePane("log"); }, [selectedRunId]);
+  useEffect(() => {
+    const nextPane = selectedRun?.diff ? "diff" : "log";
+    setActivePane((prev) => (prev === nextPane ? prev : nextPane));
+  }, [selectedRunId, selectedRun?.diff]);
 
   const statusTone = (statusText: string | undefined) => {
     const s = (statusText ?? "").toLowerCase();
@@ -231,238 +222,162 @@ export default function RequestRunPage() {
     return { cls: "bg-muted text-muted-foreground border-border/60", Icon: Clock } as const;
   };
 
-  const RequestSummaryCard = () => (
-    <Card className="rounded-2xl border border-border/70 bg-background shadow-sm">
-      <CardHeader className="space-y-2 pb-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Request</div>
-        <CardTitle className="text-lg">{data?.payload.title ?? "Request"}</CardTitle>
-        <p className="text-xs text-muted-foreground">{repositorySlug}{baseBranch ? ` · Base ${baseBranch}` : ""}</p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Execution</p>
-          <div className="flex flex-wrap items-center gap-2">
-            {(() => { const { cls, Icon } = statusTone(selectedRun?.status); return (
-              <Badge variant="outline" className={cn("border px-2.5 py-1 text-xs", cls)}>
-                <Icon className="mr-1.5 h-3.5 w-3.5" />
-                <span className="capitalize">{runStatusLabel}</span>
-              </Badge>
-            );})()}
-            <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-[11px]"><Clock className="mr-1 h-3 w-3" /> {formatDuration(durationSeconds)}</Badge>
-          </div>
-        </div>
-        <Separator />
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Summary</p>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>No summary available for this run.</li>
-          </ul>
-        </div>
-        <Separator />
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Testing</p>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Badge variant="outline" className="border-border/60">pytest</Badge>
-            <span>—</span>
-          </div>
-        </div>
-        <Separator />
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Files</p>
-          <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span>Changed files</span>
-              <Badge variant="secondary">{diffStats.files}</Badge>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">+{diffStats.additions} / -{diffStats.deletions}</p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+  const RunHistoryRail = () => {
+    if (combinedRuns.length === 0) {
+      return (
+        <div className="px-2 py-4 text-sm text-muted-foreground">No runs yet.</div>
+      );
+    }
 
-  const RunOverviewCard = () => (
-    <Card className="rounded-2xl border border-border/70 bg-background shadow-sm">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base"><Server className="h-4 w-4" /> Run Overview</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Repository</p>
-            <p>{repositorySlug}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Base</p>
-            <p className="font-mono text-xs">{baseBranch ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Feature</p>
-            <p className="flex items-center gap-1 font-mono text-xs"><GitBranch className="h-3 w-3 opacity-70" />{featureBranch ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Commit</p>
-            <p className="flex items-center gap-1 font-mono text-xs"><GitCommit className="h-3 w-3 opacity-70" />{commitHash ? commitHash.slice(0,12) : "—"}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Started</p>
-            <p>{formatTimestamp(startedAtDate)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Finished</p>
-            <p>{selectedRun?.finished_at ? formatTimestamp(finishedAtDate) : "In progress…"}</p>
-          </div>
-        </div>
-        <Separator />
-        <div className="flex items-center justify-between">
-          <Badge variant="outline" className="rounded-full px-2.5 py-1 text-[10px]"><GitPullRequest className="mr-1 h-3 w-3" /> PR</Badge>
-          <div className="flex gap-2">
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs">Archive</Button>
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs">Share</Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+    return (
+      <ScrollArea className="w-full">
+        <div className="flex w-max items-stretch gap-2 pr-4">
+          {combinedRuns.map((run) => {
+            const isSelected = run.id === selectedRunId;
+            const runStarted = run.started_at && !Number.isNaN(Date.parse(run.started_at))
+              ? new Date(run.started_at).toLocaleTimeString()
+              : "Pending";
+            const statusText = (run.status ?? "pending").replace(/_/g, " ");
+            const { cls } = statusTone(run.status);
 
-  const RunHistoryCard = ({ className }: { className?: string }) => (
-    <Card className={cn("rounded-2xl border border-border/70 bg-background shadow-sm", className)}>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Run History</CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        {combinedRuns.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-muted-foreground">No runs yet.</div>
-        ) : (
-          <ScrollArea className="max-h-[24rem]">
-            <ul className="divide-y divide-border/60">
-              {combinedRuns.map((run) => {
-                const isSelected = run.id === selectedRunId;
-                const runStarted = run.started_at && !Number.isNaN(Date.parse(run.started_at)) ? new Date(run.started_at).toLocaleString() : "Pending…";
-                const runFinished = run.finished_at && !Number.isNaN(Date.parse(run.finished_at)) ? new Date(run.finished_at).toLocaleString() : null;
-                const statusText = (run.status ?? "pending").replace(/_/g, " ");
-                const { cls } = statusTone(run.status);
-                return (
-                  <li key={run.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRunId(run.id)}
-                      className={cn("flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition", isSelected ? "bg-primary/10" : "hover:bg-muted/60")}
-                      aria-current={isSelected ? "true" : undefined}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold capitalize text-foreground">{statusText}</span>
-                          <Badge variant="outline" className={cn("border px-2 py-0.5 text-[10px]", cls)}>{run.id.slice(0, 6)}</Badge>
-                        </div>
-                        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">Started: {runStarted}{runFinished ? ` · Finished: ${runFinished}` : ""}</p>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </ScrollArea>
-        )}
-      </CardContent>
-    </Card>
-  );
+            return (
+              <button
+                type="button"
+                key={run.id}
+                onClick={() => setSelectedRunId(run.id)}
+                className={cn(
+                  "flex min-w-[180px] flex-col gap-1 rounded-2xl border px-3 py-2 text-left text-xs transition",
+                  isSelected ? "border-primary bg-primary/10" : "border-border/60 hover:bg-muted/60",
+                )}
+                aria-current={isSelected ? "true" : undefined}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold capitalize text-foreground">{statusText}</span>
+                  <Badge variant="outline" className={cn("border px-2 py-0.5 text-[10px]", cls)}>{run.id.slice(0, 6)}</Badge>
+                </div>
+                <p className="text-muted-foreground">Started · {runStarted}</p>
+              </button>
+            );
+          })}
+        </div>
+      </ScrollArea>
+    );
+  };
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-4rem)] w-full gap-6 px-4 pb-8 pt-6 lg:px-8">
-      <aside className="flex h-full w-full flex-col overflow-hidden lg:w-1/3">
-        <RunChatPanel requestId={requestId} history={historyJsonl} storedMessages={storedMessages} className="flex-1" />
-      </aside>
-
-      <main className="flex h-full w-full flex-1 flex-col gap-6 overflow-hidden lg:w-2/3">
-        <div className="grid shrink-0 gap-4 md:grid-cols-3">
-          <div className="md:col-span-1">
-            <RequestSummaryCard />
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden bg-muted/10">
+      <header className="border-b border-border/60 bg-background/95">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 lg:px-10">
+          <div className="flex min-w-0 flex-1 items-center gap-4">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-9 rounded-full px-3 text-sm"
+              onClick={() => navigate(-1)}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" /> Retour
+            </Button>
+            <div className="min-w-0 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Demande</p>
+              <h1 className="truncate text-2xl font-semibold text-foreground">{requestTitle}</h1>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                <span className="flex min-w-0 items-center gap-1 text-foreground">
+                  <Server className="h-4 w-4 opacity-70" />
+                  <span className="truncate" title={repositorySlug}>{repositorySlug}</span>
+                </span>
+                <span className="flex min-w-0 items-center gap-1 text-foreground">
+                  <GitBranch className="h-4 w-4 opacity-70" />
+                  <span className="truncate" title={featureBranch ?? baseBranch ?? "Branch inconnue"}>
+                    {featureBranch ?? baseBranch ?? "Branch inconnue"}
+                  </span>
+                </span>
+                {selectedRunId ? (
+                  <span className="font-mono text-xs text-muted-foreground">Run {selectedRunId.slice(0, 8)}</span>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <span>Début {formatTimestamp(startedAtDate)}</span>
+                <span>{selectedRun?.finished_at ? `Fin ${formatTimestamp(finishedAtDate)}` : "Toujours en cours"}</span>
+                <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-foreground">
+                  Durée {formatDuration(durationSeconds)}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="md:col-span-1">
-            <RunOverviewCard />
-          </div>
-          <div className="md:col-span-1">
-            <RunHistoryCard className="h-full min-h-[14rem]" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" className="rounded-full px-4">Archiver</Button>
+            <Button size="sm" variant="outline" className="rounded-full px-4">Partager</Button>
+            <Button size="sm" className="rounded-full px-4">Voir l'extraction</Button>
           </div>
         </div>
+      </header>
 
-        <Card className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-background shadow-sm">
-          <CardHeader className="gap-4 pb-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted-foreground">Request Execution</p>
-                <h1 className="text-2xl font-semibold text-foreground">{data?.payload.title ?? "Request"}</h1>
-                <p className="text-sm text-muted-foreground">{repositorySlug}{baseBranch ? ` · Base ${baseBranch}` : ""}</p>
-              </div>
-              <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs"><Clock className="mr-1.5 h-3.5 w-3.5" /> {formatDuration(durationSeconds)}</Badge>
-            </div>
-            <Separator />
+      <div className="flex flex-1 min-h-0 flex-col gap-6 px-4 pb-6 pt-4 lg:flex-row lg:px-10">
+        <aside className="flex w-full min-w-0 flex-col lg:w-[38%]">
+          <RunChatPanel
+            requestId={requestId}
+            history={historyJsonl}
+            storedMessages={storedMessages}
+            className="flex-1"
+          />
+        </aside>
 
-            <div className="overflow-hidden rounded-xl border border-border/70 bg-muted/20">
-              <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-5">
-                {progress.map(({ status, state }) => (
-                  <div key={status.id} className="flex min-w-[120px] flex-col items-center gap-2 text-center">
-                    <div className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-full border text-xs font-semibold",
-                      state === "done"
-                        ? "border-green-500/60 bg-green-500/10 text-green-500"
-                        : state === "active"
-                        ? "border-primary/60 bg-primary/10 text-primary"
-                        : "border-border/70 bg-muted text-muted-foreground"
-                    )}>
-                      {status.label.split(/\s+/).map((w) => w[0]).join("").slice(0,3).toUpperCase()}
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-foreground">{status.label}</p>
-                      <p className="text-xs text-muted-foreground">{status.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <Tabs value={activePane} onValueChange={(v) => setActivePane(v as "log" | "diff")} className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-4 flex shrink-0 items-center justify-between">
+        <section className="flex w-full min-w-0 flex-1 flex-col gap-4 min-h-0">
+          <Card className="flex flex-1 min-h-0 min-w-0 flex-col rounded-[32px] border border-border/70 bg-background shadow-sm">
+            <Tabs
+              value={activePane}
+              onValueChange={(v) => setActivePane(v as "log" | "diff")}
+              className="flex flex-1 min-h-0 flex-col"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-6 py-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted-foreground">Vue detaillee</p>
+                  <h2 className="truncate text-lg font-semibold text-foreground">{limitedDiffFiles[0]?.path ?? "Output preview"}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    +{limitedDiffFiles[0]?.additions ?? diffStats.additions} / -{limitedDiffFiles[0]?.deletions ?? diffStats.deletions}
+                  </p>
+                </div>
                 <TabsList className="rounded-full border border-border/60 bg-muted/30 p-1">
-                  <TabsTrigger
-                    value="log"
-                    className="rounded-full px-3 py-1 text-xs transition data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                  >
-                    Journaux
-                  </TabsTrigger>
                   <TabsTrigger
                     value="diff"
                     className="rounded-full px-3 py-1 text-xs transition data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
                   >
                     Diff
                   </TabsTrigger>
+                  <TabsTrigger
+                    value="log"
+                    className="rounded-full px-3 py-1 text-xs transition data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                  >
+                    Journaux
+                  </TabsTrigger>
                 </TabsList>
               </div>
 
-              <TabsContent value="log" className="flex min-h-0 flex-1 flex-col">
-                {selectedRun ? (
-                  <div className="flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-border/70 bg-background/90">
-                    <RunLogViewer events={selectedRunEvents} className="flex-1 border-none" fillHeight />
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="h-10 w-1/3 animate-pulse rounded bg-muted" />
-                    <div className="h-64 w-full animate-pulse rounded bg-muted" />
-                  </div>
-                )}
-              </TabsContent>
+              {combinedRuns.length > 1 ? (
+                <div className="flex w-full flex-col gap-2 border-b border-border/60 px-6 pb-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Autres executions</p>
+                  <RunHistoryRail />
+                </div>
+              ) : null}
 
-              <TabsContent value="diff" className="flex min-h-0 flex-1 flex-col">
+              <TabsContent
+                value="diff"
+                className="mt-0 flex flex-1 min-h-0 flex-col px-6 py-5 data-[state=inactive]:hidden"
+              >
                 {selectedRun ? (
                   selectedRun.diff ? (
-                    <div className="flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-border/70 bg-background/90">
-                      <DiffPreview diff={selectedRun.diff} className="flex-1 border-none" maxHeight={560} />
+                    <div className="flex flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/70 bg-background/90">
+                      <DiffPreview
+                        diff={selectedRun.diff}
+                        className="flex-1 border-none"
+                        maxHeight={560}
+                      />
                     </div>
                   ) : (
-                    <div className="rounded-2xl border border-border/70 bg-background/90 px-4 py-6 text-sm text-muted-foreground">No diff captured for this run.</div>
+                    <div className="rounded-2xl border border-border/70 bg-background/90 px-4 py-6 text-sm text-muted-foreground">
+                      No diff captured for this run.
+                    </div>
                   )
                 ) : (
                   <div className="space-y-3">
@@ -471,23 +386,43 @@ export default function RequestRunPage() {
                   </div>
                 )}
               </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
 
-        {selectedRun && errorEvent && (
-          <Card className="shrink-0 rounded-2xl border border-destructive/40 bg-background shadow-sm">
-            <CardHeader className="border-b border-destructive/30 pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold text-destructive">
-                <AlertTriangle className="h-4 w-4" /> Execution error
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap text-sm text-destructive/90">{errorEvent.message ?? "The run reported an error. Check the logs above for details."}</p>
-            </CardContent>
+              <TabsContent
+                value="log"
+                className="mt-0 flex flex-1 min-h-0 flex-col px-6 py-5 data-[state=inactive]:hidden"
+              >
+                {selectedRun ? (
+                  <div className="flex flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/70 bg-background/90">
+                    <RunLogViewer
+                      events={selectedRunEvents}
+                      className="flex-1 border-none"
+                      fillHeight
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="h-10 w-1/3 animate-pulse rounded bg-muted" />
+                    <div className="h-64 w-full animate-pulse rounded bg-muted" />
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </Card>
-        )}
-      </main>
+
+          {selectedRun && errorEvent && (
+            <Card className="shrink-0 rounded-[32px] border border-destructive/40 bg-background shadow-sm">
+              <div className="border-b border-destructive/30 px-6 py-3">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold text-destructive">
+                  <AlertTriangle className="h-4 w-4" /> Execution error
+                </CardTitle>
+              </div>
+              <div className="px-6 py-4">
+                <p className="whitespace-pre-wrap text-sm text-destructive/90">{errorEvent.message ?? "The run reported an error. Check the logs above for details."}</p>
+              </div>
+            </Card>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
