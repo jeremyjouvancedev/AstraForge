@@ -1,6 +1,7 @@
 # Global Rules
 
 - Always keep up to date docs/architecture.md on the root repo with the architecture in mermaid format
+- Ensure the public website stays fully responsive and follows solid UX principles
 
 # Repository Guidelines
 
