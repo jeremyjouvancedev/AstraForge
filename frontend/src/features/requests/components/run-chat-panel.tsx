@@ -12,6 +12,16 @@ interface RunChatPanelProps {
   history?: string | null;
   storedMessages?: Array<Record<string, unknown>> | null;
   className?: string;
+  latestAssistantMessage?: {
+    id?: string;
+    content: string;
+    createdAt?: string;
+  } | null;
+  liveAssistantMessage?: {
+    id?: string;
+    content: string;
+    createdAt?: string;
+  } | null;
   seedMessage?: {
     id?: string;
     content: string;
@@ -137,7 +147,15 @@ function mergeMessages(historyMessages: TimelineMessage[], storedMessages: Timel
   return combined;
 }
 
-export function RunChatPanel({ requestId, history, storedMessages, className, seedMessage }: RunChatPanelProps) {
+export function RunChatPanel({
+  requestId,
+  history,
+  storedMessages,
+  className,
+  seedMessage,
+  latestAssistantMessage,
+  liveAssistantMessage,
+}: RunChatPanelProps) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [pendingMessages, setPendingMessages] = useState<TimelineMessage[]>([]);
@@ -205,7 +223,7 @@ export function RunChatPanel({ requestId, history, storedMessages, className, se
     } satisfies TimelineMessage;
   }, [seedMessage]);
 
-  const displayedConversation = useMemo(() => {
+  const conversationWithSeed = useMemo(() => {
     if (!normalizedSeed) return conversation;
     const alreadyIncluded = conversation.some(
       (msg) => msg.content === normalizedSeed.content && msg.role === normalizedSeed.role
@@ -213,6 +231,32 @@ export function RunChatPanel({ requestId, history, storedMessages, className, se
     if (alreadyIncluded) return conversation;
     return [normalizedSeed, ...conversation];
   }, [conversation, normalizedSeed]);
+
+  const assistantCandidate = liveAssistantMessage ?? latestAssistantMessage;
+
+  const assistantFromRun = useMemo(() => {
+    const content = assistantCandidate?.content?.trim();
+    if (!content) return null;
+    const createdAt = assistantCandidate?.createdAt
+      ? parseIsoTimestamp(assistantCandidate.createdAt, -2)
+      : new Date().toISOString();
+    const hash = Math.abs(content.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0));
+    return {
+      id: assistantCandidate?.id ?? `run-assistant-${hash}`,
+      role: "assistant" as TimelineRole,
+      content,
+      created_at: createdAt,
+    } satisfies TimelineMessage;
+  }, [assistantCandidate]);
+
+  const displayedConversation = useMemo(() => {
+    if (!assistantFromRun) return conversationWithSeed;
+    const alreadyIncluded = conversationWithSeed.some(
+      (msg) => msg.role === "assistant" && msg.content.trim() === assistantFromRun.content.trim()
+    );
+    if (alreadyIncluded) return conversationWithSeed;
+    return [...conversationWithSeed, assistantFromRun];
+  }, [conversationWithSeed, assistantFromRun]);
 
   const handleSend = (message: string) => {
     const trimmed = message.trim();

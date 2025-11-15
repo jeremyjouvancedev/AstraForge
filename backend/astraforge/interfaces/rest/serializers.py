@@ -72,6 +72,7 @@ class RequestSerializer(serializers.Serializer):
         project_public = dict(project_internal)
         project_public.pop("access_token", None)
         metadata_public = dict(instance.metadata)
+        metadata_public = self._append_run_assistant_messages(metadata_public)
         project_meta = metadata_public.get("project")
         if isinstance(project_meta, dict):
             metadata_public = dict(metadata_public)
@@ -111,6 +112,60 @@ class RequestSerializer(serializers.Serializer):
         candidate = candidate or "User request"
         limit = 72
         return candidate if len(candidate) <= limit else f"{candidate[: limit - 3]}..."
+
+    def _append_run_assistant_messages(self, metadata: dict[str, object]) -> dict[str, object]:
+        runs = metadata.get("runs")
+        if not isinstance(runs, list):
+            return metadata
+        existing_messages = metadata.get("chat_messages")
+        base_messages = list(existing_messages) if isinstance(existing_messages, list) else []
+        seen_signatures: set[tuple[str, str]] = set()
+        for entry in base_messages:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role", "")).lower()
+            content = (
+                str(entry.get("message", "")).strip()
+                or str(entry.get("content", "")).strip()
+            )
+            if role and content:
+                seen_signatures.add((role, content))
+        additions: list[dict[str, object]] = []
+        for run in runs:
+            if not isinstance(run, dict):
+                continue
+            artifacts = run.get("artifacts")
+            if not isinstance(artifacts, dict):
+                continue
+            final_message = artifacts.get("final_message")
+            if not isinstance(final_message, str):
+                continue
+            content = final_message.strip()
+            if not content:
+                continue
+            signature = ("assistant", content)
+            if signature in seen_signatures:
+                continue
+            created_at = (
+                run.get("finished_at")
+                or run.get("started_at")
+                or timezone.now().isoformat()
+            )
+            additions.append(
+                {
+                    "role": "assistant",
+                    "message": content,
+                    "created_at": created_at,
+                    "run_id": run.get("id"),
+                }
+            )
+            seen_signatures.add(signature)
+        if not additions:
+            return metadata
+        merged = base_messages + additions
+        updated = dict(metadata)
+        updated["chat_messages"] = merged
+        return updated
 
 
 class ChatSerializer(serializers.Serializer):

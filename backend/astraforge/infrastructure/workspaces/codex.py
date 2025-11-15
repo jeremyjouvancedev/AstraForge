@@ -571,8 +571,20 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                 _override("projects.\"/workspace\".trust_level", "trusted"),
             ]
         )
-        base = ["codex", "exec", "--skip-git-repo-check", *overrides, prompt]
+        final_message_path = self._final_message_path(workspace.path)
+        base = [
+            "codex",
+            "exec",
+            "--skip-git-repo-check",
+            "-o",
+            final_message_path,
+            *overrides,
+            prompt,
+        ]
         return self._wrap_exec(workspace.metadata.get("container", workspace.ref), workspace.mode, base)
+
+    def _final_message_path(self, workspace_path: str) -> str:
+        return f"{workspace_path}/.codex/final_message.txt"
 
     def _wrap_exec(self, identifier: str, mode: str, command: List[str]) -> List[str]:
         if mode == "docker":
@@ -627,12 +639,24 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             stream=stream,
         )
         history_content = self._read_history_file(workspace, stream)
+        final_message = self._read_final_message(workspace, stream)
+        if not final_message and history_content:
+            final_message = self._history_last_assistant(history_content)
 
         artifacts: Dict[str, str] = {}
         if isinstance(feature_branch, str) and feature_branch:
             artifacts["branch"] = feature_branch
         if history_content:
             artifacts["history"] = history_content
+        if final_message:
+            stream(
+                {
+                    "type": "assistant_message",
+                    "stage": "chat",
+                    "message": final_message,
+                }
+            )
+            artifacts["final_message"] = final_message
         if commit_hash:
             artifacts["commit"] = commit_hash
         return ExecutionOutcome(diff=diff_output, artifacts=artifacts)
@@ -860,6 +884,76 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             content = (result.stdout or "").strip()
             if content:
                 return content
+        return None
+
+    def _read_final_message(
+        self,
+        workspace: WorkspaceContext,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> str | None:
+        identifier = workspace.metadata.get("container", workspace.ref)
+        mode = workspace.mode
+        final_path = self._final_message_path(workspace.path)
+        command = self._wrap_exec(
+            identifier,
+            mode,
+            ["sh", "-c", f"if [ -f {final_path} ]; then cat {final_path}; fi"],
+        )
+        result = self.runner.run(command, stream=stream, allow_failure=True)
+        message = (result.stdout or "").strip()
+        if message:
+            stream(
+                {
+                    "type": "status",
+                    "stage": "codex",
+                    "message": "Captured final Codex response",
+                }
+            )
+            return message
+        return None
+
+    def _history_last_assistant(self, history_content: str | None) -> str | None:
+        if not history_content:
+            return None
+        lines = [line.strip() for line in history_content.splitlines() if line.strip()]
+        for raw in reversed(lines):
+            role = "assistant"
+            content: str | None = None
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                content = raw
+            else:
+                role = str(
+                    record.get("role")
+                    or record.get("author")
+                    or record.get("type")
+                    or "assistant"
+                ).lower()
+                content = self._normalize_history_content(record.get("content"))
+                if not content:
+                    content = self._normalize_history_content(record.get("message"))
+            if not content:
+                continue
+            if role in {"assistant", "ai", "model", "codex"}:
+                normalized = content.strip()
+                if normalized:
+                    return normalized
+        return None
+
+    @staticmethod
+    def _normalize_history_content(value: object) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            if parts:
+                return "\n".join(parts)
         return None
 
     def _ensure_local_image(

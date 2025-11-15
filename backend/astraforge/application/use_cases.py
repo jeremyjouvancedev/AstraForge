@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import subprocess
 import uuid
 from typing import TYPE_CHECKING, Any, Protocol
@@ -129,10 +130,18 @@ class ExecuteRequest:
         request.metadata["runs"] = existing_runs
 
         def publish(event: dict[str, Any]) -> None:
+            created = event.get("created_at")
+            timestamp = (
+                created
+                if isinstance(created, str) and created
+                else datetime.now(timezone.utc).isoformat()
+            )
+            event_payload = dict(event)
+            event_payload["created_at"] = timestamp
             payload: dict[str, Any] = {
                 "request_id": request.id,
                 "run_id": run_record["id"],
-                **event,
+                **event_payload,
             }
             run_record["events"].append(payload)
             self.run_log.publish(request.id, payload)
@@ -165,10 +174,25 @@ class ExecuteRequest:
                 workspace,
                 stream=publish,
             )
-            request.metadata["execution"] = outcome.as_dict()
             history_content = outcome.artifacts.get("history")
             if history_content:
                 request.metadata["history_jsonl"] = history_content
+            final_message = outcome.artifacts.get("final_message")
+            if not isinstance(final_message, str):
+                derived = self._extract_assistant_message_from_history(history_content)
+                if derived:
+                    final_message = derived
+                    outcome.artifacts["final_message"] = derived
+            if isinstance(final_message, str):
+                publish(
+                    {
+                        "type": "assistant_message",
+                        "stage": "chat",
+                        "message": final_message,
+                    }
+                )
+                self._record_assistant_message(request, final_message, _timestamp())
+            request.metadata["execution"] = outcome.as_dict()
             commit_hash = outcome.artifacts.get("commit")
             if commit_hash:
                 request.metadata["last_commit"] = commit_hash
@@ -260,6 +284,73 @@ class ExecuteRequest:
         candidate = first_line if first_line else clean
         limit = 72
         return candidate if len(candidate) <= limit else f"{candidate[: limit - 3]}..."
+
+    def _record_assistant_message(self, request: Request, content: str, created_at: str) -> None:
+        message_text = content.strip()
+        if not message_text:
+            return
+        existing = request.metadata.get("chat_messages")
+        messages: list[dict[str, object]] = existing if isinstance(existing, list) else []
+        messages = list(messages)
+        for entry in messages:
+            if (
+                isinstance(entry, dict)
+                and str(entry.get("role", "")).lower() == "assistant"
+                and str(entry.get("message", "")).strip() == message_text
+            ):
+                return
+        messages.append(
+            {
+                "role": "assistant",
+                "message": message_text,
+                "created_at": created_at,
+            }
+        )
+        request.metadata["chat_messages"] = messages
+
+    def _extract_assistant_message_from_history(self, history_content: object) -> str | None:
+        if not isinstance(history_content, str):
+            return None
+        lines = [line.strip() for line in history_content.splitlines() if line.strip()]
+        for raw in reversed(lines):
+            role = "assistant"
+            content: str | None = None
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                content = raw
+            else:
+                role = str(
+                    record.get("role")
+                    or record.get("author")
+                    or record.get("type")
+                    or "assistant"
+                ).lower()
+                content = self._normalize_history_content(record.get("content"))
+                if not content:
+                    content = self._normalize_history_content(record.get("message"))
+            if not content:
+                continue
+            if role in {"assistant", "ai", "model", "codex"}:
+                normalized = content.strip()
+                if normalized:
+                    return normalized
+        return None
+
+    @staticmethod
+    def _normalize_history_content(value: object) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            if parts:
+                return "\n".join(parts)
+        return None
 
 
 @dataclass

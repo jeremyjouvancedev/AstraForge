@@ -170,6 +170,17 @@ class _StubSpecGenerator:
         )
 
 
+STUB_FINAL_MESSAGE = "Codex execution completed"
+STUB_HISTORY = "[]"
+HISTORY_ONLY_ASSISTANT = "History derived assistant"
+HISTORY_ONLY_JSONL = "\n".join(
+    [
+        '{"role":"user","content":"Trigger"}',
+        f'{{"role":"assistant","content":"{HISTORY_ONLY_ASSISTANT}"}}',
+    ]
+)
+
+
 class _StubWorkspaceOperator:
     def __init__(self):
         self.prepared = False
@@ -191,7 +202,14 @@ class _StubWorkspaceOperator:
     def run_codex(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
         self.executed = True
         stream({"type": "status", "stage": "codex", "message": "running"})
-        return ExecutionOutcome(diff="diff", artifacts={"branch": f"astraforge/{request.id}"})
+        return ExecutionOutcome(
+            diff="diff",
+            artifacts={
+                "branch": f"astraforge/{request.id}",
+                "history": STUB_HISTORY,
+                "final_message": STUB_FINAL_MESSAGE,
+            },
+        )
 
     def teardown(self, workspace: WorkspaceContext) -> None:
         self.teardown_called = True
@@ -206,6 +224,19 @@ class _StubRunLog:
 
     def stream(self, request_id: str):  # pragma: no cover - not used in test
         return iter(self.events)
+
+
+class _HistoryOnlyWorkspaceOperator(_StubWorkspaceOperator):
+    def run_codex(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
+        self.executed = True
+        stream({"type": "status", "stage": "codex", "message": "running"})
+        return ExecutionOutcome(
+            diff="diff",
+            artifacts={
+                "branch": f"astraforge/{request.id}",
+                "history": HISTORY_ONLY_JSONL,
+            },
+        )
 
 
 def test_process_request_populates_metadata():
@@ -295,9 +326,13 @@ def test_execute_request_runs_workspace():
     assert stored.metadata["spec"]["implementation_steps"] == ["desc"]
     assert stored.metadata["workspace"]["mode"] == "docker"
     assert stored.metadata["execution"]["diff"] == "diff"
-    assert stored.metadata.get("history_jsonl") == "[]"
+    assert stored.metadata.get("history_jsonl") == STUB_HISTORY
     assert outcome.diff == "diff"
     assert any(event.get("stage") == "codex" for event in run_log.events if "stage" in event)
+    assert any(
+        event.get("type") == "assistant_message" and event.get("message") == STUB_FINAL_MESSAGE
+        for event in run_log.events
+    )
     assert operator.prepared and operator.executed and operator.teardown_called
     runs_meta = stored.metadata.get("runs")
     assert runs_meta and len(runs_meta) == 1
@@ -307,7 +342,56 @@ def test_execute_request_runs_workspace():
     assert run_entry["events"]
     assert all(event.get("run_id") == run_entry["id"] for event in run_entry["events"])
     assert run_entry["artifacts"]["branch"].startswith("astraforge/")
-    assert run_entry["artifacts"]["history"] == "[]"
+    assert run_entry["artifacts"]["history"] == STUB_HISTORY
+    assert run_entry["artifacts"]["final_message"] == STUB_FINAL_MESSAGE
+    chat_messages = stored.metadata.get("chat_messages", [])
+    assert chat_messages
+    last_message = chat_messages[-1]
+    assert last_message["role"] == "assistant"
+    assert last_message["message"] == STUB_FINAL_MESSAGE
+
+
+def test_execute_request_uses_history_when_final_message_missing():
+    repo = InMemoryRequestRepository()
+    payload = RequestPayload(title="Add feature", description="desc", context={})
+    request = Request(
+        id="req-history-only",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="user@example.com",
+        payload=payload,
+        state=RequestState.RECEIVED,
+        metadata={
+            "project": {
+                "repository": "org/project",
+                "branch": "main",
+            }
+        },
+    )
+    repo.save(request)
+    run_log = _StubRunLog()
+    operator = _HistoryOnlyWorkspaceOperator()
+
+    ExecuteRequest(
+        repository=repo,
+        workspace_operator=operator,
+        run_log=run_log,
+    )(request_id="req-history-only")
+
+    stored = repo.get("req-history-only")
+    messages = stored.metadata.get("chat_messages", [])
+    assert any(
+        isinstance(entry, dict)
+        and entry.get("role") == "assistant"
+        and entry.get("message") == HISTORY_ONLY_ASSISTANT
+        for entry in messages
+    )
+    run_entry = stored.metadata["runs"][0]
+    assert run_entry["artifacts"]["final_message"] == HISTORY_ONLY_ASSISTANT
+    assert any(
+        event.get("type") == "assistant_message" and event.get("message") == HISTORY_ONLY_ASSISTANT
+        for event in run_log.events
+    )
 
 
 def test_run_viewset_returns_run_history(api_client, user, monkeypatch):
@@ -351,7 +435,8 @@ def test_run_viewset_returns_run_history(api_client, user, monkeypatch):
     assert payload["diff"] == "diff"
     assert payload["events"]
     assert payload["diff_size"] == len("diff")
-    assert payload["artifacts"]["history"] == "[]"
+    assert payload["artifacts"]["history"] == STUB_HISTORY
+    assert payload["artifacts"]["final_message"] == STUB_FINAL_MESSAGE
     assert payload["artifacts"]["branch"].startswith("astraforge/")
     assert payload["artifacts"]["branch"].startswith("astraforge/")
 
@@ -395,6 +480,58 @@ def test_run_viewset_falls_back_to_execution_metadata(api_client, user, monkeypa
     assert payload["events"][0]["run_id"] == fallback_id
     stages = {event.get("stage") for event in payload["events"]}
     assert "diff" in stages
+
+
+def test_request_detail_includes_final_assistant_message(api_client, user, monkeypatch):
+    repo = InMemoryRequestRepository()
+    monkeypatch.setattr("astraforge.bootstrap.repository", repo, raising=False)
+    monkeypatch.setattr("astraforge.interfaces.rest.views.repository", repo, raising=False)
+
+    request = Request(
+        id="req-chat-record",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="user@example.com",
+        payload=RequestPayload(title="Chat coverage", description="desc", context={}),
+        metadata={
+            "project": {
+                "repository": "org/project",
+                "branch": "main",
+            },
+            "chat_messages": [
+                {
+                    "role": "user",
+                    "message": "Please run Codex",
+                    "created_at": "2024-01-01T00:00:00Z",
+                }
+            ],
+            "runs": [
+                {
+                    "id": "run-chat-1",
+                    "status": "completed",
+                    "started_at": "2024-01-01T00:00:00Z",
+                    "finished_at": "2024-01-01T00:05:00Z",
+                    "events": [],
+                    "artifacts": {
+                        "final_message": "Execution finished with success."
+                    },
+                }
+            ],
+        },
+    )
+    repo.save(request)
+
+    response = api_client.get(reverse("request-detail", args=[request.id]))
+
+    assert response.status_code == 200
+    metadata = response.json()["metadata"]
+    messages = metadata.get("chat_messages") or []
+    assert any(
+        isinstance(entry, dict)
+        and entry.get("role") == "assistant"
+        and entry.get("message") == "Execution finished with success."
+        for entry in messages
+    )
 
 
 def test_merge_request_viewset_returns_merge_requests(api_client, user, monkeypatch):

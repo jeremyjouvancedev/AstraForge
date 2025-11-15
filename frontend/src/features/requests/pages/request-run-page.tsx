@@ -195,6 +195,30 @@ export default function RequestRunPage() {
   const baseBranch = workspaceMeta && typeof workspaceMeta["base_branch"] === "string" ? (workspaceMeta["base_branch"] as string) : undefined;
   const selectedArtifacts = selectedRun?.artifacts && typeof selectedRun.artifacts === "object" ? (selectedRun.artifacts as Record<string, unknown>) : undefined;
   const featureBranch = selectedArtifacts && typeof selectedArtifacts["branch"] === "string" ? (selectedArtifacts["branch"] as string) : undefined;
+  const liveAssistantMessage = useMemo(() => {
+    for (let i = selectedRunEvents.length - 1; i >= 0; i -= 1) {
+      const event = selectedRunEvents[i];
+      if (event?.type === "assistant_message" && typeof event.message === "string") {
+        const createdAt =
+          (typeof event["created_at"] === "string" ? (event["created_at"] as string) : null) ??
+          selectedRun?.finished_at ??
+          selectedRun?.started_at ??
+          null;
+        return { content: event.message, createdAt: createdAt ?? undefined };
+      }
+    }
+    return null;
+  }, [selectedRunEvents, selectedRun?.finished_at, selectedRun?.started_at]);
+
+  const latestAssistantMessage = useMemo(() => {
+    if (!selectedArtifacts) return null;
+    const finalMessage = selectedArtifacts["final_message"];
+    if (typeof finalMessage !== "string") return null;
+    const trimmed = finalMessage.trim();
+    if (!trimmed) return null;
+    const createdAt = selectedRun?.finished_at ?? selectedRun?.started_at ?? undefined;
+    return { content: trimmed, createdAt };
+  }, [selectedArtifacts, selectedRun?.finished_at, selectedRun?.started_at]);
   const startedAtDate = selectedRun?.started_at ? new Date(selectedRun.started_at) : null;
   const finishedAtDate = selectedRun?.finished_at ? new Date(selectedRun.finished_at) : null;
   const durationSeconds = startedAtDate && finishedAtDate ? Math.max(0, Math.round((finishedAtDate.getTime() - startedAtDate.getTime()) / 1000)) : null;
@@ -321,6 +345,8 @@ export default function RequestRunPage() {
             requestId={requestId}
             history={historyJsonl}
             storedMessages={storedMessages}
+            liveAssistantMessage={liveAssistantMessage}
+            latestAssistantMessage={latestAssistantMessage}
             seedMessage={
               requestPrompt
                 ? {
