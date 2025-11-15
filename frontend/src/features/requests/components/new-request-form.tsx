@@ -14,7 +14,7 @@ import {
   CreateRequestResponse,
   RepositoryLink
 } from "@/lib/api-client";
-import { ArrowUp, GitBranch, Layers, Mic, Monitor, Plus } from "lucide-react";
+import { ArrowUp, GitBranch, Layers, Monitor } from "lucide-react";
 
 const schema = z.object({
   projectId: z.string().uuid({ message: "Selectionnez un projet" }),
@@ -91,9 +91,6 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
           )}
           <div className="flex flex-col gap-4 rounded-b-[2.5rem] border-t border-border/60 bg-card/40 px-6 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Plus size={16} />
-              </div>
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
                 <Monitor size={16} />
               </div>
@@ -124,9 +121,6 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
                   {form.formState.errors.projectId.message}
                 </p>
               )}
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/60 text-muted-foreground">
-                <Mic size={16} />
-              </div>
               <Button type="submit" disabled={mutation.isLoading} className="h-11 w-11 p-0">
                 <ArrowUp size={16} />
               </Button>

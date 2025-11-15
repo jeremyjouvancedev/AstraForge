@@ -11,9 +11,19 @@ interface ChatComposerProps {
   value?: string;
   onChange?: (value: string) => void;
   placeholder?: string;
+  showContextButton?: boolean;
+  showMicrophoneButton?: boolean;
 }
 
-export function ChatComposer({ onSend, disabled, value, onChange, placeholder }: ChatComposerProps) {
+export function ChatComposer({
+  onSend,
+  disabled,
+  value,
+  onChange,
+  placeholder,
+  showContextButton = true,
+  showMicrophoneButton = true,
+}: ChatComposerProps) {
   const [uncontrolledValue, setUncontrolledValue] = useState("");
   const isControlled = typeof value === "string" && typeof onChange === "function";
   const message = isControlled ? value : uncontrolledValue;
@@ -41,13 +51,15 @@ export function ChatComposer({ onSend, disabled, value, onChange, placeholder }:
       onSubmit={handleSubmit}
       className="flex w-full items-center gap-3 rounded-full border border-border/50 bg-background px-4 py-2 text-sm shadow-sm"
     >
-      <button
-        type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition hover:text-foreground"
-        title="Ajouter un contexte"
-      >
-        <Plus className="h-4 w-4" />
-      </button>
+      {showContextButton && (
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition hover:text-foreground"
+          title="Ajouter un contexte"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      )}
       <Textarea
         rows={1}
         value={message}
@@ -56,13 +68,15 @@ export function ChatComposer({ onSend, disabled, value, onChange, placeholder }:
         disabled={disabled}
         className="max-h-28 min-h-0 flex-1 resize-none border-none bg-transparent px-0 py-0 text-sm shadow-none focus-visible:ring-0"
       />
-      <button
-        type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
-        title="Micro"
-      >
-        <Mic className="h-4 w-4" />
-      </button>
+      {showMicrophoneButton && (
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+          title="Micro"
+        >
+          <Mic className="h-4 w-4" />
+        </button>
+      )}
       <button
         type="submit"
         disabled={disabled || inactiveIcon}

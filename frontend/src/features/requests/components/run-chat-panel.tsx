@@ -298,6 +298,8 @@ export function RunChatPanel({
             value={draft}
             onChange={setDraft}
             disabled={sendMutation.isPending}
+            showContextButton={false}
+            showMicrophoneButton={false}
           />        
       </div>
     </div>

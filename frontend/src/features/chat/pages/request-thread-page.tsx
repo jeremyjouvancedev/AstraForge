@@ -45,7 +45,11 @@ export default function RequestThreadPage() {
           </div>
         </div>
       </section>
-      <ChatComposer onSend={handleSend} />
+      <ChatComposer
+        onSend={handleSend}
+        showContextButton={false}
+        showMicrophoneButton={false}
+      />
     </div>
   );
 }
