@@ -1,5 +1,9 @@
 # AstraForge
 
+![home](./images/astra_forge_home.jpg)
+![diff](./images/astra_forge_home.jpg)
+![log](./images/astra_forge_home.jpg)
+
 AstraForge is an AI-driven DevOps orchestrator that converts natural language requests into
 reviewed merge requests. It combines a modular Django backend, a modern React frontend, and
 pluggable executors that coordinate LLM-powered agents inside isolated workspaces.
