@@ -4,90 +4,183 @@
 ![diff](./images/astra_forge_diff_view.jpg)
 ![log](./images/astra_forge_log_view.jpg)
 
-AstraForge is an AI-driven DevOps orchestrator that converts natural language requests into
-reviewed merge requests. It combines a modular Django backend, a modern React frontend, and
-pluggable executors that coordinate LLM-powered agents inside isolated workspaces.
+AstraForge is an AI-driven DevOps orchestrator that turns natural language requests into reviewed,
+merge-ready pull requests. A Django + Celery backend coordinates agents running inside isolated
+Codex workspaces, while a fully responsive React UI streams live run logs, diffs, and chat updates.
+
+## Why AstraForge
+
+- **Prompt-to-MR workflow** – Capture user intent, queue executions, and stream every run state
+  change, artifact, and diff back to reviewers in real time.
+- **Modular execution engine** – Swappable executors, provisioners, and provider registries keep the
+  orchestration layer flexible enough for multiple LLM backends and VCS targets.
+- **Observability built in** – Event streams, structured run logs, and diff previews keep operators
+  informed before a branch ever lands in CI.
+- **Collaborative review surface** – Chat with the agent during a run, inspect MR context, and hand
+  off changes with confidence using generated summaries and metadata.
+
+See `docs/architecture.md` for the current high-level diagram (kept in mermaid format) plus ADRs that
+capture decisions as the system evolves.
 
 ## Monorepo Layout
 
-- `backend/` – Django REST Framework + Celery service with hexagonal architecture and provider
-  registries.
-- `frontend/` – React + shadcn/ui application with React Query state management and renderer registry.
-- `shared/` – OpenAPI schema outputs and message contract packages.
-- `docs/` – Architecture notes and ADRs.
-- `infra/` – CI pipelines and deployment scaffolding.
-- `opa/` – Example Gatekeeper/OPA policies.
+```
+.
+├── backend/            # Django REST Framework API, Celery workers, provider registries
+│   └── astraforge/
+│       ├── domain/     # Pure domain models + repositories
+│       ├── application/# Use-cases + orchestration pipelines
+│       ├── interfaces/ # REST, SSE, registries, inbound adapters
+│       └── infrastructure/ # ORM, Redis, external service adapters
+├── frontend/           # Vite + React Query + shadcn/ui client
+├── shared/             # Generated OpenAPI schema and DTO packages
+├── llm-proxy/          # FastAPI wrapper that proxies OpenAI (or compatible) APIs
+├── docs/               # Architecture overview, ADRs, runbooks
+├── infra/              # Deployment scaffolding (docker, k8s, CI)
+├── opa/                # OPA/Gatekeeper policies enforced in CI
+└── images/             # Marketing and README screenshots
+```
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
+- Python `>= 3.11`, `pip`, and `virtualenv`
+- Node.js `>= 20` with `pnpm` (the repo uses a lockfile)
+- Docker + Docker Compose for local provisioning
+- `make`, `pre-commit`, and `gitleaks`
+- Access to an OpenAI-compatible API key for the LLM proxy
 
-Install the git hooks so linting and security checks run automatically on commit:
+Install git hooks once so linting and leak scans run before each commit:
 
 ```bash
 pip install pre-commit
 pre-commit install
 ```
 
-### Backend
+## Local Development (manual workflow)
 
-```bash
-make install-deps  # creates backend/.venv and installs backend/frontend deps
-source backend/.venv/bin/activate
-cd backend
-python manage.py migrate
-python manage.py runserver
-```
+1. **Install dependencies**
 
-### Runner
+   ```bash
+   make install-deps  # creates backend/.venv, installs backend + frontend deps
+   ```
 
-```bash
-docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
-```
+2. **Configure environment**
 
-### Frontend
+   Create a `.env` in the repo root (or export variables) covering the values used in
+   `docker-compose.yml`, for example:
 
-```bash
-cd frontend
-pnpm install
-pnpm dev
-```
+   ```bash
+   cat <<'ENV' > .env
+   DATABASE_URL=postgres://astraforge:astraforge@localhost:5432/astraforge
+   REDIS_URL=redis://localhost:6379/0
+   EXECUTOR=codex
+   PROVISIONER=docker
+   RUN_LOG_STREAMER=redis
+   ASTRAFORGE_EXECUTE_COMMANDS=1
+   UNSAFE_DISABLE_AUTH=1   # only for local dev
+   CODEX_CLI_SKIP_PULL=1
+   LOG_LEVEL=DEBUG
+   OPENAI_API_KEY=sk-...
+   LLM_MODEL=gpt-4o-mini
+   ENV
+   ```
 
-Open `http://localhost:5173` and create an account from the Register page, then sign in to access the dashboard.
+3. **Migrate the database**
 
-### Docker Compose
+   ```bash
+   source backend/.venv/bin/activate
+   cd backend
+   python manage.py migrate
+   ```
 
-Run database migrations, then launch the stack:
+4. **Run the backend API and Celery worker**
+
+   ```bash
+   # Terminal 1 – Django API
+   make backend-serve
+
+   # Terminal 2 – Celery worker queues
+   cd backend
+   celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default
+   ```
+
+5. **Launch the LLM proxy**
+
+   ```bash
+   cd llm-proxy
+   uvicorn app.main:app --reload --port 8080
+   ```
+
+6. **Build the Codex CLI runner stub** (used when a published image is unavailable)
+
+   ```bash
+   docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
+   ```
+
+7. **Start the frontend**
+
+   ```bash
+   cd frontend
+   pnpm dev
+   ```
+
+   Visit `http://localhost:5173`, register an account, and sign in. Authentication is disabled locally
+   when `UNSAFE_DISABLE_AUTH=1`.
+
+## Docker Compose Workflow
+
+Prefer Compose when you want the entire stack (Postgres, Redis, API, worker, LLM proxy, frontend)
+running with a single command:
 
 ```bash
 docker compose run --rm backend-migrate
 docker compose up --build
 ```
-For local Compose runs, authentication is disabled via `UNSAFE_DISABLE_AUTH=1`. Do not use this in production.
 
-### Authentication API
+The compose file mounts the repo for hot reloads and shares the Docker socket so workspaces can spin
+up isolated containers. Never ship with `UNSAFE_DISABLE_AUTH=1`; it is only for local testing.
 
-- UI requests use secure session cookies with CSRF protection. Hit `POST /api/auth/register/` or `POST /api/auth/login/` from the frontend to establish a session, and `POST /api/auth/logout/` to end it. Retrieve the current user via `GET /api/auth/me/`.
-- `GET /api/auth/csrf/` – fetch a CSRF cookie (required before posting from external clients).
-- `POST /api/api-keys/` – create an API key (response includes the plaintext key once). Supply it via the `X-Api-Key` header for headless integrations.
-- `DELETE /api/api-keys/{id}/` – revoke an API key.
+## Testing & Quality Gates
 
-The frontend stores the access token in local storage for subsequent API requests.
+- `make lint` – Ruff + ESLint
+- `make format` – Ruff formatter + ESLint `--fix`
+- `make test` – `pytest` plus `pnpm test -- --run`
+- `gitleaks detect --config gitleaks.toml` – secret scanning before pushes
+- `make generate-openapi` – refresh `shared/openapi/schema.yaml` after API contract changes
 
+## Useful Commands
 
-## Tooling
+| Task | Command |
+| --- | --- |
+| Install toolchains | `make install-deps` |
+| Run API locally | `make backend-serve` |
+| Run Celery worker | `celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default` |
+| Start frontend | `make frontend-dev` or `pnpm dev` |
+| Build production assets | `pnpm build` |
+| Generate OpenAPI | `make generate-openapi` |
+| Refresh screenshots/docs | `docs/architecture.md`, `docs/adr/*` |
 
-- `pre-commit` with Ruff, Black, mypy, and Gitleaks.
-- GitHub Actions workflow for linting, testing, and image builds.
-- Makefile shortcuts for local development.
+## Additional Resources
 
-See `docs/architecture.md` and `docs/adr/0001-initial-architecture.md` for additional details.
+- `docs/architecture.md` – the canonical mermaid diagram plus subsystem explanations.
+- `docs/adr/` – decision records that explain trade-offs.
+- `infra/` – Dockerfiles, Helm charts, and CI definitions.
+- `opa/` – Rego policies enforced before merges or deployments.
 
+## Roadmap
 
-# TODO
+### Engine
 
-- [ ] Generate MR name and description with AI
-- [ ] Switch to langchain 1.0.0
-- [ ] Can Restore a previous session / breakpoint + Ask a new questions
-- [ ] Can Launch on a trigger
-- [ ] 
+- [ ] Add claude code
+- [ ] Add Kimi Cli
+- [ ] Add Open Coder
+- [ ] Add Gemini Coder
+
+### Feature
+
+- [ ] Can choose base default docker image
+- [ ] Can batch modify
+- [ ] Can generate documentation
+- [ ] Can generate architecture mindmap
+- [ ] Add context7 mcp (for documentation latest version knowledge)
+- [ ] Add playwright mcp to launch and test the App
