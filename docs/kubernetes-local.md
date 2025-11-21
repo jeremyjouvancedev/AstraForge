@@ -134,3 +134,74 @@ re-loading them into your cluster.
 
 With these manifests you can iterate on Kubernetes changes locally while the
 Docker Compose workflow remains available for quick single-machine setups.
+
+## Appendix: Installing Kind on WSL Ubuntu
+
+If you are running Ubuntu inside Windows Subsystem for Linux (WSL 2), follow
+these steps to get Docker + Kind working so the overlay above can run end-to-end.
+
+### 1. Enable systemd support inside WSL
+
+Edit `/etc/wsl.conf` (create it if missing) and enable systemd:
+
+```ini
+[boot]
+systemd=true
+```
+
+Close the terminal and run `wsl --shutdown` from a Windows PowerShell prompt
+before reopening your Ubuntu shell. Systemd is required so the Docker daemon can
+run as a background service.
+
+### 2. Install Docker Engine inside Ubuntu
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg lsb-release
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker "$USER"
+```
+
+Sign out/in (or run `exec su - $USER`) so your user picks up Docker group
+membership, then start Docker and verify it works:
+
+```bash
+sudo systemctl enable --now docker
+docker ps
+```
+
+### 3. Install `kubectl`
+
+```bash
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+kubectl version --client
+```
+
+### 4. Install Kind
+
+```bash
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
+chmod +x kind
+sudo mv kind /usr/local/bin/
+kind version
+```
+
+### 5. Create your cluster
+
+Now you can follow the main runbook. From WSL Ubuntu execute:
+
+```bash
+kind create cluster --name astraforge
+```
+
+Run `docker ps` and `kubectl get nodes` to verify Docker and Kind are talking
+to each other. You are ready to go back to the main instructions and deploy the
+stack with `kubectl apply -k infra/k8s/local`.
