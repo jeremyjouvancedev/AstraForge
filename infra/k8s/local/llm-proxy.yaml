@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-proxy
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: llm-proxy
+    app.kubernetes.io/part-of: astraforge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-proxy
+  template:
+    metadata:
+      labels:
+        app: llm-proxy
+        app.kubernetes.io/name: astraforge
+        app.kubernetes.io/component: llm-proxy
+    spec:
+      containers:
+        - name: llm-proxy
+          image: astraforge/llm-proxy:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: astraforge-llm
+                  key: OPENAI_API_KEY
+            - name: LLM_MODEL
+              value: gpt-4o-mini
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-proxy
+  labels:
+    app: llm-proxy
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: llm-proxy
+spec:
+  selector:
+    app: llm-proxy
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

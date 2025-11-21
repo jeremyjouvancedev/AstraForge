@@ -61,11 +61,14 @@ def test_collect_results_skips_diff_when_workspace_not_git_repo():
         path="/workspace",
     )
 
-    outcome = operator._collect_results(workspace, stream=stream)
+    request = type("RequestStub", (), {"id": "req-123", "metadata": {}})()
+
+    outcome = operator._collect_results(request, workspace, stream=stream)
 
     assert outcome.diff == ""
-    assert events[-1]["stage"] == "diff"
-    assert events[-1]["message"] == "Git repository not detected in workspace; skipping diff"
+    diff_events = [event for event in events if event.get("stage") == "diff"]
+    assert diff_events
+    assert diff_events[-1]["message"] == "Git repository not detected in workspace; skipping diff"
     assert runner.last_allow_failure is True
 
 
@@ -112,3 +115,12 @@ def test_bootstrap_builds_local_image_when_registry_denies(monkeypatch, tmp_path
         event.get("message", "").startswith("Image astraforge/codex-cli:latest unavailable")
         for event in events
     )
+
+
+def test_wrap_exec_includes_namespace_for_k8s():
+    operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
+
+    command = operator._wrap_exec("astraforge-local/workspace-123", "k8s", ["git", "status"])
+
+    assert command[:4] == ["kubectl", "exec", "-n", "astraforge-local"]
+    assert command[4:] == ["workspace-123", "--", "git", "status"]

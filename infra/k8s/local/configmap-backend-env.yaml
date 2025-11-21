@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: astraforge-backend-env
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: astraforge
+    app.kubernetes.io/environment: local
+data:
+  SECRET_KEY: astraforge-local
+  DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+  REDIS_URL: redis://redis:6379/0
+  EXECUTOR: codex
+  PROVISIONER: k8s
+  RUN_LOG_STREAMER: redis
+  ASTRAFORGE_EXECUTE_COMMANDS: "1"
+  UNSAFE_DISABLE_AUTH: "1"
+  LOG_LEVEL: DEBUG
+  CELERY_TASK_ALWAYS_EAGER: "0"
+  CODEX_CLI_SKIP_PULL: "1"
+  LLM_PROXY_URL: http://llm-proxy:8080

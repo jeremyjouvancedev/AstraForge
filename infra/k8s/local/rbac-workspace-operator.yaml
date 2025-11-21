@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: astraforge-operator
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: workspace-rbac
+    app.kubernetes.io/part-of: astraforge
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: astraforge-workspace
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: workspace-rbac
+    app.kubernetes.io/part-of: astraforge
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/log"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: astraforge-workspace
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: workspace-rbac
+    app.kubernetes.io/part-of: astraforge
+subjects:
+  - kind: ServiceAccount
+    name: astraforge-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: astraforge-workspace

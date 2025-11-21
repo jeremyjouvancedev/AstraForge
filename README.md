@@ -141,6 +141,23 @@ The compose file mounts the repo for hot reloads and shares the Docker socket so
 up isolated containers. Never ship with `UNSAFE_DISABLE_AUTH=1`; it is only for local testing.
 For a full walkthrough (env setup, lifecycle commands, troubleshooting), see `docs/docker-compose.md`.
 
+## Local Kubernetes Workflow
+
+Need to validate the Kubernetes provisioner or mirror a client cluster? Use the
+manifests under `infra/k8s/local` and follow `docs/kubernetes-local.md`.
+
+At a high level you will:
+
+1. Build the backend/worker, frontend, and LLM proxy images with the `:local` tag.
+2. Build and load the Codex workspace image (`backend/codex_cli_stub`) as `astraforge/codex-cli:latest`.
+3. Load those images into your cluster (e.g., `kind load docker-image ...`).
+4. Create the namespace + `astraforge-llm` secret, then `kubectl apply -k infra/k8s/local`.
+5. Port-forward `svc/frontend` and `svc/backend` so the UI and API are reachable
+   from your browser at `http://localhost:5173` and `http://localhost:8000`.
+
+The new manifests keep the stack responsive with hot reloads while exercising the
+Kubernetes runtime paths that production clusters will use.
+
 ## Testing & Quality Gates
 
 - `make lint` – Ruff + ESLint

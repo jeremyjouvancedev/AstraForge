@@ -29,7 +29,8 @@ dependencies = [
   "structlog>=24.1",
   "opentelemetry-sdk>=1.24",
   "opentelemetry-exporter-otlp>=1.24",
-  "django-redis>=5.4"
+  "django-redis>=5.4",
+  "kubernetes>=28.1.0"
 ]
 
 [project.optional-dependencies]
