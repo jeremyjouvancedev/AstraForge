@@ -139,6 +139,7 @@ docker compose up --build
 
 The compose file mounts the repo for hot reloads and shares the Docker socket so workspaces can spin
 up isolated containers. Never ship with `UNSAFE_DISABLE_AUTH=1`; it is only for local testing.
+For a full walkthrough (env setup, lifecycle commands, troubleshooting), see `docs/docker-compose.md`.
 
 ## Testing & Quality Gates
 
@@ -163,6 +164,7 @@ up isolated containers. Never ship with `UNSAFE_DISABLE_AUTH=1`; it is only for 
 ## Additional Resources
 
 - `docs/architecture.md` – the canonical mermaid diagram plus subsystem explanations.
+- `docs/docker-compose.md` – runbook for starting/stopping the stack with Docker Compose.
 - `docs/adr/` – decision records that explain trade-offs.
 - `infra/` – Dockerfiles, Helm charts, and CI definitions.
 - `opa/` – Rego policies enforced before merges or deployments.
