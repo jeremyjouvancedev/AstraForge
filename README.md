@@ -148,15 +148,24 @@ manifests under `infra/k8s/local` and follow `docs/kubernetes-local.md`.
 
 At a high level you will:
 
-1. Build the backend/worker, frontend, and LLM proxy images with the `:local` tag.
-2. Build and load the Codex workspace image (`backend/codex_cli_stub`) as `astraforge/codex-cli:latest`.
-3. Load those images into your cluster (e.g., `kind load docker-image ...`).
-4. Create the namespace + `astraforge-llm` secret, then `kubectl apply -k infra/k8s/local`.
-5. Port-forward `svc/frontend` and `svc/backend` so the UI and API are reachable
-   from your browser at `http://localhost:5173` and `http://localhost:8000`.
+1. Build the backend/worker, frontend, LLM proxy, and Codex workspace images (`backend/codex_cli_stub`).
+2. Load those images into Kind/k3d/Minikube (e.g., `kind load docker-image astraforge/backend:local`).
+3. Create the namespace + `astraforge-llm` secret, then `kubectl apply -k infra/k8s/local`.
+4. Port-forward `svc/frontend` and `svc/backend` so the UI and API stay reachable at
+   `http://localhost:5173` and `http://localhost:8000`.
 
-The new manifests keep the stack responsive with hot reloads while exercising the
-Kubernetes runtime paths that production clusters will use.
+Prefer a hybrid approach where the API and Celery worker remain in Docker Compose but
+Codex workspaces run in Kubernetes? Generate a Docker-friendly kubeconfig
+(`kind get kubeconfig … | sed 's/0.0.0.0/host.docker.internal/g' > ~/.kube/config-hybrid`),
+export `HYBRID_KUBECONFIG=config-hybrid`, then start the stack with the override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.hybrid.yml up backend backend-worker
+```
+
+The override mounts `~/.kube`, sets `PROVISIONER=k8s`, and injects `host.docker.internal` so
+the containers can talk to your laptop’s cluster while the rest of the services keep using
+Compose. See `docs/kubernetes-local.md` for the full walkthrough.
 
 ## Testing & Quality Gates
 

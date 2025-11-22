@@ -10,7 +10,6 @@ services:
       DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
-      PROVISIONER: docker
       RUN_LOG_STREAMER: redis
       CELERY_TASK_ALWAYS_EAGER: "0"
       UNSAFE_DISABLE_AUTH: "1"
@@ -42,7 +41,6 @@ services:
       DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
-      PROVISIONER: docker
       RUN_LOG_STREAMER: redis
       CELERY_TASK_ALWAYS_EAGER: "0"
       ASTRAFORGE_EXECUTE_COMMANDS: "1"
@@ -70,7 +68,6 @@ services:
       DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
-      PROVISIONER: docker
       RUN_LOG_STREAMER: redis
       CELERY_TASK_ALWAYS_EAGER: "0"
       ASTRAFORGE_EXECUTE_COMMANDS: "1"

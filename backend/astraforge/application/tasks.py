@@ -28,7 +28,7 @@ def apply_plan_task(self, request_id: str, repo: str, branch: str) -> str:
         repository=repository,
         executor=container.resolve_executor(),
         vcs=container.vcs_providers.resolve("gitlab"),
-        provisioner=container.provisioners.resolve("k8s"),
+        provisioner=container.resolve_provisioner(),
     )(request_id=request_id, repo=repo, branch=branch)
 
 

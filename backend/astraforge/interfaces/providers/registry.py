@@ -68,6 +68,10 @@ class Container:
         target = key or self._default("CONNECTOR_PROVIDER", "direct_user")
         return self.connectors.resolve(target)
 
+    def resolve_provisioner(self, key: Optional[str] = None) -> Any:
+        target = key or self._default("PROVISIONER", "docker")
+        return self.provisioners.resolve(target)
+
     def resolve_spec_generator(self, key: Optional[str] = None) -> Any:
         target = key or self._default("SPEC_GENERATOR", "proxy")
         return self.spec_generators.resolve(target)

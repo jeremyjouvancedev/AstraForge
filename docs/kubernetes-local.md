@@ -120,6 +120,53 @@ kubectl delete namespace astraforge-local
 The Docker images remain cached locally, so redeploying later only requires
 re-loading them into your cluster.
 
+## Hybrid Docker + Kubernetes
+
+Prefer to keep the Django API + Celery worker inside Docker Compose but run the
+Codex workspaces as Kubernetes pods? Use the hybrid override file once your
+Kind (or other) cluster is running.
+
+1. **Prepare a Docker-friendly kubeconfig.** Containers cannot reach the `0.0.0.0`
+   bind address Kind uses by default, so rewrite the config to point at
+   `host.docker.internal` (Docker adds this hostname automatically when you use the
+   hybrid override).
+
+   ```bash
+   kind get kubeconfig --name astraforge \
+     | sed 's/0.0.0.0/host.docker.internal/g' \
+     > ~/.kube/config-hybrid
+   export HYBRID_KUBECONFIG=config-hybrid
+   ```
+
+   If you already have other kubeconfigs, keep them alongside this file inside
+   `~/.kube/`—the override mounts the entire directory read-only and uses the
+   `HYBRID_KUBECONFIG` filename inside the container.
+
+2. **Load the Codex workspace image into the cluster** (only required when the
+   image changes):
+
+   ```bash
+   docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
+   kind load docker-image astraforge/codex-cli:latest --name astraforge
+   ```
+
+3. **Bring up the Compose stack with the hybrid override:**
+
+   ```bash
+   docker compose \
+     -f docker-compose.yml \
+     -f docker-compose.hybrid.yml \
+     up backend backend-worker llm-proxy postgres redis frontend
+   ```
+
+   The override switches `PROVISIONER=k8s`, mounts your kubeconfig into both the
+   API and Celery worker containers, and ensures they can resolve
+   `host.docker.internal` so the Kubernetes API server running on your laptop is
+   reachable from inside Docker.
+
+Once everything is up you can drive the UI at http://localhost:5173 while all
+Codex executions run as Kubernetes pods that the backend spawns on demand.
+
 ## Troubleshooting
 
 - **Pods stuck in `ImagePullBackOff`** – re-run the `kind load docker-image ...`
