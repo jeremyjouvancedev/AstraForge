@@ -10,14 +10,17 @@ Codex workspaces, while a fully responsive React UI streams live run logs, diffs
 
 ## Why AstraForge
 
-- **Prompt-to-MR workflow** – Capture user intent, queue executions, and stream every run state
-  change, artifact, and diff back to reviewers in real time.
-- **Modular execution engine** – Swappable executors, provisioners, and provider registries keep the
-  orchestration layer flexible enough for multiple LLM backends and VCS targets.
-- **Observability built in** – Event streams, structured run logs, and diff previews keep operators
-  informed before a branch ever lands in CI.
-- **Collaborative review surface** – Chat with the agent during a run, inspect MR context, and hand
-  off changes with confidence using generated summaries and metadata.
+- **Auto-remediation from incident to merge** – Glitchtip/Sentry alerts forward stack traces,
+  request metadata, and breadcrumbs directly into Codex workspaces so patches, tests, and merge
+  requests are produced without manual triage.
+- **Agent-agnostic remote environments** – Human reviewers and any LLM executor can attach to the
+  same streamed workspace, replay runs, and resume context-rich conversations regardless of the agent
+  that started the job.
+- **Secure OS sandboxing** – Deep agents receive a locked-down OS surface area (OPA policies, network
+  guards, ephemeral secrets) so risky automation still runs safely while exposing enough control to
+  debug complex systems.
+- **Built for review-ready output** – Diff previews, run logs, and chat summaries keep reviewers in
+  the loop before a branch lands in CI, ensuring every automated change arrives with evidence.
 
 See `docs/architecture.md` for the current high-level diagram (kept in mermaid format) plus ADRs that
 capture decisions as the system evolves.
