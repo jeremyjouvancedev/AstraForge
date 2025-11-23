@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: astraforge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        app.kubernetes.io/name: astraforge
+        app.kubernetes.io/component: backend
+    spec:
+      serviceAccountName: astraforge-operator
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:15
+          command:
+            - /bin/sh
+            - -c
+            - until pg_isready -h postgres -p 5432; do sleep 2; done
+        - name: migrate
+          image: astraforge/backend:local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: astraforge-backend-env
+          command:
+            - python
+            - manage.py
+            - migrate
+      containers:
+        - name: backend
+          image: astraforge/backend:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - manage.py
+            - runserver
+            - 0.0.0.0:8000
+          envFrom:
+            - configMapRef:
+                name: astraforge-backend-env
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app: backend
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

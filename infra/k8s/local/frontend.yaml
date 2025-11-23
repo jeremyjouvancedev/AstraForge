@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: astraforge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        app.kubernetes.io/name: astraforge
+        app.kubernetes.io/component: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: astraforge/frontend:local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: astraforge-frontend-env
+          ports:
+            - containerPort: 5173
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5173
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5173
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 5173
+      targetPort: 5173

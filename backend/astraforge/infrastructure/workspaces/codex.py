@@ -162,7 +162,8 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         if mode == "docker":
             self._bootstrap_docker_container(identifier, image, stream)
         proxy_url = self._ensure_proxy(identifier, mode, stream)
-        workspace_path = "/workspace" if mode == "docker" else f"/workspaces/{identifier}"
+        workspace_path = self._workspace_path(identifier, mode)
+        self._ensure_workspace_directory(identifier, mode, workspace_path, stream)
         self._clone_repository(identifier, mode, project, stream, target_path=workspace_path)
         self._create_feature_branch(
             identifier=identifier,
@@ -348,15 +349,19 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                 f"0.0.0.0:{port}",
             ]
         else:
-            command = [
-                "kubectl",
-                "exec",
-                identifier,
-                "--",
-                "codex-proxy",
-                "--listen",
-                f"0.0.0.0:{port}",
-            ]
+            namespace, pod = self._split_k8s_identifier(identifier)
+            command = ["kubectl", "exec"]
+            if namespace:
+                command.extend(["-n", namespace])
+            command.extend(
+                [
+                    pod,
+                    "--",
+                    "codex-proxy",
+                    "--listen",
+                    f"0.0.0.0:{port}",
+                ]
+            )
         self.runner.run(command, stream=stream, allow_failure=False)
         proxy_url = f"http://localhost:{port}"
         stream(
@@ -590,8 +595,35 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         if mode == "docker":
             return ["docker", "exec", identifier, *command]
         if mode == "k8s":
-            return ["kubectl", "exec", identifier, "--", *command]
+            namespace, pod = self._split_k8s_identifier(identifier)
+            exec_command: List[str] = ["kubectl", "exec"]
+            if namespace:
+                exec_command.extend(["-n", namespace])
+            exec_command.extend([pod, "--", *command])
+            return exec_command
         return command
+
+    def _split_k8s_identifier(self, identifier: str) -> Tuple[str | None, str]:
+        if "/" in identifier:
+            namespace, pod = identifier.split("/", 1)
+            return (namespace or None, pod)
+        return None, identifier
+
+    def _workspace_path(self, identifier: str, mode: str) -> str:
+        if mode == "docker":
+            return "/workspace"
+        safe_identifier = identifier.split("/", 1)[-1].replace(":", "-")
+        return f"/workspaces/{safe_identifier}"
+
+    def _ensure_workspace_directory(
+        self,
+        identifier: str,
+        mode: str,
+        workspace_path: str,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> None:
+        command = self._wrap_exec(identifier, mode, ["mkdir", "-p", workspace_path])
+        self.runner.run(command, stream=stream, allow_failure=False)
 
     def _exec(
         self,

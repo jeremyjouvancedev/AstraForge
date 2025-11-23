@@ -440,7 +440,7 @@ class ExecutionViewSet(viewsets.ViewSet):  # pragma: no cover - skeleton
             repository=repository,
             executor=container.resolve_executor(),
             vcs=container.vcs_providers.resolve("gitlab"),
-            provisioner=container.provisioners.resolve("k8s"),
+            provisioner=container.resolve_provisioner(),
         )
         try:
             mr_ref = use_case(

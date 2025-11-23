@@ -69,12 +69,18 @@ graph TD
 │   ├── openapi/          # Generated OpenAPI schema + type-safe clients
 │   └── packages/         # Reusable libraries (e.g., message contracts, event schemas)
 ├── infra/
-│   ├── docker/           # Container builds for backend, frontend, workers
-│   ├── k8s/              # Helm charts, Gatekeeper policies, manifests
-│   └── ci/               # GitHub Actions / GitLab CI pipelines
+│   ├── ci/               # GitHub Actions / GitLab CI pipelines
+│   └── k8s/              # Cluster manifests and local kustomize overlays
+│       └── local/        # Kind/k3d-ready stack mirroring docker-compose.yml
 ├── docs/                 # Architecture, ADRs, runbooks
 └── tools/                # Developer utilities, pre-commit hooks, scripts
 ```
+
+Local engineers can now pick between `docker-compose.yml` for socket-enabled Docker
+workspaces and `infra/k8s/local` for mirrored Kubernetes clusters (documented in
+`docs/kubernetes-local.md`). Both paths keep hot reloads and the same environment
+variables so switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`)
+is frictionless.
 
 ## Frontend UI System
 
@@ -94,6 +100,9 @@ graph TD
 
 - Docker provisioner prefers remote Codex CLI images but will build `backend/codex_cli_stub` (`npm install -g @openai/codex`) to keep local runs self-contained.
 - Local Docker Compose deployments run a dedicated `backend-worker` container executing `celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default`; backend services set `CELERY_TASK_ALWAYS_EAGER=0` so work is handed off to Redis and processed asynchronously.
+- Local Kubernetes clusters rely on the `infra/k8s/local` kustomize overlay, which mirrors Compose services, runs Django migrations via init containers, and exposes the stack through `kubectl port-forward` so browsers can reach `http://localhost:5173` (frontend) and `http://localhost:8000` (backend) while exercising the Kubernetes provisioner.
+- The Kubernetes provisioner talks directly to the cluster using the Python client, spawning short-lived Codex workspace pods per request with `emptyDir` volumes mounted at `/workspaces`, and authenticates through the `astraforge-operator` service account so Celery workers can `create`, `exec`, and `delete` pods without shipping `kubectl` binaries inside the containers.
+- A hybrid override (`docker-compose.hybrid.yml`) lets engineers keep the API + Celery services in Docker Compose while pointing them at a local Kind cluster; the override mounts `~/.kube`, rewrites `PROVISIONER=k8s`, and teaches the containers to reach the host's Kubernetes API via `host.docker.internal`.
 - Raw prompts are persisted with the request and transformed on-demand into lightweight development specs so the Codex CLI receives meaningful context without a separate planning task.
 - Follow-up chat messages (`POST /api/chat/`) append to the request metadata, publish user events, and immediately queue a new execution; the operator restores the Codex history JSONL into both the repository cache and the CLI home directory so multi-run conversations resume seamlessly.
 - When the registry image is unavailable, the bootstrapper compiles a local image, tags it `astraforge/codex-cli:latest`, and retries the launch.
@@ -124,6 +133,41 @@ graph TD
 - Observability stack: Prometheus metrics, OTEL traces, structured JSON logs.
 - REST interface now exposes `/runs/` and `/merge-requests/` read models that the authoring UI can query for historical console output and diff previews.
 - The request run dashboard lists every execution for a request, lets reviewers pick a historical run, and rebuilds the corresponding log stream on demand so multi-run investigations stay organized.
+
+## Automated Incident Remediation Flow
+
+Prod errors triggered in the UI or API surface in Glitchtip or Sentry, and the observability layer
+forwards enriched stack traces to the automated Codex remediation pipeline. Each report packages the
+stack trace, release metadata, and breadcrumbs so the prompt builder can replay the failing request
+inside an isolated workspace and propose a fix without manual triage.
+
+```mermaid
+flowchart LR
+    subgraph Monitoring
+        Glitchtip[Glitchtip]
+        Sentry[Sentry]
+    end
+    subgraph Ingestion
+        Router[Error Router Webhook]
+        Prompt[Prompt Builder]
+    end
+    subgraph Execution
+        Queue[Codex Run Queue]
+        Workspace[Codex Workspace]
+    end
+
+    Services[Frontend / Backend Services] --> Glitchtip
+    Services --> Sentry
+    Glitchtip -->|Stacktrace + release metadata| Router
+    Sentry -->|Stacktrace + release metadata| Router
+    Router --> Prompt
+    Prompt -->|context-rich payload| Queue
+    Queue --> Workspace
+    Workspace -->|Diffs + tests + MR summary| Review[MR + Alert Updates]
+```
+
+Alert updates posted back to chat/SRE tools keep humans in the loop while Codex executes the patch,
+runs regression tests, and assembles a merge request for approval.
 
 ## Data Stores
 - **Postgres**: transactional storage for tenants, requests, chat threads, artifacts, and provider configurations (JSONB for flexible payloads).

@@ -10,14 +10,17 @@ Codex workspaces, while a fully responsive React UI streams live run logs, diffs
 
 ## Why AstraForge
 
-- **Prompt-to-MR workflow** – Capture user intent, queue executions, and stream every run state
-  change, artifact, and diff back to reviewers in real time.
-- **Modular execution engine** – Swappable executors, provisioners, and provider registries keep the
-  orchestration layer flexible enough for multiple LLM backends and VCS targets.
-- **Observability built in** – Event streams, structured run logs, and diff previews keep operators
-  informed before a branch ever lands in CI.
-- **Collaborative review surface** – Chat with the agent during a run, inspect MR context, and hand
-  off changes with confidence using generated summaries and metadata.
+- **Auto-remediation from incident to merge** – Glitchtip/Sentry alerts forward stack traces,
+  request metadata, and breadcrumbs directly into Codex workspaces so patches, tests, and merge
+  requests are produced without manual triage.
+- **Agent-agnostic remote environments** – Human reviewers and any LLM executor can attach to the
+  same streamed workspace, replay runs, and resume context-rich conversations regardless of the agent
+  that started the job.
+- **Secure OS sandboxing** – Deep agents receive a locked-down OS surface area (OPA policies, network
+  guards, ephemeral secrets) so risky automation still runs safely while exposing enough control to
+  debug complex systems.
+- **Built for review-ready output** – Diff previews, run logs, and chat summaries keep reviewers in
+  the loop before a branch lands in CI, ensuring every automated change arrives with evidence.
 
 See `docs/architecture.md` for the current high-level diagram (kept in mermaid format) plus ADRs that
 capture decisions as the system evolves.
@@ -141,6 +144,32 @@ The compose file mounts the repo for hot reloads and shares the Docker socket so
 up isolated containers. Never ship with `UNSAFE_DISABLE_AUTH=1`; it is only for local testing.
 For a full walkthrough (env setup, lifecycle commands, troubleshooting), see `docs/docker-compose.md`.
 
+## Local Kubernetes Workflow
+
+Need to validate the Kubernetes provisioner or mirror a client cluster? Use the
+manifests under `infra/k8s/local` and follow `docs/kubernetes-local.md`.
+
+At a high level you will:
+
+1. Build the backend/worker, frontend, LLM proxy, and Codex workspace images (`backend/codex_cli_stub`).
+2. Load those images into Kind/k3d/Minikube (e.g., `kind load docker-image astraforge/backend:local`).
+3. Create the namespace + `astraforge-llm` secret, then `kubectl apply -k infra/k8s/local`.
+4. Port-forward `svc/frontend` and `svc/backend` so the UI and API stay reachable at
+   `http://localhost:5173` and `http://localhost:8000`.
+
+Prefer a hybrid approach where the API and Celery worker remain in Docker Compose but
+Codex workspaces run in Kubernetes? Generate a Docker-friendly kubeconfig
+(`kind get kubeconfig … | sed 's/0.0.0.0/host.docker.internal/g' > ~/.kube/config-hybrid`),
+export `HYBRID_KUBECONFIG=config-hybrid`, then start the stack with the override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.hybrid.yml up backend backend-worker
+```
+
+The override mounts `~/.kube`, sets `PROVISIONER=k8s`, and injects `host.docker.internal` so
+the containers can talk to your laptop’s cluster while the rest of the services keep using
+Compose. See `docs/kubernetes-local.md` for the full walkthrough.
+
 ## Testing & Quality Gates
 
 - `make lint` – Ruff + ESLint
@@ -168,6 +197,36 @@ For a full walkthrough (env setup, lifecycle commands, troubleshooting), see `do
 - `docs/adr/` – decision records that explain trade-offs.
 - `infra/` – Dockerfiles, Helm charts, and CI definitions.
 - `opa/` – Rego policies enforced before merges or deployments.
+
+## Target Error Remediation Flow
+
+Incoming exceptions from the deployed UI/API are captured by Glitchtip or Sentry, normalized, then
+forwarded into the Codex execution pipeline so fixes ship with the right context (stack trace,
+request metadata, and workspace snapshot). The workflow below shows the target automated loop:
+
+```mermaid
+flowchart LR
+    App[Frontend / Backend Services]
+    Glitchtip[Glitchtip]
+    Sentry[Sentry]
+    Router[Error Router Webhook]
+    Prompt[Codex Prompt Builder]
+    Queue[Run Queue]
+    Workspace[Codex Workspace]
+    Review[Merge Request & Notifications]
+
+    App --> Glitchtip
+    App --> Sentry
+    Glitchtip -->|Stacktrace + metadata| Router
+    Sentry -->|Stacktrace + metadata| Router
+    Router --> Prompt
+    Prompt -->|context-rich prompt| Queue
+    Queue --> Workspace
+    Workspace -->|patch + tests| Review
+```
+
+See `docs/architecture.md` for the accompanying narrative plus operational considerations when
+wiring the observability stack into automated remediation.
 
 ## Roadmap
 

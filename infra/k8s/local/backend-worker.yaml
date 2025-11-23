@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-worker
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: astraforge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-worker
+  template:
+    metadata:
+      labels:
+        app: backend-worker
+        app.kubernetes.io/name: astraforge
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: astraforge-operator
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:15
+          command:
+            - /bin/sh
+            - -c
+            - until pg_isready -h postgres -p 5432; do sleep 2; done
+      containers:
+        - name: worker
+          image: astraforge/backend:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+          args:
+            - -A
+            - astraforge.config.celery_app
+            - worker
+            - --loglevel=info
+            - -Q
+            - astraforge.core,astraforge.default
+          envFrom:
+            - configMapRef:
+                name: astraforge-backend-env
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
