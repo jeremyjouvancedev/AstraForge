@@ -134,6 +134,41 @@ is frictionless.
 - REST interface now exposes `/runs/` and `/merge-requests/` read models that the authoring UI can query for historical console output and diff previews.
 - The request run dashboard lists every execution for a request, lets reviewers pick a historical run, and rebuilds the corresponding log stream on demand so multi-run investigations stay organized.
 
+## Automated Incident Remediation Flow
+
+Prod errors triggered in the UI or API surface in Glitchtip or Sentry, and the observability layer
+forwards enriched stack traces to the automated Codex remediation pipeline. Each report packages the
+stack trace, release metadata, and breadcrumbs so the prompt builder can replay the failing request
+inside an isolated workspace and propose a fix without manual triage.
+
+```mermaid
+flowchart LR
+    subgraph Monitoring
+        Glitchtip[Glitchtip]
+        Sentry[Sentry]
+    end
+    subgraph Ingestion
+        Router[Error Router Webhook]
+        Prompt[Prompt Builder]
+    end
+    subgraph Execution
+        Queue[Codex Run Queue]
+        Workspace[Codex Workspace]
+    end
+
+    Services[Frontend / Backend Services] --> Glitchtip
+    Services --> Sentry
+    Glitchtip -->|Stacktrace + release metadata| Router
+    Sentry -->|Stacktrace + release metadata| Router
+    Router --> Prompt
+    Prompt -->|context-rich payload| Queue
+    Queue --> Workspace
+    Workspace -->|Diffs + tests + MR summary| Review[MR + Alert Updates]
+```
+
+Alert updates posted back to chat/SRE tools keep humans in the loop while Codex executes the patch,
+runs regression tests, and assembles a merge request for approval.
+
 ## Data Stores
 - **Postgres**: transactional storage for tenants, requests, chat threads, artifacts, and provider configurations (JSONB for flexible payloads).
 - **pgvector**: optional similarity search for embeddings, abstracted via `VectorStore` interface.

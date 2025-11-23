@@ -195,6 +195,36 @@ Compose. See `docs/kubernetes-local.md` for the full walkthrough.
 - `infra/` – Dockerfiles, Helm charts, and CI definitions.
 - `opa/` – Rego policies enforced before merges or deployments.
 
+## Target Error Remediation Flow
+
+Incoming exceptions from the deployed UI/API are captured by Glitchtip or Sentry, normalized, then
+forwarded into the Codex execution pipeline so fixes ship with the right context (stack trace,
+request metadata, and workspace snapshot). The workflow below shows the target automated loop:
+
+```mermaid
+flowchart LR
+    App[Frontend / Backend Services]
+    Glitchtip[Glitchtip]
+    Sentry[Sentry]
+    Router[Error Router Webhook]
+    Prompt[Codex Prompt Builder]
+    Queue[Run Queue]
+    Workspace[Codex Workspace]
+    Review[Merge Request & Notifications]
+
+    App --> Glitchtip
+    App --> Sentry
+    Glitchtip -->|Stacktrace + metadata| Router
+    Sentry -->|Stacktrace + metadata| Router
+    Router --> Prompt
+    Prompt -->|context-rich prompt| Queue
+    Queue --> Workspace
+    Workspace -->|patch + tests| Review
+```
+
+See `docs/architecture.md` for the accompanying narrative plus operational considerations when
+wiring the observability stack into automated remediation.
+
 ## Roadmap
 
 ### Engine
