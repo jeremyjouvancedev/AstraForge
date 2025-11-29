@@ -34,6 +34,28 @@ export default function DeepAgentSandboxPage() {
   }, [conversation, createConversation]);
 
   const handleChunk = (chunk: DeepAgentChunk) => {
+    const errorText =
+      typeof chunk.error === "string"
+        ? chunk.error
+        : null;
+    if (errorText) {
+      const normalized =
+        errorText.includes("context_length_exceeded") ||
+        errorText.toLowerCase().includes("context length")
+          ? "The deep agent request exceeded the model's context window. Try clearing the conversation or shortening your prompt or attached content.\n\nDetails:\n" +
+            errorText
+          : errorText;
+      messageIdRef.current += 1;
+      const errorMessage: DeepAgentMessage = {
+        id: String(messageIdRef.current),
+        role: "system",
+        content: normalized,
+        created_at: new Date().toISOString()
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+      return;
+    }
+
     // DeepAgents returns a state-like object; look for messages array
     const chunkMessages = chunk?.messages;
     if (!Array.isArray(chunkMessages)) return;

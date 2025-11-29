@@ -13,6 +13,8 @@ function getCookie(name: string): string | null {
 
 export interface DeepAgentChunk {
   messages?: { role: string; content: string }[];
+  error?: string;
+  raw?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

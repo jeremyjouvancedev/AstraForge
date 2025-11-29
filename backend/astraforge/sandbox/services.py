@@ -92,11 +92,25 @@ class SandboxOrchestrator:
     def upload(self, session: SandboxSession, path: str, content: bytes):
         directory = os.path.dirname(path.rstrip("/")) or "/"
         encoded = base64.b64encode(content).decode("ascii")
-        script = (
+        # Avoid exceeding OS argument limits by chunking the payload.
+        # base64 uses [A-Za-z0-9+/=] so single-quoting is safe.
+        chunk_size = 8000
+        # Ensure directory exists and truncate the target file first.
+        init_script = (
             f"mkdir -p {shlex.quote(directory)} && "
-            f"echo '{encoded}' | base64 -d > {shlex.quote(path)}"
+            f": > {shlex.quote(path)}"
         )
-        return self.execute(session, script)
+        result = self.execute(session, init_script)
+        if result.exit_code != 0:
+            return result
+        # Append content in manageable chunks.
+        for offset in range(0, len(encoded), chunk_size):
+            chunk = encoded[offset : offset + chunk_size]
+            append_script = f"echo '{chunk}' | base64 -d >> {shlex.quote(path)}"
+            result = self.execute(session, append_script)
+            if result.exit_code != 0:
+                return result
+        return result
 
     def upload_bytes(self, session: SandboxSession, path: str, content: bytes):
         return self.upload(session, path, content)
