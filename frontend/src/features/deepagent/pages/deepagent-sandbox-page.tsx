@@ -17,6 +17,12 @@ export default function DeepAgentSandboxPage() {
   const [messages, setMessages] = useState<DeepAgentMessage[]>([]);
   const [input, setInput] = useState("");
   const [sandboxImageUrl, setSandboxImageUrl] = useState<string | null>(null);
+  const [preview, setPreview] = useState<
+    | { kind: "none" }
+    | { kind: "image"; name: string; url: string; downloadUrl: string }
+    | { kind: "text"; name: string; content: string; downloadUrl: string }
+  >({ kind: "none" });
+  const previewObjectUrlRef = useRef<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const messageIdRef = useRef(0);
   const toolMessageIdsRef = useRef(new Map<string, string>());
@@ -330,11 +336,64 @@ export default function DeepAgentSandboxPage() {
 
   const sandboxHint = useMemo(() => {
     if (!conversation) return "Provisioning sandbox...";
+    if (preview.kind !== "none") {
+      return "";
+    }
     if (!sandboxImageUrl) {
       return "No screenshot yet. Send a message and we will attempt to capture the sandbox.";
     }
     return "";
-  }, [conversation, sandboxImageUrl]);
+  }, [conversation, sandboxImageUrl, preview.kind]);
+
+  const handleFileLinkClick = async (href: string, label: string) => {
+    if (!href) return;
+    try {
+      const response = await fetch(href);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file preview: ${response.status}`);
+      }
+      const blob = await response.blob();
+
+      const filename = label || href.split("/").pop() || "file";
+      const lower = filename.toLowerCase();
+      const isImage =
+        lower.endsWith(".png") ||
+        lower.endsWith(".jpg") ||
+        lower.endsWith(".jpeg") ||
+        lower.endsWith(".gif") ||
+        lower.endsWith(".webp") ||
+        lower.endsWith(".svg");
+      if (isImage) {
+        if (previewObjectUrlRef.current) {
+          URL.revokeObjectURL(previewObjectUrlRef.current);
+          previewObjectUrlRef.current = null;
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        previewObjectUrlRef.current = objectUrl;
+        setPreview({ kind: "image", name: filename, url: objectUrl, downloadUrl: href });
+        return;
+      }
+
+      const text = await blob.text();
+      const maxChars = 8000;
+      const truncated = text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+      setPreview({
+        kind: "text",
+        name: filename,
+        content: truncated || "[empty file]",
+        downloadUrl: href,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown error while loading preview.";
+      setPreview({
+        kind: "text",
+        name: label || "Preview",
+        content: `Failed to load file preview.\n\n${message}`,
+        downloadUrl: href,
+      });
+    }
+  };
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col gap-4 p-6">
@@ -357,7 +416,7 @@ export default function DeepAgentSandboxPage() {
           </CardHeader>
           <CardContent className="flex flex-1 min-h-0 flex-col gap-4 p-4">
             <div className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-muted/40 p-3">
-              <ChatTimeline messages={messages} />
+              <ChatTimeline messages={messages} onLinkClick={handleFileLinkClick} />
             </div>
             <form
               className="flex gap-2"
@@ -380,8 +439,23 @@ export default function DeepAgentSandboxPage() {
         </Card>
 
         <Card className="flex min-h-0 flex-1 flex-col border-border/70 bg-card/95">
-          <CardHeader className="border-b border-border/60">
-            <CardTitle className="text-sm font-semibold">Sandbox Preview</CardTitle>
+          <CardHeader className="flex items-center justify-between gap-2 border-b border-border/60">
+            <CardTitle className="text-sm font-semibold">
+              {preview.kind === "none" ? "Sandbox Preview" : `Preview: ${preview.name}`}
+            </CardTitle>
+            {(preview.kind === "image" || preview.kind === "text") && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const downloadUrl = preview.downloadUrl;
+                  if (!downloadUrl) return;
+                  window.open(downloadUrl, "_blank");
+                }}
+              >
+                Download file
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="flex flex-1 flex-col p-4">
             {sandboxHint && (
@@ -390,20 +464,33 @@ export default function DeepAgentSandboxPage() {
               </p>
             )}
             <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-dashed border-border/70 bg-muted/40">
-              {sandboxImageUrl ? (
+              {preview.kind === "image" && (
                 <img
-                  src={sandboxImageUrl}
-                  alt="Sandbox preview"
+                  src={preview.url}
+                  alt={preview.name}
                   className="h-full w-full object-contain"
                 />
-              ) : (
-                <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
-                  <span>Sandbox live view is not yet available.</span>
-                  <span className="text-[10px] uppercase tracking-[0.3em]">
-                    Screenshot endpoint /screenshot will be used when implemented
-                  </span>
-                </div>
               )}
+              {preview.kind === "text" && (
+                <pre className="h-full w-full overflow-auto bg-background/90 p-3 text-xs text-foreground">
+                  {preview.content}
+                </pre>
+              )}
+              {preview.kind === "none" &&
+                (sandboxImageUrl ? (
+                  <img
+                    src={sandboxImageUrl}
+                    alt="Sandbox preview"
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
+                    <span>Sandbox live view is not yet available.</span>
+                    <span className="text-[10px] uppercase tracking-[0.3em]">
+                      Screenshot endpoint /screenshot will be used when implemented
+                    </span>
+                  </div>
+                ))}
             </div>
           </CardContent>
         </Card>

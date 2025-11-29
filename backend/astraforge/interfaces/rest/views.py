@@ -128,7 +128,11 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             title_candidate = summary.split("\n", 1)[0].strip() or summary
         else:
             title_candidate = request_obj.payload.title or "Follow-up request"
-        title = title_candidate if len(title_candidate) <= 72 else f"{title_candidate[:69]}..."
+        title = (
+            title_candidate
+            if len(title_candidate) <= 72
+            else f"{title_candidate[:69]}..."
+        )
         implementation_steps: list[str] = [summary] if summary else [title]
         spec_payload = {
             "title": title,
@@ -158,14 +162,20 @@ class RunLogStreamView(APIView):
         run_log = container.resolve_run_log()
 
         def event_stream():
-            handshake = {"request_id": request_id, "type": "heartbeat", "message": "stream_ready"}
+            handshake = {
+                "request_id": request_id,
+                "type": "heartbeat",
+                "message": "stream_ready",
+            }
             yield "event: message\n"
             yield "data: " + json.dumps(handshake) + "\n\n"
             for event in run_log.stream(request_id):
                 yield "event: message\n"
                 yield "data: " + json.dumps(event) + "\n\n"
 
-        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        response = StreamingHttpResponse(
+            event_stream(), content_type="text/event-stream"
+        )
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
@@ -176,8 +186,14 @@ class DeepAgentConversationView(APIView):
 
     def post(self, request):
         # For now we align conversation IDs with sandbox session IDs
-        from astraforge.sandbox.serializers import SandboxSessionCreateSerializer, SandboxSessionSerializer
-        from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
+        from astraforge.sandbox.serializers import (
+            SandboxSessionCreateSerializer,
+            SandboxSessionSerializer,
+        )
+        from astraforge.sandbox.services import (
+            SandboxOrchestrator,
+            SandboxProvisionError,
+        )
 
         create_serializer = SandboxSessionCreateSerializer(
             data=request.data or {},
@@ -203,7 +219,10 @@ class DeepAgentMessageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, conversation_id: str):
-        from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
+        from astraforge.sandbox.services import (
+            SandboxOrchestrator,
+            SandboxProvisionError,
+        )
 
         try:
             session = SandboxSession.objects.get(id=conversation_id, user=request.user)
@@ -431,7 +450,9 @@ class DeepAgentMessageView(APIView):
                             {
                                 "status": "start",
                                 "tool_name": str(name),
-                                "tool_call_id": str(tool_call_id) if tool_call_id else None,
+                                "tool_call_id": (
+                                    str(tool_call_id) if tool_call_id else None
+                                ),
                                 "arguments": arguments,
                                 "output": None,
                                 "artifacts": None,
@@ -440,7 +461,9 @@ class DeepAgentMessageView(APIView):
 
                 # Tool result events – emitted when a tool finishes executing.
                 if msg_type and str(msg_type).lower() in {"tool", "tool_message"}:
-                    tool_name = data.get("name") or data.get("tool_name") or data.get("tool")
+                    tool_name = (
+                        data.get("name") or data.get("tool_name") or data.get("tool")
+                    )
                     tool_call_id = data.get("tool_call_id") or data.get("id")
                     artifacts_from_data = data.get("artifacts")
                     auto_artifacts = export_artifacts_from_text(content_text)
@@ -467,7 +490,9 @@ class DeepAgentMessageView(APIView):
                             {
                                 "status": "result",
                                 "tool_name": str(tool_name) if tool_name else None,
-                                "tool_call_id": str(tool_call_id) if tool_call_id else None,
+                                "tool_call_id": (
+                                    str(tool_call_id) if tool_call_id else None
+                                ),
                                 "arguments": None,
                                 "output": output_text,
                                 "artifacts": artifacts_value,
@@ -498,7 +523,9 @@ class DeepAgentMessageView(APIView):
                 error_payload = {"error": str(exc)}
                 yield encode_sse(error_payload)
 
-        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        response = StreamingHttpResponse(
+            event_stream(), content_type="text/event-stream"
+        )
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
@@ -530,7 +557,9 @@ class RunViewSet(viewsets.ViewSet):
                 if fallback is not None:
                     runs_meta = [fallback]
             for run in runs_meta:
-                entry = self._build_run_entry(request_obj, run, include_events=include_events)
+                entry = self._build_run_entry(
+                    request_obj, run, include_events=include_events
+                )
                 if entry is not None:
                     items.append(entry)
         items.sort(key=lambda entry: entry.get("started_at") or "", reverse=True)
@@ -592,7 +621,9 @@ class RunViewSet(viewsets.ViewSet):
                 }
             )
         status_value = (
-            request_obj.state.value if hasattr(request_obj.state, "value") else str(request_obj.state)
+            request_obj.state.value
+            if hasattr(request_obj.state, "value")
+            else str(request_obj.state)
         )
         if execution_errors:
             events.append(
@@ -623,7 +654,9 @@ class RunViewSet(viewsets.ViewSet):
                 }
             )
         return {
-            "id": hashlib.sha256(f"{request_obj.id}:execution".encode("utf-8")).hexdigest()[:16],
+            "id": hashlib.sha256(
+                f"{request_obj.id}:execution".encode("utf-8")
+            ).hexdigest()[:16],
             "status": status_value,
             "started_at": created_at.isoformat() if created_at else None,
             "finished_at": finished_at.isoformat() if finished_at else None,
@@ -828,7 +861,9 @@ class RepositoryLinkViewSet(
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return RepositoryLink.objects.filter(user=self.request.user).order_by("created_at")
+        return RepositoryLink.objects.filter(user=self.request.user).order_by(
+            "created_at"
+        )
 
     def perform_create(self, serializer):
         serializer.save()

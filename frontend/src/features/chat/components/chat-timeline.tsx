@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import React, { type HTMLAttributes, type MouseEvent } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
@@ -171,10 +171,57 @@ const markdownComponents: Components = {
   },
 };
 
-export function ChatTimeline({ messages = [] }: ChatTimelineProps) {
+export function ChatTimeline({
+  messages = [],
+  onLinkClick,
+}: ChatTimelineProps & { onLinkClick?: (href: string, label: string) => void }) {
   if (messages.length === 0) {
     return <Card className="p-6 text-sm text-muted-foreground">No messages yet.</Card>;
   }
+
+  const components: Components = {
+    ...markdownComponents,
+    a: ({ ...props }) => {
+      const href = typeof props.href === "string" ? props.href : "";
+      const isDownload = href.includes("download=1");
+
+      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+        if (onLinkClick && isDownload) {
+          event.preventDefault();
+          const text =
+            React.Children.toArray(props.children)
+              .map((child) => {
+                if (typeof child === "string") return child;
+                if (React.isValidElement(child)) {
+                  return typeof child.props.children === "string"
+                    ? child.props.children
+                    : "";
+                }
+                return "";
+              })
+              .join("") || href;
+          onLinkClick(href, text);
+        }
+      };
+
+      return (
+        <a
+          {...props}
+          href={href}
+          onClick={handleClick}
+          target={isDownload ? undefined : "_blank"}
+          rel={isDownload ? undefined : "noreferrer"}
+          download={isDownload && !onLinkClick ? "" : undefined}
+          className={cn(
+            "text-primary underline underline-offset-2 transition hover:text-primary/80",
+            props.className
+          )}
+        >
+          {props.children}
+        </a>
+      );
+    },
+  };
 
   return (
     <div className="space-y-3">
@@ -205,7 +252,7 @@ export function ChatTimeline({ messages = [] }: ChatTimelineProps) {
                 className="space-y-3 text-sm leading-relaxed"
                 skipHtml
                 remarkPlugins={[remarkGfm]}
-                components={markdownComponents}
+                components={components}
               >
                 {message.content}
               </ReactMarkdown>
