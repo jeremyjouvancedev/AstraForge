@@ -7,6 +7,9 @@ graph TD
     subgraph Client UX
         FE[Frontend SPA]
     end
+    subgraph External Clients
+        PySDK[Python DeepAgent SDK]
+    end
     subgraph Backend API
         API[DRF API]
         SandboxAPI[Sandbox Orchestrator]
@@ -34,6 +37,7 @@ graph TD
     LLMProxy[LLM Proxy Service]
 
     FE -->|HTTP/WebSocket| API
+    PySDK -->|HTTPS + X-Api-Key| API
     API -->|SSE| FE
     API --> PG
     API --> Redis
@@ -104,6 +108,11 @@ is frictionless.
 - Shell commands, file uploads, snapshots, and heartbeats are proxied through the orchestrator, which shells into the container/pod when no in-guest daemon is present; future iterations can swap in a full GUI daemon without changing the public contract.
 - Snapshots currently stream to on-disk tarballs inside the sandbox; wiring S3/MinIO buckets for artifact URLs is the next configurable hop.
 - Artifacts and snapshots are tracked with UUID metadata, and download URLs are derived from `SANDBOX_ARTIFACT_BASE_URL` when available; GUI controls/streaming are stubbed until the sandbox daemon is integrated.
+
+### DeepAgent Sandbox SDK
+
+- A lightweight Python client (`AstraForgeSandboxBackend` package) wraps the `/api/deepagent/...` and `/api/sandbox/...` endpoints so external applications can create sandbox-backed DeepAgent conversations using only a base API URL and an `X-Api-Key`.
+- The same client works against local instances (for example `http://localhost:8000/api`) and hosted deployments, providing a single integration surface for experiments, CI jobs, or custom dashboards.
 
 ## Frontend UI System
 

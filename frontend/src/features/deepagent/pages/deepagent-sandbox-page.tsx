@@ -21,6 +21,7 @@ export default function DeepAgentSandboxPage() {
     | { kind: "none" }
     | { kind: "image"; name: string; url: string; downloadUrl: string }
     | { kind: "text"; name: string; content: string; downloadUrl: string }
+    | { kind: "html"; name: string; url: string; downloadUrl: string }
   >({ kind: "none" });
   const previewObjectUrlRef = useRef<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -374,6 +375,29 @@ export default function DeepAgentSandboxPage() {
         return;
       }
 
+      const contentType = response.headers.get("Content-Type") || "";
+      const isHtml =
+        contentType.toLowerCase().includes("text/html") ||
+        lower.endsWith(".html") ||
+        lower.endsWith(".htm");
+      if (isHtml) {
+        const text = await blob.text();
+        if (previewObjectUrlRef.current) {
+          URL.revokeObjectURL(previewObjectUrlRef.current);
+          previewObjectUrlRef.current = null;
+        }
+        const htmlBlob = new Blob([text], { type: "text/html" });
+        const objectUrl = URL.createObjectURL(htmlBlob);
+        previewObjectUrlRef.current = objectUrl;
+        setPreview({
+          kind: "html",
+          name: filename,
+          url: objectUrl,
+          downloadUrl: href
+        });
+        return;
+      }
+
       const text = await blob.text();
       const maxChars = 8000;
       const truncated = text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
@@ -443,7 +467,7 @@ export default function DeepAgentSandboxPage() {
             <CardTitle className="text-sm font-semibold">
               {preview.kind === "none" ? "Sandbox Preview" : `Preview: ${preview.name}`}
             </CardTitle>
-            {(preview.kind === "image" || preview.kind === "text") && (
+            {(preview.kind === "image" || preview.kind === "text" || preview.kind === "html") && (
               <Button
                 size="sm"
                 variant="outline"
@@ -475,6 +499,14 @@ export default function DeepAgentSandboxPage() {
                 <pre className="h-full w-full overflow-auto bg-background/90 p-3 text-xs text-foreground">
                   {preview.content}
                 </pre>
+              )}
+              {preview.kind === "html" && (
+                <iframe
+                  src={preview.url}
+                  title={preview.name}
+                  className="h-full w-full border-0 bg-background"
+                  sandbox="allow-scripts"
+                />
               )}
               {preview.kind === "none" &&
                 (sandboxImageUrl ? (

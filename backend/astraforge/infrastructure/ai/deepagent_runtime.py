@@ -62,6 +62,9 @@ def get_deep_agent():
     """Instantiate a singleton deep agent bound to the sandbox backend."""
 
     def backend_factory(rt):
+        # Single backend class that can operate either in internal mode
+        # (local Django sandbox) or HTTP mode (remote AstraForge instance)
+        # depending on environment / constructor arguments.
         return SandboxBackend(rt)
 
     model_name = os.getenv("DEEPAGENT_MODEL", "gpt-4o")

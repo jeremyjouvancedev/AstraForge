@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shlex
-from typing import List, Optional
+from typing import Any, List, Mapping, Optional
 
 from deepagents.backends.protocol import BackendProtocol, EditResult, WriteResult
 from deepagents.backends.utils import FileInfo, GrepMatch
@@ -10,19 +10,77 @@ from deepagents.backends.utils import FileInfo, GrepMatch
 from astraforge.sandbox.models import SandboxSession
 from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
 
+try:
+    # Optional HTTP backend from the standalone package. When installed and
+    # configured via environment variables, this lets SandboxBackend talk to a
+    # remote AstraForge instance over HTTP instead of the local Django ORM.
+    from astraforge_sandbox_backend import SandboxBackend as HttpSandboxBackend
+except Exception:  # noqa: BLE001
+    HttpSandboxBackend = None
+
 
 class SandboxBackend(BackendProtocol):
     """DeepAgents filesystem backend that shells into AstraForge sandboxes.
 
-    The runtime config must provide `configurable.sandbox_session_id`, which
-    we use to look up the SandboxSession and execute commands via
-    SandboxOrchestrator.
+    This class supports two execution modes:
+
+    - **Internal mode** (default): uses the local Django `SandboxSession` model and
+      `SandboxOrchestrator` to shell directly into sandboxes provisioned by this
+      backend. The runtime config must provide `configurable.sandbox_session_id`.
+    - **HTTP mode** (optional): when the `AstraForgeSandboxBackend` package is
+      installed *and* sandbox API credentials are provided (see below), this class
+      delegates to the HTTP client backend so all filesystem operations are
+      executed via a remote AstraForge instance.
+
+    HTTP mode is enabled when either constructor arguments or environment variables
+    provide both:
+
+    - `base_url` / `ASTRAFORGE_SANDBOX_API_URL` / `DEEPAGENT_SANDBOX_API_URL`
+    - `api_key` / `ASTRAFORGE_SANDBOX_API_KEY` / `DEEPAGENT_SANDBOX_API_KEY`
+
+    If those are missing, or the external package is not installed, the backend
+    automatically falls back to internal mode.
     """
 
-    def __init__(self, rt, root_dir: str = "/workspace") -> None:
+    def __init__(
+        self,
+        rt,
+        root_dir: str = "/workspace",
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        session_params: Mapping[str, Any] | None = None,
+    ) -> None:
         self.rt = rt
         self.root_dir = root_dir
-        self.orchestrator = SandboxOrchestrator()
+
+        # Resolve optional HTTP configuration from args or environment.
+        base_url = (
+            base_url
+            or os.getenv("ASTRAFORGE_SANDBOX_API_URL")
+            or os.getenv("DEEPAGENT_SANDBOX_API_URL")
+        )
+        api_key = (
+            api_key
+            or os.getenv("ASTRAFORGE_SANDBOX_API_KEY")
+            or os.getenv("DEEPAGENT_SANDBOX_API_KEY")
+        )
+
+        self._http_backend: Optional[BackendProtocol]
+        if HttpSandboxBackend is not None and base_url and api_key:
+            # HTTP mode: delegate to the external backend implementation.
+            self._http_backend = HttpSandboxBackend(
+                rt,
+                base_url=base_url,
+                api_key=api_key,
+                root_dir=root_dir,
+                session_params=session_params,
+            )
+            self.orchestrator: Optional[SandboxOrchestrator] = None
+        else:
+            # Internal mode: use local Django models + orchestrator.
+            self._http_backend = None
+            self.orchestrator = SandboxOrchestrator()
 
     # helpers ---------------------------------------------------------------
 
@@ -57,6 +115,9 @@ class SandboxBackend(BackendProtocol):
     # BackendProtocol implementation ---------------------------------------
 
     def ls_info(self, path: str) -> List[FileInfo]:
+        if self._http_backend is not None:
+            return self._http_backend.ls_info(path)
+
         session = self._session()
         target = self._abs_path(path or self.root_dir)
         result = self._shell(
@@ -95,6 +156,9 @@ class SandboxBackend(BackendProtocol):
         return entries
 
     def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+        if self._http_backend is not None:
+            return self._http_backend.read(file_path, offset=offset, limit=limit)
+
         session = self._session()
         target = self._abs_path(file_path)
         result = self._shell(session, f"cat {shlex.quote(target)}")
@@ -115,6 +179,9 @@ class SandboxBackend(BackendProtocol):
         path: str | None = None,
         glob: str | None = None,
     ) -> list[GrepMatch] | str:
+        if self._http_backend is not None:
+            return self._http_backend.grep_raw(pattern, path=path, glob=glob)
+
         session = self._session()
         base = self._abs_path(path or self.root_dir)
         cmd = f"grep -RIn {shlex.quote(pattern)} {shlex.quote(base)}"
@@ -138,6 +205,9 @@ class SandboxBackend(BackendProtocol):
         return matches
 
     def glob_info(self, pattern: str, path: str = "/") -> List[FileInfo]:
+        if self._http_backend is not None:
+            return self._http_backend.glob_info(pattern, path=path)
+
         session = self._session()
         base = self._abs_path(path or self.root_dir)
         cmd = f"cd {shlex.quote(base)} && find . -name {shlex.quote(pattern)} -type f"
@@ -155,6 +225,9 @@ class SandboxBackend(BackendProtocol):
         return entries
 
     def write(self, file_path: str, content: str) -> WriteResult:
+        if self._http_backend is not None:
+            return self._http_backend.write(file_path, content)
+
         session = self._session()
         target = self._abs_path(file_path)
         # enforce create-only semantics
@@ -173,6 +246,14 @@ class SandboxBackend(BackendProtocol):
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
+        if self._http_backend is not None:
+            return self._http_backend.edit(
+                file_path,
+                old_string,
+                new_string,
+                replace_all=replace_all,
+            )
+
         raw = self.read(file_path)
         if raw.startswith("Error:"):
             return EditResult(error=raw)
