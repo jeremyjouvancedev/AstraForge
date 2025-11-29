@@ -377,9 +377,23 @@ class DeepAgentMessageView(APIView):
                 if isinstance(content, list):
                     parts: list[str] = []
                     for part in content:
-                        if isinstance(part, dict) and isinstance(part.get("text"), str):
-                            parts.append(part["text"])
-                    content_text = "\n".join(parts)
+                        if not isinstance(part, dict):
+                            continue
+                        text_value = part.get("text")
+                        if isinstance(text_value, str):
+                            parts.append(text_value)
+                            continue
+                        # Allow image_url fragments from multimodal messages to render
+                        # as Markdown images in the chat UI.
+                        if (part.get("type") == "image_url") and isinstance(
+                            part.get("image_url"), dict
+                        ):
+                            image_dict = part["image_url"]
+                            url = image_dict.get("url")
+                            if isinstance(url, str) and url:
+                                alt = image_dict.get("alt") or "sandbox image"
+                                parts.append(f"![{alt}]({url})")
+                    content_text = "\n\n".join(parts)
                 else:
                     content_text = "" if content is None else str(content)
                 # Rewrite sandbox:workspace/... links into real download URLs backed by artifacts.

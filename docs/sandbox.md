@@ -34,7 +34,7 @@ Authentication matches the rest of the API (session auth or API keys). All sessi
 When using the deep agent proxy (`llm-proxy`), a convenience API exists:
 
 - `POST /deepagent/conversations` – creates a sandbox session via the Django API and returns `{ conversation_id, sandbox_session_id, status }`. The IDs are aligned so one sandbox is used per conversation.
-- `POST /deepagent/conversations/{conversation_id}/messages` – sends messages to a DeepAgents-based LangGraph agent configured with a `SandboxBackend` so filesystem tools operate inside the associated sandbox. Pass `{"stream": true}` to receive a `text/event-stream` stream of JSON chunks (model tokens, tool calls, artifacts, etc.).
+- `POST /deepagent/conversations/{conversation_id}/messages` – sends messages to a DeepAgents-based LangGraph agent configured with a `SandboxBackend` so filesystem tools, a Python REPL, a shell helper, Playwright browser helpers, image viewers, and Tavily web search all operate inside the associated sandbox. Pass `{"stream": true}` to receive a `text/event-stream` stream of JSON chunks (model tokens, tool calls, artifacts, etc.). The agent also understands `sandbox:workspace/...` Markdown links, which the backend and UI turn into downloadable file links.
 
 ## Docker mode (fast local)
 

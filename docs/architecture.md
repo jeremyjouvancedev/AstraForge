@@ -207,6 +207,7 @@ runs regression tests, and assembles a merge request for approval.
 - Adding a connector requires implementing the `Connector` protocol, packaging it as a Python module, and registering it via entry point configuration or settings.
 - New executors implement the `AgentExecutor` interface; runtime selection occurs via DI container using `EXECUTOR` env var.
 - VCS providers, provisioners, vector stores, and event buses follow the same pattern.
+- Deep sandbox agents use a composable toolbelt: filesystem helpers (ls/read/write/edit), a Python REPL that executes code inside the sandbox container, a shell helper for short non-interactive commands, Playwright browser navigation, image viewing for screenshots or UI states, and Tavily web search. The backend streams tool calls and `sandbox:workspace/...` file links so the UI can render structured tool cards and one-click downloads.
 
 ## Delivery Pipeline
 - CI pipelines run linting, typing, tests, and container builds, then package Helm charts.
