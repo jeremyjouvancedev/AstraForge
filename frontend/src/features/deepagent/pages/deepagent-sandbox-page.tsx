@@ -19,6 +19,46 @@ export default function DeepAgentSandboxPage() {
   const [sandboxImageUrl, setSandboxImageUrl] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const messageIdRef = useRef(0);
+  const toolMessageIdsRef = useRef(new Map<string, string>());
+  const toolStateRef = useRef(
+    new Map<
+      string,
+      {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        arguments?: any;
+        output?: string | null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        artifacts?: any;
+      }
+    >()
+  );
+
+  const rewriteSandboxLinks = (content: string): string => {
+    if (!conversation) return content;
+    if (!content.includes("sandbox:")) return content;
+    const sessionId = conversation.sandbox_session_id;
+    const sandboxLinkPattern = /\[([^\]]+)\]\(sandbox:([^)]+)\)/g;
+    return content.replace(sandboxLinkPattern, (match, label, rawPath) => {
+      try {
+        let path = String(rawPath || "").trim();
+        if (!path) return match;
+        if (path.startsWith("/workspace/")) {
+          // already absolute
+        } else if (path.startsWith("workspace/")) {
+          path = `/workspace/${path.slice("workspace/".length)}`;
+        } else if (!path.startsWith("/")) {
+          path = `/workspace/${path}`;
+        }
+        const encodedPath = encodeURIComponent(path).replace(/%2F/g, "/");
+        const filename = String(label || path.split("/").pop() || "download");
+        const encodedFilename = encodeURIComponent(filename);
+        const url = `/api/sandbox/sessions/${sessionId}/files/content?path=${encodedPath}&filename=${encodedFilename}&download=1`;
+        return `[${filename}](${url})`;
+      } catch {
+        return match;
+      }
+    });
+  };
 
   const createConversation = useCreateConversation();
   const sendMessageMutation = useSendDeepAgentMessage(conversation?.conversation_id ?? "");
@@ -33,7 +73,102 @@ export default function DeepAgentSandboxPage() {
     }
   }, [conversation, createConversation]);
 
+  const formatToolMessageContent = (
+    name: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: any | undefined,
+    output: string | null | undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    artifacts: any | undefined
+  ): string => {
+    const sections: string[] = [`**Tool:** \`${name}\``];
+
+    if (args !== undefined && args !== null) {
+      let json = "";
+      try {
+        json = JSON.stringify(args, null, 2);
+      } catch {
+        json = String(args);
+      }
+      const truncated = json.length > 800;
+      const displayJson = truncated ? `${json.slice(0, 800)}…` : json;
+      sections.push(`**Arguments:**\n\n\`\`\`json\n${displayJson}\n\`\`\``);
+    }
+
+    if (typeof output === "string" && output.trim().length > 0) {
+      const maxOutput = 1200;
+      const truncated = output.length > maxOutput;
+      const preview = truncated ? `${output.slice(0, maxOutput)}…` : output;
+      sections.push(`**Output (truncated):**\n\n\`\`\`\n${preview}\n\`\`\``);
+    }
+
+    if (artifacts) {
+      let lines: string[] = [];
+      if (Array.isArray(artifacts)) {
+        lines = artifacts.map((artifact, index) => {
+          if (artifact && typeof artifact === "object") {
+            const rawUrl =
+              artifact.download_url ??
+              artifact.url ??
+              artifact.path ??
+              artifact.storage_path ??
+              "";
+            const url =
+              rawUrl && typeof rawUrl === "string"
+                ? `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}download=1`
+                : "";
+            const label = (artifact.filename ?? artifact.name ?? url) || `Artifact ${index + 1}`;
+            if (url && typeof url === "string") {
+              return `- [${label}](${url})`;
+            }
+            return `- ${label}`;
+          }
+          if (typeof artifact === "string") {
+            const isUrl = /^https?:\/\//.test(artifact);
+            if (isUrl) {
+              return `- [Artifact ${index + 1}](${artifact})`;
+            }
+            return `- ${artifact}`;
+          }
+          return `- Artifact ${index + 1}`;
+        });
+      } else if (typeof artifacts === "object") {
+        const rawUrl =
+          artifacts.download_url ??
+          artifacts.url ??
+          artifacts.path ??
+          artifacts.storage_path ??
+          "";
+        const url =
+          rawUrl && typeof rawUrl === "string"
+            ? `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}download=1`
+            : "";
+        const label = (artifacts.filename ?? artifacts.name ?? url) || "Artifact";
+        if (url && typeof url === "string") {
+          lines = [`- [${label}](${url})`];
+        } else {
+          lines = [`- ${label}`];
+        }
+      } else if (typeof artifacts === "string") {
+        const isUrl = /^https?:\/\//.test(artifacts);
+        if (isUrl) {
+          const url = `${artifacts}${artifacts.includes("?") ? "&" : "?"}download=1`;
+          lines = [`- [Artifact](${url})`];
+        } else {
+          lines = [`- ${artifacts}`];
+        }
+      }
+
+      if (lines.length > 0) {
+        sections.push(`**Artifacts:**\n${lines.join("\n")}`);
+      }
+    }
+
+    return rewriteSandboxLinks(sections.join("\n\n"));
+  };
+
   const handleChunk = (chunk: DeepAgentChunk) => {
+    // Error handling stays first so we surface failures clearly.
     const errorText =
       typeof chunk.error === "string"
         ? chunk.error
@@ -56,9 +191,101 @@ export default function DeepAgentSandboxPage() {
       return;
     }
 
+    // Surface tool lifecycle events as structured tool messages (one per tool call).
+    if (Array.isArray(chunk.tool_events) && chunk.tool_events.length > 0) {
+      chunk.tool_events.forEach((event) => {
+        const name = event.tool_name ?? "tool";
+        const callKey = event.tool_call_id ?? `name:${name}`;
+
+        const currentState = toolStateRef.current.get(callKey) ?? {};
+        if (event.status === "start") {
+          currentState.arguments = event.arguments;
+        } else if (event.status === "result") {
+          if (typeof event.output === "string") {
+            currentState.output = event.output;
+          }
+          if (event.artifacts !== undefined) {
+            currentState.artifacts = event.artifacts;
+          }
+        }
+        toolStateRef.current.set(callKey, currentState);
+
+        const content = formatToolMessageContent(
+          name,
+          currentState.arguments,
+          currentState.output ?? null,
+          currentState.artifacts
+        );
+        if (!content) return;
+
+        const now = new Date().toISOString();
+        setMessages((prev) => {
+          const next = [...prev];
+          const existingId = toolMessageIdsRef.current.get(callKey);
+          if (existingId) {
+            const index = next.findIndex((m) => m.id === existingId);
+            if (index !== -1) {
+              next[index] = {
+                ...next[index],
+                role: "tool",
+                content
+              };
+              return next;
+            }
+          }
+
+          messageIdRef.current += 1;
+          const id = String(messageIdRef.current);
+          toolMessageIdsRef.current.set(callKey, id);
+          next.push({
+            id,
+            role: "tool",
+            content,
+            created_at: now
+          });
+          return next;
+        });
+      });
+    }
+
+    // Token streaming: append assistant text deltas to the latest assistant message.
+    if (Array.isArray(chunk.tokens) && chunk.tokens.length > 0) {
+      const deltaText = chunk.tokens.join("");
+      if (deltaText.trim().length === 0) {
+        return;
+      }
+      const now = new Date().toISOString();
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.role === "assistant") {
+          next[next.length - 1] = {
+            ...last,
+            content: rewriteSandboxLinks(last.content + deltaText),
+            created_at: last.created_at
+          };
+          return next;
+        }
+        messageIdRef.current += 1;
+        const assistantMessage: DeepAgentMessage = {
+          id: String(messageIdRef.current),
+          role: "assistant",
+          content: rewriteSandboxLinks(deltaText),
+          created_at: now
+        };
+        next.push(assistantMessage);
+        return next;
+      });
+      // When tokens are present, we treat them as the primary view and
+      // skip the legacy message-based handling below to avoid duplicates.
+      return;
+    }
+
     // DeepAgents returns a state-like object; look for messages array
-    const chunkMessages = chunk?.messages;
-    if (!Array.isArray(chunkMessages)) return;
+    const chunkMessages = Array.isArray(chunk?.messages)
+      ? chunk.messages.filter((m) => m && m.role !== "tool" && m.role !== "system")
+      : null;
+    if (!chunkMessages || chunkMessages.length === 0) return;
     const latest = chunkMessages[chunkMessages.length - 1];
     if (!latest || typeof latest.content !== "string") return;
     messageIdRef.current += 1;

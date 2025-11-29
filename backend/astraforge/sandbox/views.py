@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import shlex
 import time
 
 from django.http import HttpResponse
@@ -150,6 +151,31 @@ class SandboxSessionViewSet(
         except SandboxProvisionError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(SandboxArtifactSerializer(artifact).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"], url_path="files/content")
+    def files_content(self, request, pk=None):
+        """Stream a file's bytes from inside the sandbox as a direct download."""
+        session = self.get_object()
+        path = request.query_params.get("path")
+        if not path:
+            return Response({"detail": "path is required"}, status=status.HTTP_400_BAD_REQUEST)
+        filename = request.query_params.get("filename") or path.rsplit("/", 1)[-1] or "download"
+        base64_cmd = f"base64 < {shlex.quote(path)}"
+        try:
+            result = self.orchestrator.execute(session, base64_cmd)
+        except SandboxProvisionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if result.exit_code != 0:
+            message = (result.stdout or result.stderr or "").strip() or "Failed to read file"
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+        raw_b64 = (result.stdout or "").strip()
+        try:
+            content = base64.b64decode(raw_b64.encode("ascii")) if raw_b64 else b""
+        except Exception:
+            content = b""
+        response = HttpResponse(content, content_type="application/octet-stream")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=True, methods=["post"], url_path="snapshot")
     def snapshot(self, request, pk=None):

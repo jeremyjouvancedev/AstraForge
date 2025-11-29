@@ -15,6 +15,17 @@ export interface DeepAgentChunk {
   messages?: { role: string; content: string }[];
   error?: string;
   raw?: string;
+  tokens?: string[];
+  tool_events?: {
+    status: "start" | "result";
+    tool_name: string | null;
+    tool_call_id?: string | null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    arguments?: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    artifacts?: any;
+    output?: string | null;
+  }[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

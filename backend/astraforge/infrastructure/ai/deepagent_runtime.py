@@ -51,7 +51,14 @@ def get_deep_agent():
             "Use filesystem tools (ls, read_file, write_file, edit_file, glob, grep) "
             "to explore and modify files in /workspace as needed. "
             "You also have access to Playwright browser tools to visit and inspect web pages, "
-            "and Tavily web search tools to look up external information when necessary."
+            "and Tavily web search tools to look up external information when necessary. "
+            "Respond using GitHub-flavored Markdown so the UI can render headings, lists, and code blocks. "
+            "When you want the user to download a file from the sandbox, emit a Markdown link using the "
+            "sandbox: scheme, where the path is relative to /workspace. For example: "
+            "[summary.md](sandbox:workspace/summary.md) for /workspace/summary.md, or "
+            "[report.txt](sandbox:workspace/reports/report.txt) for /workspace/reports/report.txt. "
+            "Do not emit direct HTTP URLs for sandbox files; always use sandbox:workspace/... links so "
+            "the client can turn them into secure, downloadable links."
         ),
     )
     tools: list[Any] = []

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from django.contrib.auth import authenticate, login, logout
 
@@ -202,10 +203,108 @@ class DeepAgentMessageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, conversation_id: str):
+        from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
+
         try:
-            SandboxSession.objects.get(id=conversation_id, user=request.user)
+            session = SandboxSession.objects.get(id=conversation_id, user=request.user)
         except SandboxSession.DoesNotExist:
             raise NotFound("Sandbox session not found for this conversation")
+
+        workspace_root = session.workspace_path or "/workspace"
+        path_pattern = re.compile(rf"({re.escape(workspace_root)}/[^\s'\"`]+)")
+        sandbox_link_pattern = re.compile(
+            r"\[(?P<label>[^\]]+)\]\(sandbox:(?P<path>[^\)]+)\)"
+        )
+        orchestrator = SandboxOrchestrator()
+        exported_paths: dict[str, dict[str, object]] = {}
+
+        def _export_path(raw_path: str) -> dict[str, object] | None:
+            # Normalize relative /workspace references from sandbox: links or plain paths.
+            path = raw_path.strip()
+            if not path:
+                return None
+            # Allow both workspace/… and /workspace/… in the sandbox: scheme.
+            if path.startswith("/workspace/"):
+                abs_path = path
+            elif path.startswith("workspace/"):
+                abs_path = f"{workspace_root.rstrip('/')}/{path[len('workspace/'):]}"
+            else:
+                abs_path = f"{workspace_root.rstrip('/')}/{path.lstrip('/')}"
+
+            if abs_path in {
+                workspace_root,
+                f"{workspace_root}/.",
+                f"{workspace_root}/..",
+            }:
+                return None
+            if abs_path in exported_paths:
+                return exported_paths[abs_path]
+
+            filename = abs_path.rsplit("/", 1)[-1] or "artifact"
+            try:
+                artifact = orchestrator.export_file(
+                    session,
+                    path=abs_path,
+                    filename=filename,
+                    content_type="application/octet-stream",
+                )
+            except SandboxProvisionError:
+                return None
+            # Prefer the artifact's download_url if it is configured; otherwise
+            # fall back to a direct API endpoint that streams file bytes.
+            url = str(artifact.download_url or "").strip()
+            if not url:
+                from urllib.parse import quote
+
+                encoded_path = quote(abs_path, safe="/")
+                encoded_filename = quote(filename, safe="")
+                url = (
+                    f"/api/sandbox/sessions/{session.id}/files/content"
+                    f"?path={encoded_path}&filename={encoded_filename}"
+                )
+            artifact_dict: dict[str, object] = {
+                "id": str(artifact.id),
+                "filename": artifact.filename,
+                "download_url": url,
+                "storage_path": artifact.storage_path,
+                "content_type": artifact.content_type,
+                "size_bytes": artifact.size_bytes,
+            }
+            exported_paths[abs_path] = artifact_dict
+            return artifact_dict
+
+        def export_artifacts_from_text(text: str | None) -> list[dict[str, object]]:
+            if not text or workspace_root not in text:
+                return []
+            matches = path_pattern.findall(text)
+            if not matches:
+                return []
+            artifacts: list[dict[str, object]] = []
+            for path in matches:
+                artifact_dict = _export_path(path)
+                if artifact_dict is not None:
+                    artifacts.append(artifact_dict)
+            return artifacts
+
+        def rewrite_sandbox_links(text: str | None) -> str:
+            """Replace [label](sandbox:workspace/...) with real download URLs."""
+            if not text or "sandbox:" not in text:
+                return text or ""
+
+            def _replacer(match: re.Match[str]) -> str:
+                label = match.group("label")
+                raw_path = match.group("path")
+                artifact = _export_path(raw_path)
+                if not artifact:
+                    return match.group(0)
+                url = str(artifact.get("download_url") or "")
+                if not url:
+                    return match.group(0)
+                # Add a hint query param so the frontend can treat it as a download link.
+                url = f"{url}{'&' if '?' in url else '?'}download=1"
+                return f"[{label}]({url})"
+
+            return sandbox_link_pattern.sub(_replacer, text)
 
         serializer = serializers.DeepAgentMessageRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -231,17 +330,37 @@ class DeepAgentMessageView(APIView):
             return Response(normalized)
 
         def _serialize_chunk(raw: object) -> dict[str, object]:
-            # Normalize deep agent state chunk into { "messages": [{role, content}, ...] }
+            # Normalize deep agent state chunk into a JSON payload.
+            # The shape is:
+            #   {
+            #       "messages": [{ "role": str, "content": str }, ...],  # backward compatible
+            #       "tokens": [str, ...],                                # assistant text deltas
+            #       "tool_events": [                                     # tool lifecycle events
+            #           {
+            #               "status": "start" | "result",
+            #               "tool_name": str,
+            #               "tool_call_id": str | null,
+            #               "arguments": object | null,
+            #               "output": str | null,
+            #               "artifacts": object | null,
+            #           },
+            #           ...
+            #       ],
+            #   }
             normalized = jsonable_chunk(raw)
             messages = []
             if isinstance(normalized, dict):
                 messages = normalized.get("messages", []) or []
 
             json_messages: list[dict[str, str]] = []
+            assistant_tokens: list[str] = []
+            tool_events: list[dict[str, object | None]] = []
+
             for msg in messages:
                 if not isinstance(msg, dict):
                     continue
-                role_value = msg.get("type") or msg.get("role") or "assistant"
+                msg_type = msg.get("type")
+                role_value = msg_type or msg.get("role") or "assistant"
                 role = str(role_value).lower()
                 # Skip human/user echoes; the frontend already renders user messages
                 if role in {"human", "user"}:
@@ -253,7 +372,8 @@ class DeepAgentMessageView(APIView):
                 else:
                     norm_role = role or "assistant"
 
-                content = msg.get("data", {}).get("content")
+                data = msg.get("data") or {}
+                content = data.get("content")
                 if isinstance(content, list):
                     parts: list[str] = []
                     for part in content:
@@ -262,17 +382,94 @@ class DeepAgentMessageView(APIView):
                     content_text = "\n".join(parts)
                 else:
                     content_text = "" if content is None else str(content)
-                if not content_text.strip():
-                    continue
-                json_messages.append(
-                    {
-                        "role": norm_role,
-                        "content": content_text,
-                    }
-                )
+                # Rewrite sandbox:workspace/... links into real download URLs backed by artifacts.
+                content_text = rewrite_sandbox_links(content_text)
+                if content_text.strip():
+                    json_messages.append({"role": norm_role, "content": content_text})
+                    if norm_role == "assistant":
+                        assistant_tokens.append(content_text)
+
+                # Tool start events – emitted when the model decides to call a tool.
+                tool_calls = data.get("tool_calls") or []
+                if isinstance(tool_calls, list):
+                    for call in tool_calls:
+                        if not isinstance(call, dict):
+                            continue
+                        name = (
+                            call.get("name")
+                            or call.get("tool")
+                            or (call.get("function") or {}).get("name")
+                        )
+                        if not name:
+                            continue
+                        tool_call_id = (
+                            call.get("id")
+                            or call.get("tool_call_id")
+                            or (call.get("function") or {}).get("id")
+                        )
+                        arguments = (
+                            call.get("args")
+                            or call.get("arguments")
+                            or call.get("input")
+                            or (call.get("function") or {}).get("arguments")
+                        )
+                        tool_events.append(
+                            {
+                                "status": "start",
+                                "tool_name": str(name),
+                                "tool_call_id": str(tool_call_id) if tool_call_id else None,
+                                "arguments": arguments,
+                                "output": None,
+                                "artifacts": None,
+                            }
+                        )
+
+                # Tool result events – emitted when a tool finishes executing.
+                if msg_type and str(msg_type).lower() in {"tool", "tool_message"}:
+                    tool_name = data.get("name") or data.get("tool_name") or data.get("tool")
+                    tool_call_id = data.get("tool_call_id") or data.get("id")
+                    artifacts_from_data = data.get("artifacts")
+                    auto_artifacts = export_artifacts_from_text(content_text)
+                    combined_artifacts: list[dict[str, object]] = []
+                    if artifacts_from_data:
+                        if isinstance(artifacts_from_data, list):
+                            combined_artifacts.extend(
+                                [a for a in artifacts_from_data if isinstance(a, dict)]
+                            )
+                        elif isinstance(artifacts_from_data, dict):
+                            combined_artifacts.append(artifacts_from_data)
+                    if auto_artifacts:
+                        combined_artifacts.extend(auto_artifacts)
+                    if not combined_artifacts:
+                        artifacts_value: object | None = None
+                    elif len(combined_artifacts) == 1:
+                        artifacts_value = combined_artifacts[0]
+                    else:
+                        artifacts_value = combined_artifacts
+
+                    output_text = content_text
+                    if tool_name or output_text:
+                        tool_events.append(
+                            {
+                                "status": "result",
+                                "tool_name": str(tool_name) if tool_name else None,
+                                "tool_call_id": str(tool_call_id) if tool_call_id else None,
+                                "arguments": None,
+                                "output": output_text,
+                                "artifacts": artifacts_value,
+                            }
+                        )
+
+            payload: dict[str, object] = {}
             if json_messages:
-                return {"messages": json_messages}
-            return {"raw": str(raw)}
+                payload["messages"] = json_messages
+            if assistant_tokens:
+                payload["tokens"] = assistant_tokens
+            if tool_events:
+                payload["tool_events"] = tool_events
+            if not payload:
+                payload["raw"] = str(raw)
+            return payload
 
         def event_stream():
             try:

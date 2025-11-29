@@ -20,7 +20,8 @@ interface ChatTimelineProps {
 const roleStyles: Record<string, string> = {
   user: "border-primary/40 bg-primary/10 text-primary-foreground",
   assistant: "border-secondary/30 bg-background text-foreground",
-  system: "border-muted bg-muted text-muted-foreground"
+  system: "border-muted bg-muted text-muted-foreground",
+  tool: "border-border/60 bg-muted/60 text-foreground"
 };
 
 const markdownComponents: Components = {
@@ -149,19 +150,25 @@ const markdownComponents: Components = {
       className={cn("border-b border-border/60 px-3 py-2 text-xs", props.className)}
     />
   ),
-  a: ({ ...props }) => (
-    <a
-      {...props}
-      target="_blank"
-      rel="noreferrer"
-      className={cn(
-        "text-primary underline underline-offset-2 transition hover:text-primary/80",
-        props.className
-      )}
-    >
-      {props.children}
-    </a>
-  ),
+  a: ({ ...props }) => {
+    const href = typeof props.href === "string" ? props.href : "";
+    const isDownload = href.includes("download=1");
+    return (
+      <a
+        {...props}
+        href={href}
+        target={isDownload ? undefined : "_blank"}
+        rel={isDownload ? undefined : "noreferrer"}
+        download={isDownload ? "" : undefined}
+        className={cn(
+          "text-primary underline underline-offset-2 transition hover:text-primary/80",
+          props.className
+        )}
+      >
+        {props.children}
+      </a>
+    );
+  },
 };
 
 export function ChatTimeline({ messages = [] }: ChatTimelineProps) {
