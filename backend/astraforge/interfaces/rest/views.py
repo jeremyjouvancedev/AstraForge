@@ -7,13 +7,12 @@ import json
 
 from django.contrib.auth import authenticate, login, logout
 
-from django.http import StreamingHttpResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,6 +24,10 @@ from astraforge.bootstrap import container, repository
 from astraforge.integrations.models import RepositoryLink
 from astraforge.interfaces.rest import serializers
 from astraforge.interfaces.rest.renderers import EventStreamRenderer
+from astraforge.infrastructure.ai.deepagent_runtime import get_deep_agent
+from astraforge.infrastructure.ai.serializers import jsonable_chunk, encode_sse
+from astraforge.sandbox.models import SandboxSession
+from django.http import StreamingHttpResponse
 
 
 class RequestViewSet(
@@ -160,6 +163,129 @@ class RunLogStreamView(APIView):
             for event in run_log.stream(request_id):
                 yield "event: message\n"
                 yield "data: " + json.dumps(event) + "\n\n"
+
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+
+class DeepAgentConversationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # For now we align conversation IDs with sandbox session IDs
+        from astraforge.sandbox.serializers import SandboxSessionCreateSerializer, SandboxSessionSerializer
+        from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
+
+        create_serializer = SandboxSessionCreateSerializer(
+            data=request.data or {},
+            context={"request": request},
+        )
+        create_serializer.is_valid(raise_exception=True)
+        session = create_serializer.save()
+        orchestrator = SandboxOrchestrator()
+        try:
+            orchestrator.provision(session)
+        except SandboxProvisionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        session_data = SandboxSessionSerializer(session).data
+        payload = {
+            "conversation_id": session_data["id"],
+            "sandbox_session_id": session_data["id"],
+            "status": session_data["status"],
+        }
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class DeepAgentMessageView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, conversation_id: str):
+        try:
+            SandboxSession.objects.get(id=conversation_id, user=request.user)
+        except SandboxSession.DoesNotExist:
+            raise NotFound("Sandbox session not found for this conversation")
+
+        serializer = serializers.DeepAgentMessageRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        messages_payload = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in serializer.validated_data["messages"]
+        ]
+        stream = serializer.validated_data.get("stream", True)
+        config = {
+            "thread_id": str(conversation_id),
+            "configurable": {
+                "sandbox_session_id": str(conversation_id),
+            },
+        }
+        agent = get_deep_agent()
+
+        if not stream:
+            try:
+                result = agent.invoke({"messages": messages_payload}, config=config)
+            except Exception as exc:  # noqa: BLE001
+                raise APIException(str(exc)) from exc  # pragma: no cover - error path
+            normalized = jsonable_chunk(result)
+            return Response(normalized)
+
+        def _serialize_chunk(raw: object) -> dict[str, object]:
+            # Normalize deep agent state chunk into { "messages": [{role, content}, ...] }
+            normalized = jsonable_chunk(raw)
+            messages = []
+            if isinstance(normalized, dict):
+                messages = normalized.get("messages", []) or []
+
+            json_messages: list[dict[str, str]] = []
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                role_value = msg.get("type") or msg.get("role") or "assistant"
+                role = str(role_value).lower()
+                # Skip human/user echoes; the frontend already renders user messages
+                if role in {"human", "user"}:
+                    continue
+                if role in {"ai", "assistant", "model"}:
+                    norm_role = "assistant"
+                elif role in {"system"}:
+                    norm_role = "system"
+                else:
+                    norm_role = role or "assistant"
+
+                content = msg.get("data", {}).get("content")
+                if isinstance(content, list):
+                    parts: list[str] = []
+                    for part in content:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            parts.append(part["text"])
+                    content_text = "\n".join(parts)
+                else:
+                    content_text = "" if content is None else str(content)
+                if not content_text.strip():
+                    continue
+                json_messages.append(
+                    {
+                        "role": norm_role,
+                        "content": content_text,
+                    }
+                )
+            if json_messages:
+                return {"messages": json_messages}
+            return {"raw": str(raw)}
+
+        def event_stream():
+            try:
+                for chunk in agent.stream(
+                    {"messages": messages_payload},
+                    config=config,
+                    stream_mode="values",
+                ):
+                    payload = _serialize_chunk(chunk)
+                    yield encode_sse(payload)
+            except Exception as exc:  # noqa: BLE001
+                error_payload = {"error": str(exc)}
+                yield encode_sse(error_payload)
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"

@@ -13,6 +13,9 @@ const RegisterPage = lazy(() => import("@/features/auth/pages/register-page"));
 const RepositoryLinksPage = lazy(
   () => import("@/features/repositories/pages/repository-links-page")
 );
+const DeepAgentSandboxPage = lazy(
+  () => import("@/features/deepagent/pages/deepagent-sandbox-page")
+);
 
 function ProtectedShell() {
   const { isAuthenticated, loading } = useAuth();
@@ -37,7 +40,8 @@ const routes: RouteObject[] = [
       { path: "/requests/:id/run", element: <RequestRunPage /> },
       { path: "/runs", element: <Navigate to="/" replace /> },
       { path: "/merge-requests", element: <Navigate to="/" replace /> },
-      { path: "/repositories", element: <RepositoryLinksPage /> }
+      { path: "/repositories", element: <RepositoryLinksPage /> },
+      { path: "/deep-sandbox", element: <DeepAgentSandboxPage /> }
     ]
   },
   { path: "/login", element: <LoginPage /> },

@@ -20,7 +20,10 @@ from astraforge.interfaces.rest.views import (
     RequestViewSet,
     RunViewSet,
     RunLogStreamView,
+    DeepAgentConversationView,
+    DeepAgentMessageView,
 )
+from astraforge.sandbox.views import SandboxSessionViewSet
 
 router = DefaultRouter()
 router.register(r"requests", RequestViewSet, basename="request")
@@ -29,6 +32,7 @@ router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
 router.register(r"repository-links", RepositoryLinkViewSet, basename="repository-link")
 router.register(r"runs", RunViewSet, basename="run")
 router.register(r"merge-requests", MergeRequestViewSet, basename="merge-request")
+router.register(r"sandbox/sessions", SandboxSessionViewSet, basename="sandbox-session")
 
 urlpatterns = [
     path("", include(router.urls)),
@@ -42,6 +46,16 @@ urlpatterns = [
     ),
     path(
         "runs/<uuid:pk>/logs/stream", RunLogStreamView.as_view(), name="run-log-stream"
+    ),
+    path(
+        "deepagent/conversations/",
+        DeepAgentConversationView.as_view(),
+        name="deepagent-conversations",
+    ),
+    path(
+        "deepagent/conversations/<uuid:conversation_id>/messages/",
+        DeepAgentMessageView.as_view(),
+        name="deepagent-messages",
     ),
     path("auth/register/", RegisterView.as_view(), name="auth-register"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),

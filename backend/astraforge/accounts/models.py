@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
 
 from django.conf import settings
 from django.db import models
@@ -13,6 +14,7 @@ def _hash_key(raw_key: str) -> str:
 
 
 class ApiKey(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     key_hash = models.CharField(max_length=64, unique=True)
     user = models.ForeignKey(

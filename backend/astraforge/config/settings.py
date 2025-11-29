@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "astraforge.integrations",
     "astraforge.requests",
     "astraforge.interfaces.rest",
+    "astraforge.sandbox",
 ]
 
 MIDDLEWARE = [

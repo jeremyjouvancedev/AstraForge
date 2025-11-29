@@ -211,6 +211,20 @@ class DevelopmentSpecSerializer(serializers.Serializer):
     )
 
 
+class DeepAgentChatMessageSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(
+        choices=["user", "assistant", "system", "tool"], default="user"
+    )
+    content = serializers.CharField()
+
+
+class DeepAgentMessageRequestSerializer(serializers.Serializer):
+    messages = serializers.ListField(
+        child=DeepAgentChatMessageSerializer(), allow_empty=False
+    )
+    stream = serializers.BooleanField(default=True)
+
+
 class ExecuteRequestSerializer(serializers.Serializer):
     spec = DevelopmentSpecSerializer(required=False)
 

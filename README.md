@@ -194,6 +194,7 @@ Compose. See `docs/kubernetes-local.md` for the full walkthrough.
 
 - `docs/architecture.md` – the canonical mermaid diagram plus subsystem explanations.
 - `docs/docker-compose.md` – runbook for starting/stopping the stack with Docker Compose.
+- `docs/sandbox.md` – sandbox orchestrator API (Docker + Kubernetes) and lifecycle tips.
 - `docs/adr/` – decision records that explain trade-offs.
 - `infra/` – Dockerfiles, Helm charts, and CI definitions.
 - `opa/` – Rego policies enforced before merges or deployments.

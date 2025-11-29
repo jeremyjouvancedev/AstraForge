@@ -9,6 +9,7 @@ graph TD
     end
     subgraph Backend API
         API[DRF API]
+        SandboxAPI[Sandbox Orchestrator]
         Worker[Celery Worker]
         Registry[Provider Registry]
     end
@@ -16,12 +17,19 @@ graph TD
         PG[(Postgres)]
         Redis[(Redis)]
         RunLog[(Redis Run Log Stream)]
+        Artifacts[(S3/MinIO Artifacts & Snapshots)]
     end
     subgraph Workspace Orchestration
-        Provisioner[Docker Provisioner]
+        Provisioner[Docker/K8s Provisioner]
         CLIImage[(Codex CLI Image)]
         Workspace[Ephemeral Codex Container]
         Proxy[Codex Proxy Wrapper]
+    end
+    subgraph Agent Sandbox
+        SandboxMgr[Session Manager]
+        DockerSandboxes[(Docker Sandboxes)]
+        K8sSandboxes[(Kubernetes Pods)]
+        Daemon[Sandbox Daemon (exec/GUI)]
     end
     LLMProxy[LLM Proxy Service]
 
@@ -33,10 +41,17 @@ graph TD
     Worker --> Redis
     API --> Worker
     Worker --> Registry
+    API --> SandboxAPI
+    SandboxAPI --> SandboxMgr
+    SandboxMgr --> DockerSandboxes
+    SandboxMgr --> K8sSandboxes
+    DockerSandboxes --> Daemon
+    K8sSandboxes --> Daemon
+    Daemon --> Artifacts
     API -->|publish prompt| RunLog
     Worker -->|emit events| RunLog
     Registry --> Provisioner
-    Provisioner -->|docker run| Workspace
+    Provisioner -->|docker/k8s run| Workspace
     Provisioner -. build fallback .-> CLIImage
     Workspace -->|codex exec --skip-git-repo-check -o .codex/final_message.txt| Proxy
     Proxy --> LLMProxy
@@ -81,6 +96,14 @@ workspaces and `infra/k8s/local` for mirrored Kubernetes clusters (documented in
 `docs/kubernetes-local.md`). Both paths keep hot reloads and the same environment
 variables so switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`)
 is frictionless.
+
+## Sandbox Control Plane
+
+- **Sandbox orchestrator API** exposes `/api/sandbox/sessions/` to external agents so they can spin up isolated desktops on Docker (fast local dev) or Kubernetes (hardened multi-tenant) while keeping UUID-backed session identifiers.
+- Each session records a `ref` (`docker://…` or `k8s://namespace/pod`), a control endpoint, workspace path, and timeouts for idle and max lifetime so cleanup can be enforced without manual intervention.
+- Shell commands, file uploads, snapshots, and heartbeats are proxied through the orchestrator, which shells into the container/pod when no in-guest daemon is present; future iterations can swap in a full GUI daemon without changing the public contract.
+- Snapshots currently stream to on-disk tarballs inside the sandbox; wiring S3/MinIO buckets for artifact URLs is the next configurable hop.
+- Artifacts and snapshots are tracked with UUID metadata, and download URLs are derived from `SANDBOX_ARTIFACT_BASE_URL` when available; GUI controls/streaming are stubbed until the sandbox daemon is integrated.
 
 ## Frontend UI System
 

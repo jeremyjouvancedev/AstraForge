@@ -8,8 +8,8 @@ from typing import Any, AsyncIterator, Dict, Iterable
 import anyio
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field
 
