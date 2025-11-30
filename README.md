@@ -170,10 +170,68 @@ The override mounts `~/.kube`, sets `PROVISIONER=k8s`, and injects `host.docker.
 the containers can talk to your laptop’s cluster while the rest of the services keep using
 Compose. See `docs/kubernetes-local.md` for the full walkthrough.
 
-## Use AstraForge Python packages from another project
+## AstraForge Python toolkit (use from another project)
 
-The repo now ships a standalone client/toolkit package for using the sandbox-backed DeepAgent from
-other projects. See `astraforge-python-package/README.md` for usage.
+Install the published package when you want to call DeepAgent or the sandbox API from another app:
+
+```bash
+pip install astraforge-toolkit
+```
+
+Create a sandbox-backed DeepAgent and keep a single sandbox session + thread across calls:
+
+```python
+from deepagents import create_deep_agent
+from langchain_openai import ChatOpenAI
+from astraforge_toolkit import (
+    DeepAgentClient,
+    SandboxBackend,
+    sandbox_shell,
+    sandbox_python_repl,
+    sandbox_open_url_with_playwright,
+    sandbox_view_image,
+)
+
+BASE_URL = "https://your.astra.forge/api"
+API_KEY = "your-api-key"
+
+client = DeepAgentClient(base_url=BASE_URL, api_key=API_KEY)
+conv = client.create_conversation()
+thread_id = conv.conversation_id
+sandbox_session_id = conv.sandbox_session_id
+
+def backend_factory(rt):
+    return SandboxBackend(
+        rt,
+        base_url=BASE_URL,
+        api_key=API_KEY,
+        session_id=sandbox_session_id,  # reuse the same sandbox between calls
+        # optional: session_params={"image": "astraforge/codex-cli:latest"},
+    )
+
+model = ChatOpenAI(model="gpt-4o")
+tools = [sandbox_shell, sandbox_python_repl, sandbox_open_url_with_playwright, sandbox_view_image]
+
+deep_agent = create_deep_agent(model=model, backend=backend_factory, tools=tools)
+
+run_config = {"thread_id": thread_id, "configurable": {"sandbox_session_id": sandbox_session_id}}
+deep_agent.invoke({"messages": [{"role": "user", "content": "List files in /workspace"}]}, config=run_config)
+```
+
+Prefer direct HTTP calls? The `DeepAgentClient` streams replies without loading LangChain:
+
+```python
+from astraforge_toolkit import DeepAgentClient
+
+client = DeepAgentClient(base_url="https://your.astra.forge/api", api_key="your-api-key")
+conv = client.create_conversation()
+
+for chunk in client.stream_message(conv.conversation_id, "Hello, sandbox!"):
+    print(chunk)
+```
+
+For a ready-to-run smoke test against `http://localhost:8000/api`, open the notebook
+`astraforge-python-package/examples/local_api_test.ipynb`.
 
 ## Testing & Quality Gates
 
