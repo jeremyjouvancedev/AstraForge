@@ -49,6 +49,29 @@ def test_get_deep_agent_registers_slide_subagent(monkeypatch):
     assert captured.get("checkpointer") is not None
 
 
+def test_get_deep_agent_is_memoized(monkeypatch):
+    class DummyModel:
+        def __init__(self, *args, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    captured: list[dict[str, object]] = []
+
+    def fake_create_deep_agent(*, model, **kwargs):
+        captured.append(kwargs)
+        return object()
+
+    deepagent_runtime.get_deep_agent.cache_clear()
+    monkeypatch.setattr(deepagent_runtime, "ChatOpenAI", DummyModel)
+    monkeypatch.setattr(deepagent_runtime, "create_deep_agent", fake_create_deep_agent)
+
+    first = deepagent_runtime.get_deep_agent()
+    second = deepagent_runtime.get_deep_agent()
+
+    assert first is second
+    assert len(captured) == 1
+    deepagent_runtime.get_deep_agent.cache_clear()
+
+
 def test_checkpointer_dsn_prioritizes_override(monkeypatch):
     monkeypatch.setenv("DEEPAGENT_CHECKPOINTER_URL", "postgres://override")
     monkeypatch.setenv("DATABASE_URL", "postgres://api_db")

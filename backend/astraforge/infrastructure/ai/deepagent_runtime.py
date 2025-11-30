@@ -158,7 +158,7 @@ def _build_shell_tools() -> List[Any]:
     return [sandbox_shell]
 
 
-# @lru_cache(maxsize=1)
+@lru_cache(maxsize=1)
 def get_deep_agent():
     """Instantiate a singleton deep agent bound to the sandbox backend."""
 
