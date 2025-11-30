@@ -1,4 +1,4 @@
-.PHONY: backend-serve frontend-dev lint format test generate-openapi install-deps
+.PHONY: backend-serve frontend-dev lint format test generate-openapi install-deps package-build package-clean package-upload package-upload-test
 
 backend-serve:
 	cd backend && python manage.py runserver 0.0.0.0:8000
@@ -26,3 +26,21 @@ test:
 
 generate-openapi:
 	cd backend && python manage.py spectacular --file ../shared/openapi/schema.yaml
+
+package-build:
+	cd astraforge-python-package && python -m build
+
+package-clean:
+	rm -rf astraforge-python-package/dist astraforge-python-package/build astraforge-python-package/*.egg-info
+
+package-upload-test:
+	@if [ ! -f "$$HOME/.pypirc" ] && [ -z "$$TWINE_PASSWORD" ]; then \
+		echo "Provide TWINE_PASSWORD or a ~/.pypirc with testpypi credentials"; exit 1; \
+	fi
+	cd astraforge-python-package && TWINE_USERNAME=$${TWINE_USERNAME:-__token__} python -m twine upload --repository testpypi dist/*
+
+package-upload:
+	@if [ ! -f "$$HOME/.pypirc" ] && [ -z "$$TWINE_PASSWORD" ]; then \
+		echo "Provide TWINE_PASSWORD or a ~/.pypirc with pypi credentials"; exit 1; \
+	fi
+	cd astraforge-python-package && TWINE_USERNAME=$${TWINE_USERNAME:-__token__} python -m twine upload dist/*

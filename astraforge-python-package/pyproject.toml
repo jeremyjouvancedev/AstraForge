@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "AstraForgeSandboxBackend"
-version = "0.1.0"
-description = "DeepAgents backend + HTTP client for AstraForge sandbox API."
+name = "astraforge-toolkit"
+version = "0.1.1"
+description = "HTTP client and sandbox backend for AstraForge DeepAgent."
 authors = [
   { name = "AstraForge Contributors", email = "opensource@astraforge.dev" }
 ]
@@ -19,7 +19,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest",
-  "pytest-httpx",
   "types-requests",
 ]
 

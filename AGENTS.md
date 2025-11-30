@@ -36,6 +36,8 @@
 ## Security & Configuration Tips
 - Run `gitleaks detect --config gitleaks.toml` before pushing to avoid secret leaks.
 - Update `opa/` policies alongside feature work and document notable decisions in `docs/`.
+- When changing backend modules that are exposed via the published Python package, mirror the change
+  in the export surface (SDK/code automation/deepagent) and docs so the package stays in sync.
 
 
 # TODO

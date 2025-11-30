@@ -20,30 +20,11 @@ class _ShellResult:
 
 
 class SandboxBackend(BackendProtocol):
-    """DeepAgents backend that executes via a remote AstraForge sandbox.
+    """DeepAgents backend that executes via a remote AstraForge sandbox API.
 
-    This mirrors the in-repo `SandboxBackend` but talks to your AstraForge instance
-    over HTTP instead of importing Django models directly. It is meant to be used
-    from any Python app that wants to construct its own DeepAgent while reusing
-    AstraForge's sandbox execution layer.
-
-    Typical usage in a client app:
-
-        from deepagents import create_deep_agent
-        from langchain_openai import ChatOpenAI
-        from astraforge_sandbox_backend import SandboxBackend
-
-        def backend_factory(rt):
-            return SandboxBackend(
-                rt,
-                base_url=\"https://your-astra-instance.example.com/api\",
-                api_key=\"your-api-key\",
-                # optional sandbox tuning:
-                # session_params={\"image\": \"astraforge/codex-cli:latest\"},
-            )
-
-        model = ChatOpenAI(model=\"gpt-4o\", api_key=\"...\")
-        agent = create_deep_agent(model=model, backend=backend_factory)
+    This mirrors the in-repo `SandboxBackend` but talks to a remote AstraForge instance
+    over HTTP. Use it when constructing your own DeepAgent runtime outside of the
+    Django app.
     """
 
     def __init__(
@@ -80,7 +61,6 @@ class SandboxBackend(BackendProtocol):
         if self._session_id:
             return self._session_id
 
-        # Allow callers to inject an existing sandbox session via runtime config.
         config = getattr(self.rt, "config", {}) or {}
         if isinstance(config, dict):
             configurable = config.get("configurable") or {}
@@ -97,7 +77,6 @@ class SandboxBackend(BackendProtocol):
             self._session_id = str(data["id"])
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Unexpected sandbox session payload: {data!r}") from exc
-        # Align our workspace root with whatever the server reports.
         workspace_path = str(data.get("workspace_path") or self.root_dir)
         self._workspace_root = workspace_path
         self.root_dir = workspace_path
@@ -117,7 +96,7 @@ class SandboxBackend(BackendProtocol):
             try:
                 payload = response.json()
                 detail = payload.get("detail") or payload
-            except Exception:  # pragma: no cover - best-effort
+            except Exception:  # pragma: no cover
                 detail = response.text
             raise RuntimeError(
                 f"Sandbox API call failed ({response.status_code}): {detail!r}"
@@ -198,108 +177,57 @@ class SandboxBackend(BackendProtocol):
         result = self._shell(f"cat {shlex.quote(target)}")
         if int(result.exit_code) != 0:
             return f"Error: File '{file_path}' not found"
-        stdout = result.stdout or ""
-        lines = stdout.splitlines()
-        if offset < 0:
-            offset = 0
-        end = offset + limit if limit > 0 else None
-        window = lines[offset:end]
-        numbered = [f"{i}: {line}" for i, line in enumerate(window, start=offset + 1)]
-        return "\n".join(numbered)
-
-    def grep_raw(
-        self,
-        pattern: str,
-        path: Optional[str] = None,
-        glob: Optional[str] = None,  # noqa: ARG002 - kept for protocol compatibility
-    ) -> List[GrepMatch] | str:
-        base = self._abs_path(path or self.root_dir)
-        cmd = f"grep -RIn {shlex.quote(pattern)} {shlex.quote(base)}"
-        result = self._shell(cmd)
-        exit_code = int(result.exit_code)
-        stdout = result.stdout or ""
-        if exit_code == 2:
-            return f"Invalid regex pattern: {pattern}"
-        if exit_code not in (0, 1):
-            return f"grep error: {stdout.strip()}"
-        if not stdout.strip():
-            return []
-        matches: List[GrepMatch] = []
-        for line in stdout.splitlines():
-            try:
-                path_part, line_part, text = line.split(":", 2)
-                lineno = int(line_part)
-            except ValueError:
-                continue
-            matches.append(GrepMatch(path=path_part, line=lineno, text=text))
-        return matches
-
-    def glob_info(self, pattern: str, path: str = "/") -> List[FileInfo]:
-        base = self._abs_path(path or self.root_dir)
-        cmd = f"cd {shlex.quote(base)} && find . -name {shlex.quote(pattern)} -type f"
-        result = self._shell(cmd)
-        if int(result.exit_code) != 0:
-            return []
-        stdout = result.stdout or ""
-        entries: List[FileInfo] = []
-        for line in stdout.splitlines():
-            rel = line.strip()
-            if not rel:
-                continue
-            full_path = os.path.normpath(f"{base}/{rel.lstrip('./')}")
-            entries.append(FileInfo(path=full_path, is_dir=False))
-        return entries
+        content = result.stdout or ""
+        if offset or limit:
+            content = content[offset : offset + limit]
+        return content
 
     def write(self, file_path: str, content: str) -> WriteResult:
         target = self._abs_path(file_path)
-        # enforce create-only semantics
-        check = self._shell(f"test ! -e {shlex.quote(target)}")
-        if int(check.exit_code) != 0:
-            return WriteResult(error=f"File '{file_path}' already exists")
         result = self._upload_text(target, content)
-        if int(result.exit_code) != 0:
-            return WriteResult(error=f"Write failed: {result.stdout or result.stderr}")
-        return WriteResult(path=file_path, files_update=None)
+        ok = int(result.exit_code) == 0
+        return WriteResult(path=target, success=ok, error=result.stderr or None)
 
-    def edit(
-        self,
-        file_path: str,
-        old_string: str,
-        new_string: str,
-        replace_all: bool = False,
-    ) -> EditResult:
-        raw = self.read(file_path)
-        if raw.startswith("Error:"):
-            return EditResult(error=raw)
-        lines: List[str] = []
-        for line in raw.splitlines():
-            try:
-                _, text = line.split(":", 1)
-            except ValueError:
-                text = line
-            if text.startswith(" "):
-                text = text[1:]
-            lines.append(text)
-        original = "\n".join(lines)
-        occurrences = original.count(old_string)
-        if occurrences == 0:
-            return EditResult(error=f"String '{old_string}' not found in {file_path}")
-        if not replace_all and occurrences > 1:
-            return EditResult(
-                error=(
-                    f"String '{old_string}' occurs multiple times in {file_path}; "
-                    "set replace_all=True to replace all occurrences"
-                )
-            )
-        if replace_all:
-            updated = original.replace(old_string, new_string)
-        else:
-            updated = original.replace(old_string, new_string, 1)
+    def edit(self, file_path: str, edits: List[str]) -> EditResult:
         target = self._abs_path(file_path)
-        result = self._upload_text(target, updated)
-        if int(result.exit_code) != 0:
-            return EditResult(
-                error=f"Edit failed: {result.stdout or result.stderr or 'unknown error'}"
-            )
-        return EditResult(path=file_path, files_update=None, occurrences=occurrences)
+        content = "\n".join(edits)
+        result = self._upload_text(target, content)
+        ok = int(result.exit_code) == 0
+        return EditResult(path=target, success=ok, error=result.stderr or None)
 
+    def grep(self, pattern: str, path: str, max_count: int = 50) -> List[GrepMatch]:
+        target = self._abs_path(path or self.root_dir)
+        command = f"grep -R -n -m {max_count} {shlex.quote(pattern)} {shlex.quote(target)}"
+        result = self._shell(command)
+        if int(result.exit_code) != 0:
+            return []
+        matches: List[GrepMatch] = []
+        for line in (result.stdout or "").splitlines():
+            parts = line.split(":", 2)
+            if len(parts) < 3:
+                continue
+            file_path, line_no, snippet = parts[0], parts[1], parts[2]
+            matches.append(GrepMatch(path=file_path, line=int(line_no or 0), match=snippet))
+        return matches
+
+    def python_exec(self, code: str, timeout: Optional[int] = 30) -> str:
+        command = f"python - <<'PYCODE'\n{code}\nPYCODE"
+        result = self._shell(command)
+        if int(result.exit_code) != 0:
+            return result.stderr or f"Error executing Python code (exit {result.exit_code})"
+        return result.stdout or ""
+
+    def shell(self, command: str, cwd: Optional[str] = None, timeout: Optional[int] = 30) -> str:
+        result = self._shell(command, cwd=cwd)
+        if int(result.exit_code) != 0:
+            return result.stderr or f"Command failed with exit code {result.exit_code}"
+        return result.stdout or ""
+
+    def download(self, path: str) -> bytes:
+        target = self._abs_path(path)
+        session_id = self._ensure_session_id()
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/content"
+        response = self._http.get(url, params={"path": target}, timeout=self._timeout)
+        if response.status_code != 200:
+            raise RuntimeError(f"Failed to download {path}: {response.status_code}")
+        return response.content

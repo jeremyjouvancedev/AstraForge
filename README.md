@@ -170,6 +170,11 @@ The override mounts `~/.kube`, sets `PROVISIONER=k8s`, and injects `host.docker.
 the containers can talk to your laptop’s cluster while the rest of the services keep using
 Compose. See `docs/kubernetes-local.md` for the full walkthrough.
 
+## Use AstraForge Python packages from another project
+
+The repo now ships a standalone client/toolkit package for using the sandbox-backed DeepAgent from
+other projects. See `astraforge-python-package/README.md` for usage.
+
 ## Testing & Quality Gates
 
 - `make lint` – Ruff + ESLint

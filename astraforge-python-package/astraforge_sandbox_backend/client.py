@@ -33,12 +33,12 @@ class DeepAgentClient:
     Example:
         >>> from astraforge_sandbox_backend import DeepAgentClient
         >>> client = DeepAgentClient(
-        ...     base_url=\"https://astra.example.com/api\",
-        ...     api_key=\"your-api-key\",
+        ...     base_url="https://astra.example.com/api",
+        ...     api_key="your-api-key",
         ... )
         >>> conv = client.create_conversation()
-        >>> for chunk in client.stream_message(conv.conversation_id, \"Hello, sandbox!\"):
-        ...     print(chunk.get(\"tokens\") or chunk.get(\"messages\"))
+        >>> for chunk in client.stream_message(conv.conversation_id, "Hello, sandbox!"):
+        ...     print(chunk.get("tokens") or chunk.get("messages"))
     """
 
     def __init__(
@@ -49,13 +49,6 @@ class DeepAgentClient:
         timeout: float | None = 60.0,
         session: Session | None = None,
     ) -> None:
-        """
-        Args:
-            base_url: Base API URL, typically \"https://host/api\" or \"http://localhost:8000/api\".
-            api_key: AstraForge API key (sent as X-Api-Key).
-            timeout: Default request timeout in seconds (None to disable).
-            session: Optional preconfigured `requests.Session`.
-        """
         if not base_url:
             raise ValueError("base_url is required")
         if not api_key:
@@ -65,7 +58,6 @@ class DeepAgentClient:
         self.api_key = api_key
         self.timeout = timeout
         self._session: Session = session or requests.Session()
-        # Let callers override headers on the provided session if they want to.
         self._session.headers.setdefault("X-Api-Key", self.api_key)
 
     # Public API ------------------------------------------------------------
@@ -74,15 +66,6 @@ class DeepAgentClient:
         self,
         session_params: Optional[Mapping[str, Any]] = None,
     ) -> DeepAgentConversation:
-        """Create a new DeepAgent conversation + sandbox session.
-
-        `session_params` are forwarded directly to the sandbox session serializer.
-        Useful keys include:
-            - mode: \"docker\" | \"k8s\"
-            - image: sandbox image name
-            - cpu / memory / ephemeral_storage
-            - idle_timeout_sec / max_lifetime_sec
-        """
         url = f"{self.base_url}/deepagent/conversations/"
         payload: Dict[str, Any] = dict(session_params or {})
         response = self._session.post(url, json=payload, timeout=self.timeout)
@@ -107,14 +90,6 @@ class DeepAgentClient:
         *,
         stream: bool = False,
     ) -> Mapping[str, Any] | Iterator[Mapping[str, Any]]:
-        """Send a message to DeepAgent.
-
-        When `stream=False` (default), the server computes the full reply before
-        responding and this method returns the final JSON payload.
-
-        When `stream=True`, this method returns an iterator yielding JSON payloads
-        decoded from the server-sent events stream.
-        """
         if not conversation_id:
             raise ValueError("conversation_id is required")
 
@@ -142,7 +117,6 @@ class DeepAgentClient:
         conversation_id: str,
         content: str,
     ) -> Iterator[Mapping[str, Any]]:
-        """Convenience wrapper around `send_message` for a single user message."""
         message = {"role": "user", "content": content}
         iterator = self.send_message(
             conversation_id=conversation_id,
@@ -175,7 +149,6 @@ class DeepAgentClient:
         )
 
     def _iter_sse(self, response: Response) -> Iterator[Mapping[str, Any]]:
-        """Yield JSON payloads from a text/event-stream response."""
         try:
             for raw_line in response.iter_lines(decode_unicode=True):
                 if raw_line is None:
@@ -190,14 +163,10 @@ class DeepAgentClient:
                 try:
                     parsed = json.loads(json_payload)
                 except json.JSONDecodeError:
-                    # Ignore malformed frames to keep the stream resilient.
                     continue
                 if isinstance(parsed, dict):
-                    # Most deep agent chunks are dict-like; yield as-is.
                     yield parsed
                 else:
-                    # Wrap non-dict payloads for consistency.
                     yield {"data": parsed}
         finally:
             response.close()
-
