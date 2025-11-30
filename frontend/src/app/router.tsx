@@ -13,6 +13,7 @@ const RegisterPage = lazy(() => import("@/features/auth/pages/register-page"));
 const RepositoryLinksPage = lazy(
   () => import("@/features/repositories/pages/repository-links-page")
 );
+const ApiKeysPage = lazy(() => import("@/features/api-keys/pages/api-keys-page"));
 const DeepAgentSandboxPage = lazy(
   () => import("@/features/deepagent/pages/deepagent-sandbox-page")
 );
@@ -41,6 +42,7 @@ const routes: RouteObject[] = [
       { path: "/runs", element: <Navigate to="/" replace /> },
       { path: "/merge-requests", element: <Navigate to="/" replace /> },
       { path: "/repositories", element: <RepositoryLinksPage /> },
+      { path: "/api-keys", element: <ApiKeysPage /> },
       { path: "/deep-sandbox", element: <DeepAgentSandboxPage /> }
     ]
   },

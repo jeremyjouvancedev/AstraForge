@@ -17,9 +17,9 @@ RUN apt-get update \
     && chmod +x /usr/local/bin/kubectl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
+COPY requirements.txt ./requirements.txt
 
-RUN pip install --upgrade pip && pip install .[dev]
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 

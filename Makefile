@@ -9,7 +9,7 @@ frontend-dev:
 install-deps:
 	cd backend && test -d .venv || python3 -m venv .venv
 	cd backend && .venv/bin/pip install --upgrade pip
-	cd backend && .venv/bin/pip install .[dev]
+	cd backend && .venv/bin/pip install -r requirements-dev.txt
 	cd frontend && pnpm install
 
 lint:

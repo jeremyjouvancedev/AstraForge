@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "astraforge-toolkit"
-version = "0.1.1"
+version = "0.1.2"
 description = "HTTP client and sandbox backend for AstraForge DeepAgent."
 authors = [
-  { name = "AstraForge Contributors", email = "opensource@astraforge.dev" }
+  { name = "AstraForge Contributors", email = "jeremy.jouvance@gmail.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "requests>=2.32",
-  "deepagents>=0.2.8",
+  "deepagents>=0.2.8",  
 ]
 
 [project.optional-dependencies]
@@ -24,7 +24,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["astraforge_sandbox_backend*"]
+include = ["astraforge_toolkit*"]
 
 [tool.ruff]
 line-length = 100

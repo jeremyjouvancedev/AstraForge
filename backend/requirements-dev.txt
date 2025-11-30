@@ -1,0 +1,10 @@
+-r requirements.txt
+
+factory-boy
+fakeredis
+mypy
+pytest
+pytest-asyncio
+pytest-django
+ruff
+types-requests

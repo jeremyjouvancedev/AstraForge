@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Brain, Inbox, Link2, Sparkles } from "lucide-react";
+import { Brain, Inbox, KeyRound, Link2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/", label: "Requests", icon: Inbox, exact: true },
   { to: "/repositories", label: "Repositories", icon: Link2 },
+  { to: "/api-keys", label: "API Keys", icon: KeyRound },
   { to: "/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain }
 ];
 

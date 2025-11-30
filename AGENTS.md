@@ -38,6 +38,9 @@
 - Update `opa/` policies alongside feature work and document notable decisions in `docs/`.
 - When changing backend modules that are exposed via the published Python package, mirror the change
   in the export surface (SDK/code automation/deepagent) and docs so the package stays in sync.
+- Keep the standalone Python package (`astraforge-python-package/`) in parity with backend logic:
+  updates to `backend/astraforge/sandbox/deepagent_backend.py` must be reflected in
+  `astraforge-python-package/astraforge_toolkit/backend.py` (and regenerate docs/readme).
 
 
 # TODO

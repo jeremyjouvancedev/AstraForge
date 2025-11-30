@@ -31,7 +31,7 @@ class DeepAgentClient:
     in Django or Celery.
 
     Example:
-        >>> from astraforge_sandbox_backend import DeepAgentClient
+        >>> from astraforge_toolkit import DeepAgentClient
         >>> client = DeepAgentClient(
         ...     base_url="https://astra.example.com/api",
         ...     api_key="your-api-key",

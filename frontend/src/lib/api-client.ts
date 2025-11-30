@@ -198,6 +198,30 @@ export interface RunDetail extends RunSummary {
   error?: string;
 }
 
+// API keys ------------------------------------------------------------
+export interface ApiKey {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+  is_active: boolean;
+  key?: string; // present only at creation time
+}
+
+export async function fetchApiKeys() {
+  const response = await apiClient.get<ApiKey[]>("/api-keys/");
+  return response.data;
+}
+
+export async function createApiKey(name: string) {
+  const response = await apiClient.post<ApiKey>("/api-keys/", { name });
+  return response.data;
+}
+
+export async function revokeApiKey(id: string) {
+  await apiClient.delete(`/api-keys/${id}/`);
+}
+
 export async function fetchRuns() {
   const response = await apiClient.get<RunSummary[]>("/runs/");
   return response.data;

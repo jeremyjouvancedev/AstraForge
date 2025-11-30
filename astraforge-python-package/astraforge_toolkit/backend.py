@@ -31,18 +31,29 @@ class SandboxBackend(BackendProtocol):
         self,
         rt,
         *,
-        base_url: str,
-        api_key: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
         root_dir: str = "/workspace",
         session_params: Optional[Mapping[str, Any]] = None,
         session_id: Optional[str] = None,
         timeout: Optional[float] = 60.0,
         session: Optional[Session] = None,
     ) -> None:
+        # Mirror backend logic: allow env overrides so callers can omit args.
+        base_url = (
+            base_url
+            or os.getenv("ASTRAFORGE_SANDBOX_API_URL")
+            or os.getenv("DEEPAGENT_SANDBOX_API_URL")
+        )
+        api_key = (
+            api_key
+            or os.getenv("ASTRAFORGE_SANDBOX_API_KEY")
+            or os.getenv("DEEPAGENT_SANDBOX_API_KEY")
+        )
         if not base_url:
-            raise ValueError("base_url is required")
+            raise ValueError("base_url is required (or set ASTRAFORGE_SANDBOX_API_URL)")
         if not api_key:
-            raise ValueError("api_key is required")
+            raise ValueError("api_key is required (or set ASTRAFORGE_SANDBOX_API_KEY)")
 
         self.rt = rt
         self.base_url = base_url.rstrip("/")
