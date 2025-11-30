@@ -2,12 +2,113 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Any, List
+from typing import Any, List, Mapping, Optional
+from urllib.parse import quote
 
 from deepagents import create_deep_agent
 from langchain_openai import ChatOpenAI
 
 from astraforge.sandbox.deepagent_backend import SandboxBackend
+
+
+def _postgres_dsn_from_db_settings(db_settings: Mapping[str, Any]) -> Optional[str]:
+    """Build a Postgres DSN from Django database settings."""
+    engine = str(db_settings.get("ENGINE") or "").lower()
+    if "postgres" not in engine:
+        return None
+    name = db_settings.get("NAME")
+    if not name:
+        return None
+
+    user = db_settings.get("USER") or ""
+    password = db_settings.get("PASSWORD") or ""
+    host = db_settings.get("HOST") or "localhost"
+    port = str(db_settings.get("PORT") or "")
+
+    def _quote(value: str) -> str:
+        return quote(value, safe="")
+
+    auth = ""
+    if user:
+        auth = _quote(user)
+        if password:
+            auth = f"{auth}:{_quote(password)}"
+        auth = f"{auth}@"
+    elif password:
+        auth = f"{_quote(password)}@"
+
+    netloc = host
+    if port:
+        netloc = f"{netloc}:{port}"
+
+    return f"postgresql://{auth}{netloc}/{_quote(str(name))}"
+
+
+def _get_database_url_from_django_settings() -> Optional[str]:
+    """Return the Postgres DSN configured in Django settings, if available."""
+    try:
+        from django.conf import settings as django_settings
+        from django.core.exceptions import ImproperlyConfigured
+    except ImportError:
+        return None
+
+    try:
+        db_settings = django_settings.DATABASES.get("default")
+        print("==> DB SETTINGS:", db_settings)
+    except ImproperlyConfigured:
+        return None
+    if not isinstance(db_settings, Mapping):
+        return None
+    return _postgres_dsn_from_db_settings(db_settings)
+
+
+def _get_checkpointer_dsn() -> Optional[str]:
+    """Return the DSN for the DeepAgent checkpointer.
+
+    Prefer the explicit override, then the Django database config, then
+    fall back to the environment `DATABASE_URL`.
+    """
+    override = os.getenv("DEEPAGENT_CHECKPOINTER_URL")
+    print("==> OVERRIDE:", override)
+    if override:
+        return override
+    return _get_database_url_from_django_settings() or os.getenv("DATABASE_URL")
+
+
+def _build_checkpointer() -> Optional[Any]:
+    """Build an optional Postgres checkpointer for LangGraph.
+
+    When a Postgres connection string is available, this creates a
+    `PostgresSaver`, runs its migrations, and returns it.
+    If configuration or imports are missing, we silently fall back to
+    in-memory execution so DeepAgent still works.
+    """
+    dsn = _get_checkpointer_dsn()
+    if not dsn:
+        print("==> CHECKPOINTER: no DSN resolved")
+        return None
+    try:
+        # Local import so missing optional dependencies don't break import-time.
+        import psycopg  # type: ignore[import]
+        from langgraph.checkpoint.postgres import PostgresSaver  # type: ignore[import]
+    except Exception as exc:
+        print("==> CHECKPOINTER: missing dependencies", exc)
+        return None
+
+    try:
+        conn = psycopg.connect(dsn, autocommit=True)
+    except Exception as exc:
+        print("==> CHECKPOINTER: connection failed", dsn, exc)
+        return None
+
+    saver = PostgresSaver(conn)
+    try:
+        # Idempotent; ensures required tables exist.
+        saver.setup()
+    except Exception:
+        # setup may race across workers; failures should not take down the API.
+        return saver
+    return saver
 
 
 def _build_playwright_tools() -> List[Any]:
@@ -57,7 +158,7 @@ def _build_shell_tools() -> List[Any]:
     return [sandbox_shell]
 
 
-@lru_cache(maxsize=1)
+# @lru_cache(maxsize=1)
 def get_deep_agent():
     """Instantiate a singleton deep agent bound to the sandbox backend."""
 
@@ -136,17 +237,25 @@ def get_deep_agent():
         "tools": tools,
     }
     subagents: list[Any] = [slide_deck_subagent]
+
+    checkpointer = _build_checkpointer()
+    print("==> CHECKPOINTER:", checkpointer)
+    create_kwargs: dict[str, Any] = {
+        "model": model,
+        "backend": backend_factory,
+        "system_prompt": system_prompt,
+        "subagents": subagents,
+    }
     if tools:
-        return create_deep_agent(
-            model=model,
-            backend=backend_factory,
-            system_prompt=system_prompt,
-            tools=tools,
-            subagents=subagents,
-        )
-    return create_deep_agent(
-        model=model,
-        backend=backend_factory,
-        system_prompt=system_prompt,
-        subagents=subagents,
-    )
+        create_kwargs["tools"] = tools
+    if checkpointer is not None:
+        create_kwargs["checkpointer"] = checkpointer
+
+    try:
+        return create_deep_agent(**create_kwargs)
+    except TypeError as exc:
+        # Older DeepAgents versions may not accept a `checkpointer` kwarg.
+        if "checkpointer" in str(exc):
+            create_kwargs.pop("checkpointer", None)
+            return create_deep_agent(**create_kwargs)
+        raise

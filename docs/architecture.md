@@ -21,6 +21,7 @@ graph TD
         Redis[(Redis)]
         RunLog[(Redis Run Log Stream)]
         Artifacts[(S3/MinIO Artifacts & Snapshots)]
+        DeepAgentCP[(LangGraph Postgres Checkpointer)]
     end
     subgraph Workspace Orchestration
         Provisioner[Docker/K8s Provisioner]
@@ -43,6 +44,7 @@ graph TD
     API --> Redis
     Worker --> PG
     Worker --> Redis
+    Worker --> DeepAgentCP
     API --> Worker
     Worker --> Registry
     API --> SandboxAPI

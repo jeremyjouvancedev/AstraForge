@@ -152,18 +152,26 @@ const markdownComponents: Components = {
   ),
   a: ({ ...props }) => {
     const href = typeof props.href === "string" ? props.href : "";
+    const lowerHref = href.toLowerCase();
     const isDownload = href.includes("download=1");
+    const isModal = lowerHref.startsWith("modal:");
     return (
       <a
         {...props}
-        href={href}
-        target={isDownload ? undefined : "_blank"}
+        href={isModal ? "#" : href}
+        target={isDownload || isModal ? undefined : "_blank"}
         rel={isDownload ? undefined : "noreferrer"}
-        download={isDownload ? "" : undefined}
+        download={isDownload || isModal ? "" : undefined}
         className={cn(
           "text-primary underline underline-offset-2 transition hover:text-primary/80",
           props.className
         )}
+        onClick={(event) => {
+          if (isModal) {
+            event.preventDefault();
+          }
+          props.onClick?.(event as never);
+        }}
       >
         {props.children}
       </a>
@@ -183,35 +191,39 @@ export function ChatTimeline({
     ...markdownComponents,
     a: ({ ...props }) => {
       const href = typeof props.href === "string" ? props.href : "";
+      const lowerHref = href.toLowerCase();
       const isDownload = href.includes("download=1");
+      const isModal = lowerHref.startsWith("modal:");
 
       const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        if (onLinkClick && isDownload) {
+        if (isModal) {
           event.preventDefault();
-          const text =
-            React.Children.toArray(props.children)
-              .map((child) => {
-                if (typeof child === "string") return child;
-                if (React.isValidElement(child)) {
-                  return typeof child.props.children === "string"
-                    ? child.props.children
-                    : "";
-                }
-                return "";
-              })
-              .join("") || href;
-          onLinkClick(href, text);
         }
+        if (!onLinkClick || (!isDownload && !isModal)) return;
+        event.preventDefault();
+        const text =
+          React.Children.toArray(props.children)
+            .map((child) => {
+              if (typeof child === "string") return child;
+              if (React.isValidElement(child)) {
+                return typeof child.props.children === "string"
+                  ? child.props.children
+                  : "";
+              }
+              return "";
+            })
+            .join("") || href;
+        onLinkClick(href, text);
       };
 
       return (
         <a
           {...props}
-          href={href}
+          href={isModal ? "#" : href}
           onClick={handleClick}
-          target={isDownload ? undefined : "_blank"}
+          target={isDownload || isModal ? undefined : "_blank"}
           rel={isDownload ? undefined : "noreferrer"}
-          download={isDownload && !onLinkClick ? "" : undefined}
+          download={(isDownload || isModal) && !onLinkClick ? "" : undefined}
           className={cn(
             "text-primary underline underline-offset-2 transition hover:text-primary/80",
             props.className

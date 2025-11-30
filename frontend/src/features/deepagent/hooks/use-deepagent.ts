@@ -11,23 +11,18 @@ function getCookie(name: string): string | null {
   return null;
 }
 
+export type DeepAgentEvent =
+  | "delta"
+  | "tool_start"
+  | "tool_result"
+  | "tool_artifact";
+
 export interface DeepAgentChunk {
-  messages?: { role: string; content: string }[];
+  event?: DeepAgentEvent;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: any;
   error?: string;
   raw?: string;
-  tokens?: string[];
-  tool_events?: {
-    status: "start" | "result";
-    tool_name: string | null;
-    tool_call_id?: string | null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    arguments?: any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    artifacts?: any;
-    output?: string | null;
-  }[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
 }
 
 export interface DeepAgentConversation {

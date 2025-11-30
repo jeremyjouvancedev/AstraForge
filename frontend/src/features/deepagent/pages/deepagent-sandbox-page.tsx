@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ChatTimeline } from "@/features/chat/components/chat-timeline";
 import {
@@ -27,6 +33,10 @@ export default function DeepAgentSandboxPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const messageIdRef = useRef(0);
   const toolMessageIdsRef = useRef(new Map<string, string>());
+  const fullOutputMapRef = useRef(new Map<string, string>());
+  const [outputModal, setOutputModal] = useState<{ title: string; content: string } | null>(
+    null
+  );
   const toolStateRef = useRef(
     new Map<
       string,
@@ -97,16 +107,11 @@ export default function DeepAgentSandboxPage() {
       } catch {
         json = String(args);
       }
-      const truncated = json.length > 800;
-      const displayJson = truncated ? `${json.slice(0, 800)}…` : json;
-      sections.push(`**Arguments:**\n\n\`\`\`json\n${displayJson}\n\`\`\``);
+      sections.push(`**Arguments:**\n\n\`\`\`json\n${json}\n\`\`\``);
     }
 
     if (typeof output === "string" && output.trim().length > 0) {
-      const maxOutput = 1200;
-      const truncated = output.length > maxOutput;
-      const preview = truncated ? `${output.slice(0, maxOutput)}…` : output;
-      sections.push(`**Output (truncated):**\n\n\`\`\`\n${preview}\n\`\`\``);
+      sections.push(`**Output:**\n\n\`\`\`\n${output}\n\`\`\``);
     }
 
     if (artifacts) {
@@ -176,10 +181,7 @@ export default function DeepAgentSandboxPage() {
 
   const handleChunk = (chunk: DeepAgentChunk) => {
     // Error handling stays first so we surface failures clearly.
-    const errorText =
-      typeof chunk.error === "string"
-        ? chunk.error
-        : null;
+    const errorText = typeof chunk.error === "string" ? chunk.error : null;
     if (errorText) {
       const normalized =
         errorText.includes("context_length_exceeded") ||
@@ -198,117 +200,161 @@ export default function DeepAgentSandboxPage() {
       return;
     }
 
-    // Surface tool lifecycle events as structured tool messages (one per tool call).
-    if (Array.isArray(chunk.tool_events) && chunk.tool_events.length > 0) {
-      chunk.tool_events.forEach((event) => {
-        const name = event.tool_name ?? "tool";
-        const callKey = event.tool_call_id ?? `name:${name}`;
+    const updateToolMessage = (
+      callKey: string,
+      name: string,
+      updates: { args?: unknown; output?: string | null; artifacts?: unknown }
+    ) => {
+      const currentState = toolStateRef.current.get(callKey) ?? {};
+      if (updates.args !== undefined) {
+        currentState.arguments = updates.args;
+      }
+      if (updates.output !== undefined) {
+        currentState.output = updates.output;
+        if (typeof updates.output === "string") {
+          fullOutputMapRef.current.set(callKey, updates.output);
+        }
+      }
+      if (updates.artifacts !== undefined) {
+        currentState.artifacts = updates.artifacts;
+      }
+      toolStateRef.current.set(callKey, currentState);
 
-        const currentState = toolStateRef.current.get(callKey) ?? {};
-        if (event.status === "start") {
-          currentState.arguments = event.arguments;
-        } else if (event.status === "result") {
-          if (typeof event.output === "string") {
-            currentState.output = event.output;
-          }
-          if (event.artifacts !== undefined) {
-            currentState.artifacts = event.artifacts;
+      const outputText =
+        typeof currentState.output === "string"
+          ? currentState.output
+          : fullOutputMapRef.current.get(callKey) ?? null;
+
+      const content = formatToolMessageContent(
+        name,
+        currentState.arguments,
+        outputText,
+        currentState.artifacts
+      );
+      if (!content) return;
+
+      const now = new Date().toISOString();
+      setMessages((prev) => {
+        const next = [...prev];
+        const existingId = toolMessageIdsRef.current.get(callKey);
+        if (existingId) {
+          const index = next.findIndex((m) => m.id === existingId);
+          if (index !== -1) {
+            next[index] = {
+              ...next[index],
+              role: "tool",
+              content
+            };
+            return next;
           }
         }
-        toolStateRef.current.set(callKey, currentState);
 
-        const content = formatToolMessageContent(
-          name,
-          currentState.arguments,
-          currentState.output ?? null,
-          currentState.artifacts
-        );
-        if (!content) return;
-
-        const now = new Date().toISOString();
-        setMessages((prev) => {
-          const next = [...prev];
-          const existingId = toolMessageIdsRef.current.get(callKey);
-          if (existingId) {
-            const index = next.findIndex((m) => m.id === existingId);
-            if (index !== -1) {
-              next[index] = {
-                ...next[index],
-                role: "tool",
-                content
-              };
-              return next;
-            }
-          }
-
-          messageIdRef.current += 1;
-          const id = String(messageIdRef.current);
-          toolMessageIdsRef.current.set(callKey, id);
-          next.push({
-            id,
-            role: "tool",
-            content,
-            created_at: now
-          });
-          return next;
+        messageIdRef.current += 1;
+        const id = String(messageIdRef.current);
+        toolMessageIdsRef.current.set(callKey, id);
+        next.push({
+          id,
+          role: "tool",
+          content,
+          created_at: now
         });
+        return next;
       });
+    };
+
+    const event = chunk.event;
+
+    if (event === "tool_start" && chunk.data) {
+      const name = chunk.data.tool_name ?? "tool";
+      const callKey = chunk.data.tool_call_id ?? `name:${name}`;
+      updateToolMessage(callKey, name, { args: chunk.data.args });
+      return;
     }
 
-    // Token streaming: append assistant text deltas to the latest assistant message.
-    if (Array.isArray(chunk.tokens) && chunk.tokens.length > 0) {
-      const deltaText = chunk.tokens.join("");
-      if (deltaText.trim().length === 0) {
+    if (event === "tool_result" && chunk.data) {
+      const name = chunk.data.tool_name ?? "tool";
+      const callKey = chunk.data.tool_call_id ?? `name:${name}`;
+      updateToolMessage(callKey, name, {
+        output: typeof chunk.data.output === "string" ? chunk.data.output : null,
+        artifacts: chunk.data.artifacts
+      });
+      return;
+    }
+
+    if (event === "tool_artifact" && chunk.data) {
+      const name = chunk.data.tool_name ?? "tool";
+      const callKey = chunk.data.tool_call_id ?? `name:${name}`;
+      const current = toolStateRef.current.get(callKey) ?? {};
+      const artifacts = current.artifacts;
+      let nextArtifacts: unknown;
+      if (Array.isArray(artifacts)) {
+        nextArtifacts = [...artifacts, chunk.data.artifact];
+      } else if (artifacts) {
+        nextArtifacts = [artifacts, chunk.data.artifact];
+      } else {
+        nextArtifacts = [chunk.data.artifact];
+      }
+      updateToolMessage(callKey, name, { artifacts: nextArtifacts });
+      return;
+    }
+
+    if (event === "delta" && chunk.data) {
+      const msg = chunk.data as Record<string, unknown>;
+      const msgData =
+        (msg.data && typeof msg.data === "object" ? (msg.data as Record<string, unknown>) : {}) || {};
+      const roleRaw = (msg.type ?? msg.role ?? msgData.role ?? "assistant") as string;
+      const roleLower = String(roleRaw).toLowerCase();
+      if (roleLower === "human" || roleLower === "user" || roleLower === "tool" || roleLower === "system") {
         return;
       }
+      const normRole =
+        roleLower === "ai" || roleLower === "assistant" || roleLower === "model" ? "assistant" : roleLower;
+      const contentValue = msgData.content ?? (msg as { content?: unknown }).content ?? "";
+      let contentText = "";
+      if (Array.isArray(contentValue)) {
+        const parts: string[] = [];
+        contentValue.forEach((part) => {
+          if (
+            part &&
+            typeof part === "object" &&
+            "text" in part &&
+            typeof (part as { text: unknown }).text === "string"
+          ) {
+            parts.push((part as { text: string }).text);
+          }
+        });
+        contentText = parts.join("");
+      } else if (typeof contentValue === "string") {
+        contentText = contentValue;
+      } else {
+        contentText = String(contentValue ?? "");
+      }
+      const cleaned = rewriteSandboxLinks(contentText);
+      if (!cleaned.trim()) return;
+
       const now = new Date().toISOString();
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
-        if (last && last.role === "assistant") {
+        if (last && last.role === normRole) {
           next[next.length - 1] = {
             ...last,
-            content: rewriteSandboxLinks(last.content + deltaText),
+            content: cleaned,
             created_at: last.created_at
           };
           return next;
         }
         messageIdRef.current += 1;
-        const assistantMessage: DeepAgentMessage = {
+        next.push({
           id: String(messageIdRef.current),
-          role: "assistant",
-          content: rewriteSandboxLinks(deltaText),
+          role: normRole,
+          content: cleaned,
           created_at: now
-        };
-        next.push(assistantMessage);
+        });
         return next;
       });
-      // When tokens are present, we treat them as the primary view and
-      // skip the legacy message-based handling below to avoid duplicates.
       return;
     }
-
-    // DeepAgents returns a state-like object; look for messages array
-    const chunkMessages = Array.isArray(chunk?.messages)
-      ? chunk.messages.filter((m) => m && m.role !== "tool" && m.role !== "system")
-      : null;
-    if (!chunkMessages || chunkMessages.length === 0) return;
-    const latest = chunkMessages[chunkMessages.length - 1];
-    if (!latest || typeof latest.content !== "string") return;
-    messageIdRef.current += 1;
-    const synthetic: DeepAgentMessage = {
-      id: String(messageIdRef.current),
-      role: latest.role ?? "assistant",
-      content: latest.content,
-      created_at: new Date().toISOString()
-    };
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.role === synthetic.role && last.content === synthetic.content) {
-        return prev;
-      }
-      return [...prev, synthetic];
-    });
   };
 
   const handleSend = async () => {
@@ -347,6 +393,17 @@ export default function DeepAgentSandboxPage() {
   }, [conversation, sandboxImageUrl, preview.kind]);
 
   const handleFileLinkClick = async (href: string, label: string) => {
+    if (href.startsWith("modal:")) {
+      const key = href.replace("modal:", "");
+      const content = fullOutputMapRef.current.get(key);
+      if (!content) return;
+      setOutputModal({
+        title: label || "Tool Output",
+        content,
+      });
+      return;
+    }
+
     if (!href) return;
     try {
       const response = await fetch(href);
@@ -527,6 +584,24 @@ export default function DeepAgentSandboxPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={!!outputModal}
+        onOpenChange={(open) => {
+          if (!open) setOutputModal(null);
+        }}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{outputModal?.title || "Tool Output"}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-muted/40 p-4 text-sm">
+            <pre className="whitespace-pre-wrap break-words text-foreground">
+              {outputModal?.content}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

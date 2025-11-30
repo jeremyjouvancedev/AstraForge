@@ -29,6 +29,7 @@ from astraforge.infrastructure.ai.deepagent_runtime import get_deep_agent
 from astraforge.infrastructure.ai.serializers import jsonable_chunk, encode_sse
 from astraforge.sandbox.models import SandboxSession
 from django.http import StreamingHttpResponse
+from langchain_core.messages import message_to_dict
 
 
 class RequestViewSet(
@@ -348,167 +349,139 @@ class DeepAgentMessageView(APIView):
             normalized = jsonable_chunk(result)
             return Response(normalized)
 
-        def _serialize_chunk(raw: object) -> dict[str, object]:
-            # Normalize deep agent state chunk into a JSON payload.
-            # The shape is:
-            #   {
-            #       "messages": [{ "role": str, "content": str }, ...],  # backward compatible
-            #       "tokens": [str, ...],                                # assistant text deltas
-            #       "tool_events": [                                     # tool lifecycle events
-            #           {
-            #               "status": "start" | "result",
-            #               "tool_name": str,
-            #               "tool_call_id": str | null,
-            #               "arguments": object | null,
-            #               "output": str | null,
-            #               "artifacts": object | null,
-            #           },
-            #           ...
-            #       ],
-            #   }
-            normalized = jsonable_chunk(raw)
-            messages = []
-            if isinstance(normalized, dict):
-                messages = normalized.get("messages", []) or []
+        seen_tool_call_ids: set[str] = set()
+        seen_tool_result_ids: set[str] = set()
 
-            json_messages: list[dict[str, str]] = []
-            assistant_tokens: list[str] = []
-            tool_events: list[dict[str, object | None]] = []
+        def _normalize_messages(raw: object) -> list[object]:
+            if isinstance(raw, dict):
+                msgs = raw.get("messages", []) or []
+            else:
+                msgs = []
+            if not isinstance(msgs, list):
+                return []
+            return msgs
 
-            for msg in messages:
-                if not isinstance(msg, dict):
-                    continue
-                msg_type = msg.get("type")
-                role_value = msg_type or msg.get("role") or "assistant"
-                role = str(role_value).lower()
-                # Skip human/user echoes; the frontend already renders user messages
-                if role in {"human", "user"}:
-                    continue
-                if role in {"ai", "assistant", "model"}:
-                    norm_role = "assistant"
-                elif role in {"system"}:
-                    norm_role = "system"
-                else:
-                    norm_role = role or "assistant"
+        def _to_message_dict(msg: object) -> dict[str, object]:
+            try:
+                return message_to_dict(msg)  # type: ignore[arg-type]
+            except Exception:
+                pass
+            if isinstance(msg, dict):
+                return msg
+            return jsonable_chunk(msg)
 
+        def _content_to_text(content: object) -> str:
+            if isinstance(content, list):
+                parts: list[str] = []
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    text_value = part.get("text")
+                    if isinstance(text_value, str):
+                        parts.append(text_value)
+                        continue
+                    if (part.get("type") == "image_url") and isinstance(
+                        part.get("image_url"), dict
+                    ):
+                        image_dict = part["image_url"]
+                        url = image_dict.get("url")
+                        if isinstance(url, str) and url:
+                            alt = image_dict.get("alt") or "sandbox image"
+                            parts.append(f"![{alt}]({url})")
+                return "\n\n".join(parts)
+            if content is None:
+                return ""
+            return str(content)
+
+        def iter_new_tool_calls(
+            messages: list[object], seen_ids: set[str]
+        ) -> list[tuple[str, str, object]]:
+            found: list[tuple[str, str, object]] = []
+            for raw in messages:
+                msg = _to_message_dict(raw)
                 data = msg.get("data") or {}
-                content = data.get("content")
-                if isinstance(content, list):
-                    parts: list[str] = []
-                    for part in content:
-                        if not isinstance(part, dict):
-                            continue
-                        text_value = part.get("text")
-                        if isinstance(text_value, str):
-                            parts.append(text_value)
-                            continue
-                        # Allow image_url fragments from multimodal messages to render
-                        # as Markdown images in the chat UI.
-                        if (part.get("type") == "image_url") and isinstance(
-                            part.get("image_url"), dict
-                        ):
-                            image_dict = part["image_url"]
-                            url = image_dict.get("url")
-                            if isinstance(url, str) and url:
-                                alt = image_dict.get("alt") or "sandbox image"
-                                parts.append(f"![{alt}]({url})")
-                    content_text = "\n\n".join(parts)
-                else:
-                    content_text = "" if content is None else str(content)
-                # Rewrite sandbox:workspace/... links into real download URLs backed by artifacts.
-                content_text = rewrite_sandbox_links(content_text)
-                if content_text.strip():
-                    json_messages.append({"role": norm_role, "content": content_text})
-                    if norm_role == "assistant":
-                        assistant_tokens.append(content_text)
-
-                # Tool start events – emitted when the model decides to call a tool.
+                if not isinstance(data, dict):
+                    continue
                 tool_calls = data.get("tool_calls") or []
-                if isinstance(tool_calls, list):
-                    for call in tool_calls:
-                        if not isinstance(call, dict):
-                            continue
-                        name = (
-                            call.get("name")
-                            or call.get("tool")
-                            or (call.get("function") or {}).get("name")
-                        )
-                        if not name:
-                            continue
-                        tool_call_id = (
-                            call.get("id")
-                            or call.get("tool_call_id")
-                            or (call.get("function") or {}).get("id")
-                        )
-                        arguments = (
-                            call.get("args")
-                            or call.get("arguments")
-                            or call.get("input")
-                            or (call.get("function") or {}).get("arguments")
-                        )
-                        tool_events.append(
-                            {
-                                "status": "start",
-                                "tool_name": str(name),
-                                "tool_call_id": (
-                                    str(tool_call_id) if tool_call_id else None
-                                ),
-                                "arguments": arguments,
-                                "output": None,
-                                "artifacts": None,
-                            }
-                        )
-
-                # Tool result events – emitted when a tool finishes executing.
-                if msg_type and str(msg_type).lower() in {"tool", "tool_message"}:
-                    tool_name = (
-                        data.get("name") or data.get("tool_name") or data.get("tool")
+                if not isinstance(tool_calls, list):
+                    continue
+                for call in tool_calls:
+                    if not isinstance(call, dict):
+                        continue
+                    name = (
+                        call.get("name")
+                        or call.get("tool")
+                        or (call.get("function") or {}).get("name")
                     )
-                    tool_call_id = data.get("tool_call_id") or data.get("id")
-                    artifacts_from_data = data.get("artifacts")
-                    auto_artifacts = export_artifacts_from_text(content_text)
-                    combined_artifacts: list[dict[str, object]] = []
-                    if artifacts_from_data:
-                        if isinstance(artifacts_from_data, list):
-                            combined_artifacts.extend(
-                                [a for a in artifacts_from_data if isinstance(a, dict)]
-                            )
-                        elif isinstance(artifacts_from_data, dict):
-                            combined_artifacts.append(artifacts_from_data)
-                    if auto_artifacts:
-                        combined_artifacts.extend(auto_artifacts)
-                    if not combined_artifacts:
-                        artifacts_value: object | None = None
-                    elif len(combined_artifacts) == 1:
-                        artifacts_value = combined_artifacts[0]
-                    else:
-                        artifacts_value = combined_artifacts
+                    if not name:
+                        continue
+                    call_id = (
+                        call.get("id")
+                        or call.get("tool_call_id")
+                        or (call.get("function") or {}).get("id")
+                        or str(name)
+                    )
+                    if call_id in seen_ids:
+                        continue
+                    seen_ids.add(call_id)
+                    args = (
+                        call.get("args")
+                        or call.get("arguments")
+                        or call.get("input")
+                        or (call.get("function") or {}).get("arguments")
+                    )
+                    found.append((str(call_id), str(name), args))
+            return found
 
-                    output_text = content_text
-                    if tool_name or output_text:
-                        tool_events.append(
-                            {
-                                "status": "result",
-                                "tool_name": str(tool_name) if tool_name else None,
-                                "tool_call_id": (
-                                    str(tool_call_id) if tool_call_id else None
-                                ),
-                                "arguments": None,
-                                "output": output_text,
-                                "artifacts": artifacts_value,
-                            }
+        def iter_new_tool_results(
+            messages: list[object], seen_ids: set[str]
+        ) -> list[dict[str, object]]:
+            results: list[dict[str, object]] = []
+            for raw in messages:
+                msg = _to_message_dict(raw)
+                msg_type = msg.get("type")
+                if not msg_type or str(msg_type).lower() not in {"tool", "tool_message"}:
+                    continue
+                data = msg.get("data") or {}
+                if not isinstance(data, dict):
+                    continue
+                tool_name = data.get("name") or data.get("tool_name") or data.get("tool")
+                tool_call_id = data.get("tool_call_id") or data.get("id") or tool_name
+                if tool_call_id and str(tool_call_id) in seen_ids:
+                    continue
+                if tool_call_id:
+                    seen_ids.add(str(tool_call_id))
+
+                content = data.get("content")
+                content_text = rewrite_sandbox_links(_content_to_text(content))
+                artifacts_from_data = data.get("artifacts")
+                auto_artifacts = export_artifacts_from_text(content_text)
+                combined_artifacts: list[dict[str, object]] = []
+                if artifacts_from_data:
+                    if isinstance(artifacts_from_data, list):
+                        combined_artifacts.extend(
+                            [a for a in artifacts_from_data if isinstance(a, dict)]
                         )
+                    elif isinstance(artifacts_from_data, dict):
+                        combined_artifacts.append(artifacts_from_data)
+                if auto_artifacts:
+                    combined_artifacts.extend(auto_artifacts)
 
-            payload: dict[str, object] = {}
-            if json_messages:
-                payload["messages"] = json_messages
-            if assistant_tokens:
-                payload["tokens"] = assistant_tokens
-            if tool_events:
-                payload["tool_events"] = tool_events
-            if not payload:
-                payload["raw"] = str(raw)
-            return payload
+                result: dict[str, object] = {
+                    "tool_call_id": str(tool_call_id) if tool_call_id else None,
+                    "tool_name": str(tool_name) if tool_name else None,
+                    "output": content_text,
+                }
+                if combined_artifacts:
+                    if len(combined_artifacts) == 1:
+                        result["artifacts"] = combined_artifacts[0]
+                    else:
+                        result["artifacts"] = combined_artifacts
+                results.append(result)
+            return results
+
+        def messages_to_dict(messages: list[object]) -> list[dict[str, object]]:
+            return [_to_message_dict(msg) for msg in messages]
 
         def event_stream():
             try:
@@ -517,8 +490,50 @@ class DeepAgentMessageView(APIView):
                     config=config,
                     stream_mode="values",
                 ):
-                    payload = _serialize_chunk(chunk)
-                    yield encode_sse(payload)
+                    messages = _normalize_messages(chunk)
+
+                    for tc_id, tool_name, args in iter_new_tool_calls(
+                        messages, seen_tool_call_ids
+                    ):
+                        tool_start_payload = {
+                            "event": "tool_start",
+                            "data": {
+                                "tool_call_id": tc_id,
+                                "tool_name": tool_name,
+                                "args": args,
+                            },
+                        }
+                        yield encode_sse(tool_start_payload)
+
+                    for result in iter_new_tool_results(messages, seen_tool_result_ids):
+                        tool_result_payload = {
+                            "event": "tool_result",
+                            "data": result,
+                        }
+                        yield encode_sse(tool_result_payload)
+
+                        artifacts = result.get("artifacts")
+                        if isinstance(artifacts, list):
+                            for artifact in artifacts:
+                                tool_artifact_payload = {
+                                    "event": "tool_artifact",
+                                    "data": {
+                                        "tool_call_id": result.get("tool_call_id"),
+                                        "tool_name": result.get("tool_name"),
+                                        "artifact": artifact,
+                                    },
+                                }
+                                yield encode_sse(tool_artifact_payload)
+
+                    if not messages:
+                        continue
+                    last_msg = messages[-1]
+                    last_msg_dict = messages_to_dict([last_msg])[0]
+                    msg_payload = {
+                        "event": "delta",
+                        "data": last_msg_dict,
+                    }
+                    yield encode_sse(msg_payload)
             except Exception as exc:  # noqa: BLE001
                 error_payload = {"error": str(exc)}
                 yield encode_sse(error_payload)
