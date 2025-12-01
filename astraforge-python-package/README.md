@@ -4,7 +4,7 @@ Lightweight Python package for using AstraForge DeepAgent and sandboxes from ano
 
 Contents:
 - `astraforge_toolkit.SandboxBackend`: DeepAgents backend that executes via the remote AstraForge sandbox API.
-- `astraforge_toolkit.DeepAgentClient`: HTTP client for DeepAgent conversations and streaming replies.
+- `astraforge_toolkit.DeepAgentClient`: HTTP client for DeepAgent conversations, sandbox sessions, file upload/download, and streaming replies.
 - Remote sandbox tools: `sandbox_shell`, `sandbox_python_repl`, `sandbox_open_url_with_playwright`,
   `sandbox_view_image` — all execute inside the sandbox via HTTP.
 
@@ -42,6 +42,21 @@ agent = create_deep_agent(model=model, backend=backend_factory)
 
 # Optional: register sandbox tools with your agent/tool registry
 tools = [sandbox_shell, sandbox_python_repl, sandbox_open_url_with_playwright, sandbox_view_image]
+```
+
+### Create a sandbox session (no DeepAgent conversation)
+
+```python
+from astraforge_toolkit import DeepAgentClient
+
+client = DeepAgentClient(base_url="https://your.astra.forge/api", api_key="your-api-key")
+sandbox = client.create_sandbox_session(session_params={"image": "astraforge/codex-cli:latest"})
+
+# Upload text (or bytes) into the sandbox workspace
+client.upload_file(sandbox.session_id, "/workspace/hello.txt", content="hello from toolkit!\n")
+
+# Download the file back; omit encoding to get raw bytes
+print(client.get_file_content(sandbox.session_id, "/workspace/hello.txt", encoding="utf-8"))
 ```
 
 ### Call DeepAgent over HTTP

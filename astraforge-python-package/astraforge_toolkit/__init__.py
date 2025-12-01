@@ -1,5 +1,10 @@
 from .backend import SandboxBackend
-from .client import DeepAgentClient, DeepAgentConversation, DeepAgentError
+from .client import (
+    DeepAgentClient,
+    DeepAgentConversation,
+    DeepAgentError,
+    SandboxSession,
+)
 from .tools import (
     sandbox_shell,
     sandbox_python_repl,
@@ -12,6 +17,7 @@ __all__ = [
     "DeepAgentClient",
     "DeepAgentConversation",
     "DeepAgentError",
+    "SandboxSession",
     "sandbox_shell",
     "sandbox_python_repl",
     "sandbox_open_url_with_playwright",

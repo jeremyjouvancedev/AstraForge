@@ -22,6 +22,15 @@ class DeepAgentConversation:
     raw: Mapping[str, Any]
 
 
+@dataclass
+class SandboxSession:
+    """Sandbox session metadata returned by the sandbox API."""
+
+    session_id: str
+    workspace_path: str
+    raw: Mapping[str, Any]
+
+
 class DeepAgentClient:
     """Synchronous client for the AstraForge DeepAgent HTTP API.
 
@@ -83,6 +92,26 @@ class DeepAgentClient:
             raw=data,
         )
 
+    def create_sandbox_session(
+        self,
+        session_params: Optional[Mapping[str, Any]] = None,
+    ) -> SandboxSession:
+        """Create a sandbox session without creating a DeepAgent conversation."""
+        url = f"{self.base_url}/sandbox/sessions/"
+        payload: Dict[str, Any] = dict(session_params or {})
+        response = self._session.post(url, json=payload, timeout=self.timeout)
+        data = self._parse_json(response, expected_status=201)
+        try:
+            session_id = str(data["id"])
+        except Exception as exc:  # noqa: BLE001
+            raise DeepAgentError(f"Unexpected sandbox session payload: {data}") from exc
+        workspace_path = str(data.get("workspace_path") or "")
+        return SandboxSession(
+            session_id=session_id,
+            workspace_path=workspace_path,
+            raw=data,
+        )
+
     def send_message(
         self,
         conversation_id: str,
@@ -125,6 +154,60 @@ class DeepAgentClient:
         )
         assert isinstance(iterator, Iterator)
         return iterator
+
+    def upload_file(
+        self,
+        session_id: str,
+        path: str,
+        *,
+        content: bytes | str,
+        encoding: str = "utf-8",
+    ) -> Mapping[str, Any]:
+        """Upload raw bytes into a sandbox session at the given path."""
+        if not session_id:
+            raise ValueError("session_id is required")
+        if not path:
+            raise ValueError("path is required")
+
+        body: bytes
+        if isinstance(content, str):
+            body = content.encode(encoding)
+        else:
+            body = content
+
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/upload"
+        response = self._session.post(
+            url,
+            params={"path": path},
+            data=body,
+            timeout=self.timeout,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        return self._parse_json(response, expected_status=200)
+
+    def get_file_content(
+        self,
+        session_id: str,
+        path: str,
+        *,
+        encoding: str | None = None,
+    ) -> bytes | str:
+        """Fetch file bytes from a sandbox session. Optionally decode to text."""
+        if not session_id:
+            raise ValueError("session_id is required")
+        if not path:
+            raise ValueError("path is required")
+
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/content"
+        response = self._session.get(
+            url,
+            params={"path": path},
+            timeout=self.timeout,
+        )
+        self._ensure_ok(response, expected_status=200)
+        if encoding:
+            return response.content.decode(encoding)
+        return response.content
 
     # Internal helpers ------------------------------------------------------
 

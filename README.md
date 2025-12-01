@@ -178,6 +178,22 @@ Install the published package when you want to call DeepAgent or the sandbox API
 pip install astraforge-toolkit
 ```
 
+Toolkit contents:
+- `DeepAgentClient` – conversations, sandbox sessions, file upload/download, and streaming replies
+- `SandboxBackend` – DeepAgents backend that runs inside the remote sandbox
+- Sandbox LangChain tools: `sandbox_shell`, `sandbox_python_repl`, `sandbox_open_url_with_playwright`, `sandbox_view_image`
+
+Create a sandbox session (no DeepAgent conversation):
+
+```python
+from astraforge_toolkit import DeepAgentClient
+
+client = DeepAgentClient(base_url="https://your.astra.forge/api", api_key="your-api-key")
+sandbox = client.create_sandbox_session()
+client.upload_file(sandbox.session_id, "/workspace/hello.txt", content="hi!\n")
+print(client.get_file_content(sandbox.session_id, "/workspace/hello.txt", encoding="utf-8"))
+```
+
 Create a sandbox-backed DeepAgent and keep a single sandbox session + thread across calls:
 
 ```python
@@ -196,9 +212,8 @@ BASE_URL = "https://your.astra.forge/api"
 API_KEY = "your-api-key"
 
 client = DeepAgentClient(base_url=BASE_URL, api_key=API_KEY)
-conv = client.create_conversation()
-thread_id = conv.conversation_id
-sandbox_session_id = conv.sandbox_session_id
+sandbox = client.create_sandbox_session()
+sandbox_session_id = sandbox.session_id
 
 def backend_factory(rt):
     return SandboxBackend(
@@ -206,7 +221,6 @@ def backend_factory(rt):
         base_url=BASE_URL,
         api_key=API_KEY,
         session_id=sandbox_session_id,  # reuse the same sandbox between calls
-        # optional: session_params={"image": "astraforge/codex-cli:latest"},
     )
 
 model = ChatOpenAI(model="gpt-4o")
@@ -214,7 +228,7 @@ tools = [sandbox_shell, sandbox_python_repl, sandbox_open_url_with_playwright, s
 
 deep_agent = create_deep_agent(model=model, backend=backend_factory, tools=tools)
 
-run_config = {"thread_id": thread_id, "configurable": {"sandbox_session_id": sandbox_session_id}}
+run_config = {"thread_id": "local-thread", "configurable": {"sandbox_session_id": sandbox_session_id}}
 deep_agent.invoke({"messages": [{"role": "user", "content": "List files in /workspace"}]}, config=run_config)
 ```
 
