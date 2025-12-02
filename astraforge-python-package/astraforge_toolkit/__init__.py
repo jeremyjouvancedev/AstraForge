@@ -3,6 +3,7 @@ from .client import (
     DeepAgentClient,
     DeepAgentConversation,
     DeepAgentError,
+    SandboxArtifact,
     SandboxSession,
 )
 from .tools import (
@@ -17,6 +18,7 @@ __all__ = [
     "DeepAgentClient",
     "DeepAgentConversation",
     "DeepAgentError",
+    "SandboxArtifact",
     "SandboxSession",
     "sandbox_shell",
     "sandbox_python_repl",

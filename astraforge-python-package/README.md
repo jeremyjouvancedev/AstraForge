@@ -4,7 +4,7 @@ Lightweight Python package for using AstraForge DeepAgent and sandboxes from ano
 
 Contents:
 - `astraforge_toolkit.SandboxBackend`: DeepAgents backend that executes via the remote AstraForge sandbox API.
-- `astraforge_toolkit.DeepAgentClient`: HTTP client for DeepAgent conversations, sandbox sessions, file upload/download, and streaming replies.
+- `astraforge_toolkit.DeepAgentClient`: HTTP client for DeepAgent conversations, sandbox sessions (create/list/heartbeat/stop/delete), file upload/download/export, and streaming replies.
 - Remote sandbox tools: `sandbox_shell`, `sandbox_python_repl`, `sandbox_open_url_with_playwright`,
   `sandbox_view_image` — all execute inside the sandbox via HTTP.
 
@@ -57,6 +57,19 @@ client.upload_file(sandbox.session_id, "/workspace/hello.txt", content="hello fr
 
 # Download the file back; omit encoding to get raw bytes
 print(client.get_file_content(sandbox.session_id, "/workspace/hello.txt", encoding="utf-8"))
+
+# Export a file as an artifact (resolves download URL when configured)
+artifact = client.export_file(
+    sandbox.session_id,
+    "/workspace/hello.txt",
+    filename="hello.txt",
+    content_type="text/plain",
+)
+print("artifact id:", artifact.artifact_id, "download:", artifact.download_url)
+
+# Keep the sandbox alive or clean it up when finished
+client.heartbeat_sandbox_session(sandbox.session_id)
+client.stop_sandbox_session(sandbox.session_id)  # or client.delete_sandbox_session(...)
 ```
 
 ### Call DeepAgent over HTTP

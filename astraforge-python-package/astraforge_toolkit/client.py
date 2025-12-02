@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional
 
 import requests
@@ -28,7 +28,26 @@ class SandboxSession:
 
     session_id: str
     workspace_path: str
-    raw: Mapping[str, Any]
+    status: str | None = None
+    image: str | None = None
+    mode: str | None = None
+    idle_timeout_sec: int | None = None
+    max_lifetime_sec: int | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SandboxArtifact:
+    """Artifact metadata returned by sandbox file export endpoints."""
+
+    artifact_id: str
+    filename: str
+    content_type: str | None
+    size_bytes: int
+    download_url: str | None
+    raw: Mapping[str, Any] = field(default_factory=dict)
 
 
 class DeepAgentClient:
@@ -101,16 +120,52 @@ class DeepAgentClient:
         payload: Dict[str, Any] = dict(session_params or {})
         response = self._session.post(url, json=payload, timeout=self.timeout)
         data = self._parse_json(response, expected_status=201)
-        try:
-            session_id = str(data["id"])
-        except Exception as exc:  # noqa: BLE001
-            raise DeepAgentError(f"Unexpected sandbox session payload: {data}") from exc
-        workspace_path = str(data.get("workspace_path") or "")
-        return SandboxSession(
-            session_id=session_id,
-            workspace_path=workspace_path,
-            raw=data,
-        )
+        return self._build_sandbox_session(data)
+
+    def list_sandbox_sessions(self) -> List[SandboxSession]:
+        """List sandbox sessions for the authenticated user."""
+        url = f"{self.base_url}/sandbox/sessions/"
+        response = self._session.get(url, timeout=self.timeout)
+        data = self._parse_json(response, expected_status=200)
+        sessions_payload: Any = data
+        if isinstance(data, Mapping) and "results" in data:
+            sessions_payload = data.get("results")
+        if not isinstance(sessions_payload, list):
+            raise DeepAgentError(f"Unexpected sandbox sessions payload: {data}")
+        return [self._build_sandbox_session(item) for item in sessions_payload]
+
+    def get_sandbox_session(self, session_id: str) -> SandboxSession:
+        if not session_id:
+            raise ValueError("session_id is required")
+
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/"
+        response = self._session.get(url, timeout=self.timeout)
+        data = self._parse_json(response, expected_status=200)
+        return self._build_sandbox_session(data)
+
+    def delete_sandbox_session(self, session_id: str) -> None:
+        if not session_id:
+            raise ValueError("session_id is required")
+
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/"
+        response = self._session.delete(url, timeout=self.timeout)
+        self._ensure_ok(response, expected_status=204)
+
+    def stop_sandbox_session(self, session_id: str) -> None:
+        if not session_id:
+            raise ValueError("session_id is required")
+
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/stop/"
+        response = self._session.post(url, timeout=self.timeout)
+        self._ensure_ok(response, expected_status=204)
+
+    def heartbeat_sandbox_session(self, session_id: str) -> Mapping[str, Any]:
+        if not session_id:
+            raise ValueError("session_id is required")
+
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/heartbeat/"
+        response = self._session.post(url, timeout=self.timeout)
+        return self._parse_json(response, expected_status=200)
 
     def send_message(
         self,
@@ -209,6 +264,30 @@ class DeepAgentClient:
             return response.content.decode(encoding)
         return response.content
 
+    def export_file(
+        self,
+        session_id: str,
+        path: str,
+        *,
+        filename: str | None = None,
+        content_type: str | None = None,
+    ) -> SandboxArtifact:
+        """Export a file from the sandbox and receive an artifact descriptor."""
+        if not session_id:
+            raise ValueError("session_id is required")
+        if not path:
+            raise ValueError("path is required")
+
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/export/"
+        body: Dict[str, Any] = {"path": path}
+        if filename:
+            body["filename"] = filename
+        if content_type:
+            body["content_type"] = content_type
+        response = self._session.post(url, json=body, timeout=self.timeout)
+        data = self._parse_json(response, expected_status=201)
+        return self._build_artifact(data)
+
     # Internal helpers ------------------------------------------------------
 
     def _parse_json(self, response: Response, *, expected_status: int) -> MutableMapping[str, Any]:
@@ -253,3 +332,50 @@ class DeepAgentClient:
                     yield {"data": parsed}
         finally:
             response.close()
+
+    def _build_sandbox_session(self, data: Mapping[str, Any]) -> SandboxSession:
+        try:
+            session_id = str(data["id"])
+        except Exception as exc:  # noqa: BLE001
+            raise DeepAgentError(f"Unexpected sandbox session payload: {data}") from exc
+        workspace_path = str(data.get("workspace_path") or "")
+        status = str(data.get("status")) if data.get("status") is not None else None
+        image = str(data.get("image")) if data.get("image") is not None else None
+        mode = str(data.get("mode")) if data.get("mode") is not None else None
+        idle_timeout = data.get("idle_timeout_sec")
+        max_lifetime = data.get("max_lifetime_sec")
+        created_at = str(data.get("created_at")) if data.get("created_at") else None
+        updated_at = str(data.get("updated_at")) if data.get("updated_at") else None
+        return SandboxSession(
+            session_id=session_id,
+            workspace_path=workspace_path,
+            status=status,
+            image=image,
+            mode=mode,
+            idle_timeout_sec=int(idle_timeout) if idle_timeout is not None else None,
+            max_lifetime_sec=int(max_lifetime) if max_lifetime is not None else None,
+            created_at=created_at,
+            updated_at=updated_at,
+            raw=data,
+        )
+
+    def _build_artifact(self, data: Mapping[str, Any]) -> SandboxArtifact:
+        try:
+            artifact_id = str(data["id"])
+            filename = str(data.get("filename") or "")
+        except Exception as exc:  # noqa: BLE001
+            raise DeepAgentError(f"Unexpected sandbox artifact payload: {data}") from exc
+        content_type = str(data.get("content_type")) if data.get("content_type") else None
+        try:
+            size_bytes = int(data.get("size_bytes") or 0)
+        except (TypeError, ValueError):
+            size_bytes = 0
+        download_url = str(data.get("download_url")) if data.get("download_url") else None
+        return SandboxArtifact(
+            artifact_id=artifact_id,
+            filename=filename,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            download_url=download_url,
+            raw=data,
+        )
