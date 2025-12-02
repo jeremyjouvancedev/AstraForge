@@ -97,4 +97,4 @@ Configure `~/.pypirc` or set `TWINE_USERNAME=__token__` and `TWINE_PASSWORD=<pyp
 ## Examples
 
 See `examples/local_api_test.ipynb` for a quick notebook that exercises the client against a local
-`http://localhost:8000/api` instance.
+`http://localhost:8001/api` instance.

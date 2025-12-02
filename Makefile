@@ -1,7 +1,7 @@
 .PHONY: backend-serve frontend-dev lint format test generate-openapi install-deps package-build package-clean package-upload package-upload-test
 
 backend-serve:
-	cd backend && python manage.py runserver 0.0.0.0:8000
+	cd backend && python manage.py runserver 0.0.0.0:8001
 
 frontend-dev:
 	cd frontend && pnpm dev

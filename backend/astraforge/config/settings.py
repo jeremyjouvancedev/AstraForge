@@ -29,7 +29,7 @@ env = environ.Env(
     LLM_PROXY_URL=(str, "http://llm-proxy:8080"),
     LOG_LEVEL=(str, "INFO"),
     REQUEST_REPOSITORY=(str, "database"),
-    CSRF_TRUSTED_ORIGINS=(list[str], ["http://localhost:5173", "http://127.0.0.1:5173"]),
+    CSRF_TRUSTED_ORIGINS=(list[str], ["http://localhost:5174", "http://127.0.0.1:5174"]),
 )
 
 environ.Env.read_env(
@@ -41,7 +41,7 @@ DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
-    default=["http://localhost:5173", "http://127.0.0.1:5173"],
+    default=["http://localhost:5174", "http://127.0.0.1:5174"],
 )
 
 INSTALLED_APPS = [

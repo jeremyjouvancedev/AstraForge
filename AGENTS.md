@@ -13,8 +13,8 @@
 
 ## Build, Test, and Development Commands
 - `make install-deps` provisions the Python virtualenv and installs PNPM packages.
-- `make backend-serve` starts Django on `http://localhost:8000`.
-- `make frontend-dev` runs the Vite dev server on port `5173` with proxy defaults.
+- `make backend-serve` starts Django on `http://localhost:8001`.
+- `make frontend-dev` runs the Vite dev server on port `5174` with proxy defaults.
 - `make test` chains `pytest` and `pnpm test -- --run`; use it before pushing.
 - `pnpm build` packages the frontend, and `make generate-openapi` refreshes `shared/openapi/schema.yaml`.
 

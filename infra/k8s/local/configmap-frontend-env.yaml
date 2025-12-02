@@ -8,4 +8,4 @@ metadata:
     app.kubernetes.io/part-of: astraforge
     app.kubernetes.io/environment: local
 data:
-  VITE_API_URL: http://localhost:8000
+  VITE_API_URL: http://localhost:8001

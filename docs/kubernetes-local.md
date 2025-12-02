@@ -10,7 +10,7 @@ runtime configuration in parallel with the existing Docker Compose workflow.
 - Docker Engine (so you can build the backend, worker, frontend, and proxy images)
 - `kubectl` 1.27+ and a local cluster (examples below use [Kind](https://kind.sigs.k8s.io/))
 - Access to an OpenAI-compatible API key for the LLM proxy
-- Ports `5173`, `8000`, and `8080` free on your workstation for port-forwarding
+- Ports `5174`, `8001`, and `8080` free on your workstation for port-forwarding
 
 ## 1. Create (or reuse) a local cluster
 
@@ -97,17 +97,17 @@ port-forwarding when you want to drive the UI from your browser:
 
 ```bash
 # Terminal 1 – backend API and SSE
-kubectl port-forward svc/backend 8000:8000 -n astraforge-local
+kubectl port-forward svc/backend 8001:8001 -n astraforge-local
 
 # Terminal 2 – frontend Vite dev server
-kubectl port-forward svc/frontend 5173:5173 -n astraforge-local
+kubectl port-forward svc/frontend 5174:5174 -n astraforge-local
 
 # Optional – LLM proxy, if you want to call it directly
 kubectl port-forward svc/llm-proxy 8080:8080 -n astraforge-local
 ```
 
-Visit http://localhost:5173 to use the UI; it proxies API calls back to the
-backend service via the forwarded port at http://localhost:8000.
+Visit http://localhost:5174 to use the UI; it proxies API calls back to the
+backend service via the forwarded port at http://localhost:8001.
 
 ## 6. Tear down
 
@@ -164,7 +164,7 @@ Kind (or other) cluster is running.
    `host.docker.internal` so the Kubernetes API server running on your laptop is
    reachable from inside Docker.
 
-Once everything is up you can drive the UI at http://localhost:5173 while all
+Once everything is up you can drive the UI at http://localhost:5174 while all
 Codex executions run as Kubernetes pods that the backend spawns on demand.
 
 ## Troubleshooting
@@ -174,7 +174,7 @@ Codex executions run as Kubernetes pods that the backend spawns on demand.
 - **LLM proxy fails to start** – confirm the `astraforge-llm` secret contains a
   valid `OPENAI_API_KEY`.
 - **Frontend cannot reach the backend** – make sure both `kubectl port-forward`
-  commands are running; the SPA calls `http://localhost:8000` by design.
+  commands are running; the SPA calls `http://localhost:8001` by design.
 - **Database reset between restarts** – the Postgres deployment uses `emptyDir`
   for fast feedback. For persistent volumes swap that block with a PVC in
   `infra/k8s/local/postgres.yaml`.

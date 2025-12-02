@@ -26,17 +26,17 @@ spec:
             - configMapRef:
                 name: astraforge-frontend-env
           ports:
-            - containerPort: 5173
+            - containerPort: 5174
           readinessProbe:
             httpGet:
               path: /
-              port: 5173
+              port: 5174
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /
-              port: 5173
+              port: 5174
             initialDelaySeconds: 15
             periodSeconds: 10
 ---
@@ -53,5 +53,5 @@ spec:
     app: frontend
   ports:
     - name: http
-      port: 5173
-      targetPort: 5173
+      port: 5174
+      targetPort: 5174

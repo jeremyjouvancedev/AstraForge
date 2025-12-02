@@ -44,20 +44,20 @@ spec:
             - python
             - manage.py
             - runserver
-            - 0.0.0.0:8000
+            - 0.0.0.0:8001
           envFrom:
             - configMapRef:
                 name: astraforge-backend-env
           ports:
-            - containerPort: 8000
+            - containerPort: 8001
           readinessProbe:
             tcpSocket:
-              port: 8000
+              port: 8001
             initialDelaySeconds: 10
             periodSeconds: 5
           livenessProbe:
             tcpSocket:
-              port: 8000
+              port: 8001
             initialDelaySeconds: 30
             periodSeconds: 10
           resources:
@@ -81,5 +81,5 @@ spec:
     app: backend
   ports:
     - name: http
-      port: 8000
-      targetPort: 8000
+      port: 8001
+      targetPort: 8001

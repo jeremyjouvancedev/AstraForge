@@ -44,7 +44,7 @@ When using the deep agent proxy (`llm-proxy`), a convenience API exists:
 - Create a session:
 
 ```bash
-curl -X POST http://localhost:8000/api/sandbox/sessions \
+curl -X POST http://localhost:8001/api/sandbox/sessions \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"mode":"docker","image":"astraforge/codex-cli:latest"}'
@@ -53,7 +53,7 @@ curl -X POST http://localhost:8000/api/sandbox/sessions \
 Exec into it:
 
 ```bash
-curl -X POST http://localhost:8000/api/sandbox/sessions/<id>/exec \
+curl -X POST http://localhost:8001/api/sandbox/sessions/<id>/exec \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"command":"ls -la","cwd":"/workspace"}'

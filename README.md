@@ -127,7 +127,7 @@ pre-commit install
    pnpm dev
    ```
 
-   Visit `http://localhost:5173`, register an account, and sign in. Authentication is disabled locally
+   Visit `http://localhost:5174`, register an account, and sign in. Authentication is disabled locally
    when `UNSAFE_DISABLE_AUTH=1`.
 
 ## Docker Compose Workflow
@@ -155,7 +155,7 @@ At a high level you will:
 2. Load those images into Kind/k3d/Minikube (e.g., `kind load docker-image astraforge/backend:local`).
 3. Create the namespace + `astraforge-llm` secret, then `kubectl apply -k infra/k8s/local`.
 4. Port-forward `svc/frontend` and `svc/backend` so the UI and API stay reachable at
-   `http://localhost:5173` and `http://localhost:8000`.
+   `http://localhost:5174` and `http://localhost:8001`.
 
 Prefer a hybrid approach where the API and Celery worker remain in Docker Compose but
 Codex workspaces run in Kubernetes? Generate a Docker-friendly kubeconfig
@@ -244,7 +244,7 @@ for chunk in client.stream_message(conv.conversation_id, "Hello, sandbox!"):
     print(chunk)
 ```
 
-For a ready-to-run smoke test against `http://localhost:8000/api`, open the notebook
+For a ready-to-run smoke test against `http://localhost:8001/api`, open the notebook
 `astraforge-python-package/examples/local_api_test.ipynb`.
 
 ## Testing & Quality Gates

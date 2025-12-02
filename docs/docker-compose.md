@@ -9,7 +9,7 @@ the lifecycle of the stack defined in `docker-compose.yml`.
 
 - Docker Engine and Docker Compose plugin (v2.20+ recommended)
 - Access to an OpenAI-compatible key for the LLM proxy
-- Port availability: `5432`, `6379`, `8000`, `8080`, `5173`
+- Port availability: `5432`, `6379`, `8001`, `8080`, `5174`
 
 ## 1. Set up environment variables
 
@@ -51,8 +51,8 @@ mounting the repository into each service:
 docker compose up --build
 ```
 
-- Backend API → http://localhost:8000
-- Frontend → http://localhost:5173 (proxying to the backend service)
+- Backend API → http://localhost:8001
+- Frontend → http://localhost:5174 (proxying to the backend service)
 - LLM Proxy → http://localhost:8080
 
 On subsequent runs you can skip `--build` unless dependencies changed.

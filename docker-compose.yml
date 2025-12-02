@@ -33,7 +33,7 @@ services:
   backend:
     build:
       context: ./backend
-    command: python manage.py runserver 0.0.0.0:8000
+    command: python manage.py runserver 0.0.0.0:8001
     privileged: true
     env_file:
       - .env
@@ -53,7 +53,7 @@ services:
       - backend-migrate
       - llm-proxy
     ports:
-      - "8000:8000"
+      - "8001:8001"
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
@@ -93,12 +93,12 @@ services:
   frontend:
     build:
       context: ./frontend
-    command: pnpm dev --host 0.0.0.0 --port 5173
+    command: pnpm dev --host 0.0.0.0 --port 5174
     volumes:
       - ./frontend:/app
     environment:
-      VITE_API_URL: http://backend:8000
+      VITE_API_URL: http://backend:8001
     ports:
-      - "5173:5173"
+      - "5174:5174"
     depends_on:
       - backend
