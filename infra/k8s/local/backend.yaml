@@ -25,7 +25,7 @@ spec:
           command:
             - /bin/sh
             - -c
-            - until pg_isready -h postgres -p 5432; do sleep 2; done
+            - until pg_isready -h postgres -p 5433; do sleep 2; done
         - name: migrate
           image: astraforge/backend:local
           imagePullPolicy: IfNotPresent

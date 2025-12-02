@@ -9,7 +9,7 @@ the lifecycle of the stack defined in `docker-compose.yml`.
 
 - Docker Engine and Docker Compose plugin (v2.20+ recommended)
 - Access to an OpenAI-compatible key for the LLM proxy
-- Port availability: `5432`, `6379`, `8001`, `8080`, `5174`
+- Port availability: `5433`, `6379`, `8001`, `8080`, `5174`
 
 ## 1. Set up environment variables
 

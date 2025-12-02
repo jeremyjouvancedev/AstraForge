@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/environment: local
 data:
   SECRET_KEY: astraforge-local
-  DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+  DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
   REDIS_URL: redis://redis:6379/0
   EXECUTOR: codex
   PROVISIONER: k8s

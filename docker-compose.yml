@@ -7,7 +7,7 @@ services:
     volumes:
       - ./backend:/app
     environment:
-      DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
       RUN_LOG_STREAMER: redis
@@ -20,12 +20,16 @@ services:
 
   postgres:
     image: postgres:15
+    command:
+      - postgres
+      - -p
+      - "5433"
     environment:
       POSTGRES_DB: astraforge
       POSTGRES_USER: astraforge
       POSTGRES_PASSWORD: astraforge
     ports:
-      - "5432:5432"
+      - "5433:5433"
   redis:
     image: redis:7
     ports:
@@ -38,7 +42,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
       RUN_LOG_STREAMER: redis
@@ -65,7 +69,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://astraforge:astraforge@postgres:5432/astraforge
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
       REDIS_URL: redis://redis:6379/0
       EXECUTOR: codex
       RUN_LOG_STREAMER: redis

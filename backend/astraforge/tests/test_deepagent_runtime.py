@@ -119,12 +119,12 @@ def test_postgres_dsn_from_db_settings_builds_url():
         "USER": "astraforge",
         "PASSWORD": "secret",
         "HOST": "postgres",
-        "PORT": "5432",
+        "PORT": "5433",
     }
 
     assert (
         deepagent_runtime._postgres_dsn_from_db_settings(settings)
-        == "postgresql://astraforge:secret@postgres:5432/astraforge"
+        == "postgresql://astraforge:secret@postgres:5433/astraforge"
     )
 
 
@@ -141,12 +141,12 @@ def test_get_database_url_from_django_settings_respects_override():
         "USER": "astraforge",
         "PASSWORD": "secret",
         "HOST": "postgres",
-        "PORT": "5432",
+        "PORT": "5433",
     }
     with override_settings(DATABASES={"default": db_settings}):
         assert (
             deepagent_runtime._get_database_url_from_django_settings()
-            == "postgresql://astraforge:secret@postgres:5432/astraforge"
+            == "postgresql://astraforge:secret@postgres:5433/astraforge"
         )
 
 

@@ -74,7 +74,7 @@ pre-commit install
 
    ```bash
    cat <<'ENV' > .env
-   DATABASE_URL=postgres://astraforge:astraforge@localhost:5432/astraforge
+   DATABASE_URL=postgres://astraforge:astraforge@localhost:5433/astraforge
    REDIS_URL=redis://localhost:6379/0
    EXECUTOR=codex
    PROVISIONER=docker

@@ -22,6 +22,9 @@ spec:
         - name: postgres
           image: postgres:15
           imagePullPolicy: IfNotPresent
+          args:
+            - -p
+            - "5433"
           env:
             - name: POSTGRES_DB
               value: astraforge
@@ -30,18 +33,18 @@ spec:
             - name: POSTGRES_PASSWORD
               value: astraforge
           ports:
-            - containerPort: 5432
+            - containerPort: 5433
           readinessProbe:
             exec:
               command:
                 - /bin/sh
                 - -c
-                - pg_isready -U "$POSTGRES_USER"
+                - pg_isready -U "$POSTGRES_USER" -p 5433
             initialDelaySeconds: 10
             periodSeconds: 5
           livenessProbe:
             tcpSocket:
-              port: 5432
+              port: 5433
             initialDelaySeconds: 20
             periodSeconds: 10
           volumeMounts:
@@ -64,5 +67,5 @@ spec:
     app: postgres
   ports:
     - name: postgres
-      port: 5432
-      targetPort: 5432
+      port: 5433
+      targetPort: 5433
