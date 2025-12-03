@@ -69,7 +69,7 @@ export default function DeepAgentSandboxPage() {
         const encodedPath = encodeURIComponent(path).replace(/%2F/g, "/");
         const filename = String(label || path.split("/").pop() || "download");
         const encodedFilename = encodeURIComponent(filename);
-        const url = `/api/sandbox/sessions/${sessionId}/files/content?path=${encodedPath}&filename=${encodedFilename}&download=1`;
+        const url = `/api/sandbox/sessions/${sessionId}/files/content/?path=${encodedPath}&filename=${encodedFilename}&download=1`;
         return `[${filename}](${url})`;
       } catch {
         return match;

@@ -230,7 +230,7 @@ class DeepAgentClient:
         else:
             body = content
 
-        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/upload"
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/upload/"
         response = self._session.post(
             url,
             params={"path": path},
@@ -253,7 +253,7 @@ class DeepAgentClient:
         if not path:
             raise ValueError("path is required")
 
-        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/content"
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/content/"
         response = self._session.get(
             url,
             params={"path": path},

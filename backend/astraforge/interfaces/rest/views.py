@@ -279,7 +279,7 @@ class DeepAgentMessageView(APIView):
                 encoded_path = quote(abs_path, safe="/")
                 encoded_filename = quote(filename, safe="")
                 url = (
-                    f"/api/sandbox/sessions/{session.id}/files/content"
+                    f"/api/sandbox/sessions/{session.id}/files/content/"
                     f"?path={encoded_path}&filename={encoded_filename}"
                 )
             artifact_dict: dict[str, object] = {

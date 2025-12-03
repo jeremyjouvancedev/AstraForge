@@ -237,7 +237,7 @@ class SandboxBackend(BackendProtocol):
     def download(self, path: str) -> bytes:
         target = self._abs_path(path)
         session_id = self._ensure_session_id()
-        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/content"
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/files/content/"
         response = self._http.get(url, params={"path": target}, timeout=self._timeout)
         if response.status_code != 200:
             raise RuntimeError(f"Failed to download {path}: {response.status_code}")
