@@ -41,6 +41,11 @@
 - Keep the standalone Python package (`astraforge-python-package/`) in parity with backend logic:
   updates to `backend/astraforge/sandbox/deepagent_backend.py` must be reflected in
   `astraforge-python-package/astraforge_toolkit/backend.py` (and regenerate docs/readme).
+- Sandbox backend parity is mandatory: `backend/astraforge/sandbox/deepagent_backend.py` and
+  `astraforge-python-package/astraforge_toolkit/backend.py` must keep identical behavior and
+  semantics (path resolution, create-only writes, edit/grep/read outputs), differing only by
+  transport. Any change to one requires applying the same behavior to the other and updating tests
+  and docs to reflect the shared contract.
 
 
 # TODO
