@@ -30,6 +30,8 @@ services:
       POSTGRES_PASSWORD: astraforge
     ports:
       - "5433:5433"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
   redis:
     image: redis:7
     ports:
@@ -93,7 +95,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY not set}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
     ports:
-      - "8080:8080"
+      - "8081:8080"
   frontend:
     build:
       context: ./frontend
@@ -106,3 +108,6 @@ services:
       - "5174:5174"
     depends_on:
       - backend
+
+volumes:
+  postgres-data:

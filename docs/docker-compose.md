@@ -1,15 +1,16 @@
 # Docker Compose Runbook
 
 Use Docker Compose whenever you want the entire AstraForge stack (Postgres, Redis,
-API, Celery worker, LLM proxy, and frontend) running with a single command. This
-guide walks through prepping environment variables, building images, and managing
-the lifecycle of the stack defined in `docker-compose.yml`.
+API, Celery worker, LLM proxy, and frontend) running with a single command. This guide walks
+through prepping environment variables, building images, and managing the lifecycle of the stack
+defined in `docker-compose.yml`.
 
 ## Prerequisites
 
 - Docker Engine and Docker Compose plugin (v2.20+ recommended)
 - Access to an OpenAI-compatible key for the LLM proxy
-- Port availability: `5433`, `6379`, `8001`, `8080`, `5174`
+- Port availability: `5433`, `6379`, `8001`, `8081`, `5174`
+- Persistent data: Postgres uses a named volume (`postgres-data`) so accounts/API keys survive restarts.
 
 ## 1. Set up environment variables
 
@@ -53,7 +54,7 @@ docker compose up --build
 
 - Backend API → http://localhost:8001
 - Frontend → http://localhost:5174 (proxying to the backend service)
-- LLM Proxy → http://localhost:8080
+- LLM Proxy → http://localhost:8081
 
 On subsequent runs you can skip `--build` unless dependencies changed.
 

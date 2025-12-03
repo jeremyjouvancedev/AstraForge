@@ -308,6 +308,11 @@ wiring the observability stack into automated remediation.
 
 ## Roadmap
 
+### Sanbox
+
+- [ ] Switch to SandboxBackendProtocol to have embedded shell tool instead of adding it in tools
+
+
 ### Engine
 
 - [ ] Add claude code
