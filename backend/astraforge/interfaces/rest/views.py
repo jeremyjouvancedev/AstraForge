@@ -104,6 +104,7 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         request_id = str(serializer.validated_data["request_id"])
         message_content = serializer.validated_data["message"]
+        run_log = container.resolve_run_log()
         try:
             request_obj = repository.get(request_id)
         except KeyError:
@@ -122,14 +123,6 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                 metadata={},
             )
             repository.save(request_obj)
-        container.resolve_run_log().publish(
-            request_id,
-            {
-                "type": "user_message",
-                "request_id": request_id,
-                "message": message_content,
-            },
-        )
         messages = list(request_obj.metadata.get("chat_messages", []))
         messages.append(
             {
@@ -161,6 +154,14 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             "raw_prompt": summary or title,
         }
         app_tasks.execute_request_task.delay(request_id, spec_payload)
+        run_log.publish(
+            request_id,
+            {
+                "type": "user_message",
+                "request_id": request_id,
+                "message": message_content,
+            },
+        )
         return Response({"status": "received"}, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["post"])
