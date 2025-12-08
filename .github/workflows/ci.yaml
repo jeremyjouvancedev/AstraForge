@@ -1,3 +1,4 @@
+# Keep this in sync with infra/ci/github-actions.yaml (source-of-truth in repo docs).
 name: CI
 
 on:
