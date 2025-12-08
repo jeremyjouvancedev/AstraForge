@@ -18,7 +18,7 @@ Replace `<namespace>` with your GitHub username or org (lowercase) and keep the 
 1. In GitHub: *Settings → Actions → General → Workflow permissions* → choose **Read and write permissions** so `GITHUB_TOKEN` can push to GHCR.
 2. If the org enforces package publishing restrictions, allow the repo to publish to GHCR (`ghcr.io/<owner>/astraforge-*`).
 3. Ensure Actions are enabled for the repo/organization.
-4. The CI workflow lives at `.github/workflows/ci.yaml`. Pushes to `main` (and tags/branches) build and push images; pull requests build only (no push).
+4. The CI workflow lives at `.github/workflows/ci.yaml`. Pushes to `main` (and tags/branches) build and push images; pull requests build only (no push). The Node cache uses `frontend/pnpm-lock.yaml`, so keep that lock file committed.
 
 ## Stack template (isolated network + nginx reverse proxy)
 
