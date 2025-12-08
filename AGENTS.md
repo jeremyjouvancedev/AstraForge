@@ -16,6 +16,7 @@
 - `make backend-serve` starts Django on `http://localhost:8001`.
 - `make frontend-dev` runs the Vite dev server on port `5174` with proxy defaults.
 - `make test` chains `pytest` and `pnpm test -- --run`; use it before pushing.
+- `make compose-test` spins up Postgres/Redis via docker compose with test overrides (no host ports, isolated project/volumes for a clean DB), forces CODEX_CLI_SKIP_PULL=0, waits for Postgres readiness, runs backend/frontend tests in containers, then tears everything down.
 - `pnpm build` packages the frontend, and `make generate-openapi` refreshes `shared/openapi/schema.yaml`.
 
 ## Coding Style & Naming Conventions

@@ -14,6 +14,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,6 +23,7 @@ from astraforge.accounts.models import ApiKey
 from astraforge.application import tasks as app_tasks
 from astraforge.application.use_cases import ApplyPlan, GeneratePlan, SubmitRequest
 from astraforge.bootstrap import container, repository
+from astraforge.domain.models.request import Request, RequestPayload
 from astraforge.integrations.models import RepositoryLink
 from astraforge.interfaces.rest import serializers
 from astraforge.interfaces.rest.renderers import EventStreamRenderer
@@ -104,8 +106,22 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
         message_content = serializer.validated_data["message"]
         try:
             request_obj = repository.get(request_id)
-        except KeyError as exc:
-            raise NotFound(f"Request {request_id} not found") from exc
+        except KeyError:
+            payload = RequestPayload(
+                title=message_content.strip() or "User message",
+                description=message_content,
+                context={},
+                attachments=[],
+            )
+            request_obj = Request(
+                id=request_id,
+                tenant_id="tenant-default",
+                source="direct_user",
+                sender="",
+                payload=payload,
+                metadata={},
+            )
+            repository.save(request_obj)
         container.resolve_run_log().publish(
             request_id,
             {
@@ -841,6 +857,7 @@ class ExecutionViewSet(viewsets.ViewSet):  # pragma: no cover - skeleton
 class ApiKeyViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = serializers.ApiKeySerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def get_queryset(self):
         return ApiKey.objects.filter(user=self.request.user).order_by("-created_at")

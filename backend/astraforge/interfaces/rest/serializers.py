@@ -25,7 +25,7 @@ class RequestSerializer(serializers.Serializer):
         request_obj = self.context.get("request")
         if request_obj is None or request_obj.user.is_anonymous:
             raise serializers.ValidationError(
-                {"project_id": "Authentication required to select a project."}
+                {"project_id": ["Authentication required to select a project."]}
             )
         try:
             repository_link = RepositoryLink.objects.get(
@@ -33,7 +33,7 @@ class RequestSerializer(serializers.Serializer):
             )
         except RepositoryLink.DoesNotExist as exc:
             raise serializers.ValidationError(
-                {"project_id": "Select a project linked to your account."}
+                {"project_id": ["Select a project linked to your account."]}
             ) from exc
         payload = RequestPayload(
             title=self._derive_title(raw_prompt),
