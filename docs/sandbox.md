@@ -16,7 +16,7 @@ The sandbox API lets external agents launch and control secure desktops running 
   "memory": "2Gi",                    // optional Docker -m constraint
   "ephemeral_storage": "5Gi",         // reserved for future runtime classes
   "restore_snapshot_id": null,
-  "idle_timeout_sec": 900,
+  "idle_timeout_sec": 300,
   "max_lifetime_sec": 3600
 }
 ```
@@ -73,6 +73,7 @@ curl -X POST http://localhost:8001/api/sandbox/sessions/<id>/exec \
 
 ## Operational notes
 
-- Idle and max-lifetime timeouts are stored per session; the heartbeat endpoint lets agents keep a session alive while streaming UI traffic elsewhere.
+- Idle and max-lifetime timeouts are stored per session (default idle timeout is 5 minutes); the heartbeat endpoint lets agents keep a session alive while streaming UI traffic elsewhere.
+- A scheduled Celery beat task (`reap-sandbox-sessions`) runs every `SANDBOX_REAP_INTERVAL_SEC` seconds (default `60`) and automatically terminates sandboxes that have exceeded their `idle_timeout_sec` or `max_lifetime_sec` windows, issuing a `docker rm -f` for Docker-backed sessions and recording the reason in session metadata.
 - All identifiers are UUIDs to avoid guessable numeric ids in URLs.
 - The orchestrator shells into the runtime when no GUI daemon is present; swapping to a dedicated daemon later will not break the public API contract.

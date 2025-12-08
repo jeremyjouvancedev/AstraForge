@@ -232,23 +232,36 @@ base64 "$TMPFILE"
     def list_snapshots(self, session: SandboxSession):
         return session.snapshots.all()
 
-    def terminate(self, session: SandboxSession):
+    def terminate(self, session: SandboxSession, *, reason: str | None = None):
+        if session.status == SandboxSession.Status.TERMINATED:
+            return
+
+        if reason:
+            metadata = dict(session.metadata or {})
+            metadata["terminated_reason"] = reason
+            session.metadata = metadata
+
         if session.mode == SandboxSession.Mode.DOCKER:
             ident = self._extract_ref(session.ref)
-            self.runner.run(
-                [
-                    "docker",
-                    "rm",
-                    "-f",
-                    ident,
-                ],
-                allow_failure=True,
-            )
+            if ident:
+                self.runner.run(
+                    [
+                        "docker",
+                        "rm",
+                        "-f",
+                        ident,
+                    ],
+                    allow_failure=True,
+                )
         elif session.mode == SandboxSession.Mode.KUBERNETES:
             provisioner = self._k8s()
             provisioner.cleanup(session.ref)
+
         session.status = SandboxSession.Status.TERMINATED
-        session.save(update_fields=["status", "updated_at"])
+        fields = ["status", "updated_at"]
+        if reason:
+            fields.append("metadata")
+        session.save(update_fields=fields)
 
     # internal helpers -------------------------------------------------
 
@@ -335,7 +348,7 @@ base64 "$TMPFILE"
         return None, identifier
 
     def _extract_ref(self, ref: str) -> str:
-        return self._split_ref(ref)[1]
+        return self._split_ref(ref)[1].strip()
 
     def _k8s(self):
         return k8s_provisioner.from_env()

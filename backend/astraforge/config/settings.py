@@ -186,6 +186,13 @@ CELERY_TASK_DEFAULT_QUEUE = "astraforge.default"
 CELERY_TASK_ROUTES = {
     "astraforge.application.tasks.*": {"queue": "astraforge.core"},
 }
+SANDBOX_REAP_INTERVAL_SEC = env.int("SANDBOX_REAP_INTERVAL_SEC", default=60)
+CELERY_BEAT_SCHEDULE = {
+    "reap-sandbox-sessions": {
+        "task": "astraforge.sandbox.tasks.reap_sandboxes",
+        "schedule": SANDBOX_REAP_INTERVAL_SEC,
+    },
+}
 
 PROVIDER_FACTORIES = {
     "executors": {

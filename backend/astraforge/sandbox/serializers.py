@@ -21,7 +21,7 @@ class SandboxSessionCreateSerializer(serializers.Serializer):
     memory = serializers.CharField(required=False, allow_blank=True)
     ephemeral_storage = serializers.CharField(required=False, allow_blank=True)
     restore_snapshot_id = serializers.UUIDField(required=False, allow_null=True)
-    idle_timeout_sec = serializers.IntegerField(default=900, min_value=60)
+    idle_timeout_sec = serializers.IntegerField(default=300, min_value=60)
     max_lifetime_sec = serializers.IntegerField(default=3600, min_value=300)
 
     def validate(self, attrs):

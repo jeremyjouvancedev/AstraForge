@@ -39,6 +39,7 @@ spec:
             - --loglevel=info
             - -Q
             - astraforge.core,astraforge.default
+            - --beat
           envFrom:
             - configMapRef:
                 name: astraforge-backend-env

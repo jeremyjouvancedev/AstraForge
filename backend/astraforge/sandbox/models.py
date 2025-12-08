@@ -43,7 +43,7 @@ class SandboxSession(models.Model):
         help_text="Where the sandbox daemon is reachable (exec or HTTP)",
     )
     workspace_path = models.CharField(max_length=255, default="/workspace")
-    idle_timeout_sec = models.PositiveIntegerField(default=900)
+    idle_timeout_sec = models.PositiveIntegerField(default=300)
     max_lifetime_sec = models.PositiveIntegerField(default=3600)
     last_heartbeat_at = models.DateTimeField(null=True, blank=True)
     last_activity_at = models.DateTimeField(null=True, blank=True)

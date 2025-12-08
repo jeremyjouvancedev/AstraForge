@@ -10,4 +10,4 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "astraforge.config.settings")
 
 app = Celery("astraforge")
 app.config_from_object("django.conf:settings", namespace="CELERY")
-app.autodiscover_tasks(lambda: ["astraforge.application", "astraforge.interfaces"])
+app.autodiscover_tasks(lambda: ["astraforge.application", "astraforge.interfaces", "astraforge.sandbox"])

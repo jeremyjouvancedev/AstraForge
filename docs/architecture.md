@@ -13,6 +13,7 @@ graph TD
     subgraph Backend API
         API[DRF API]
         SandboxAPI[Sandbox Orchestrator]
+        Beat[Celery Beat Scheduler]
         Worker[Celery Worker]
         Registry[Provider Registry]
     end
@@ -31,6 +32,7 @@ graph TD
     end
     subgraph Agent Sandbox
         SandboxMgr[Session Manager]
+        Reaper[Sandbox Reaper Task]
         DockerSandboxes[(Docker Sandboxes)]
         K8sSandboxes[(Kubernetes Pods)]
         Daemon[Sandbox Daemon (exec/GUI)]
@@ -46,6 +48,9 @@ graph TD
     Worker --> Redis
     Worker --> DeepAgentCP
     API --> Worker
+    Beat --> Worker
+    Worker --> Reaper
+    Reaper --> SandboxMgr
     Worker --> Registry
     API --> SandboxAPI
     SandboxAPI --> SandboxMgr
@@ -106,7 +111,8 @@ is frictionless.
 ## Sandbox Control Plane
 
 - **Sandbox orchestrator API** exposes `/api/sandbox/sessions/` to external agents so they can spin up isolated desktops on Docker (fast local dev) or Kubernetes (hardened multi-tenant) while keeping UUID-backed session identifiers.
-- Each session records a `ref` (`docker://…` or `k8s://namespace/pod`), a control endpoint, workspace path, and timeouts for idle and max lifetime so cleanup can be enforced without manual intervention.
+- Each session records a `ref` (`docker://…` or `k8s://namespace/pod`), a control endpoint, workspace path, and timeouts for idle (default 5 minutes) and max lifetime (default 1 hour) so cleanup can be enforced without manual intervention.
+- Celery beat triggers a sandbox reaper task that inspects the idle and lifetime thresholds and asks the orchestrator to terminate stale Docker/Kubernetes sandboxes, persisting the `terminated_reason` in session metadata so clients understand why a session stopped.
 - Shell commands, file uploads, snapshots, and heartbeats are proxied through the orchestrator, which shells into the container/pod when no in-guest daemon is present; future iterations can swap in a full GUI daemon without changing the public contract.
 - Snapshots currently stream to on-disk tarballs inside the sandbox; wiring S3/MinIO buckets for artifact URLs is the next configurable hop.
 - Artifacts and snapshots are tracked with UUID metadata, and download URLs are derived from `SANDBOX_ARTIFACT_BASE_URL` when available; GUI controls/streaming are stubbed until the sandbox daemon is integrated.
@@ -133,7 +139,8 @@ is frictionless.
 ## Workspace Orchestration Highlights
 
 - Docker provisioner prefers remote Codex CLI images but will build `backend/codex_cli_stub` (`npm install -g @openai/codex`) to keep local runs self-contained.
-- Local Docker Compose deployments run a dedicated `backend-worker` container executing `celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default`; backend services set `CELERY_TASK_ALWAYS_EAGER=0` so work is handed off to Redis and processed asynchronously.
+- Local Docker Compose deployments run a dedicated `backend-worker` container executing `celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default --beat`; backend services set `CELERY_TASK_ALWAYS_EAGER=0` so work is handed off to Redis and processed asynchronously, and Celery beat schedules the sandbox reaper without needing an extra service.
+- `SANDBOX_REAP_INTERVAL_SEC` (default `60`) controls how often the beat scheduler asks workers to reap idle or expired sandboxes.
 - Local Kubernetes clusters rely on the `infra/k8s/local` kustomize overlay, which mirrors Compose services, runs Django migrations via init containers, and exposes the stack through `kubectl port-forward` so browsers can reach `http://localhost:5174` (frontend) and `http://localhost:8001` (backend) while exercising the Kubernetes provisioner.
 - The Kubernetes provisioner talks directly to the cluster using the Python client, spawning short-lived Codex workspace pods per request with `emptyDir` volumes mounted at `/workspaces`, and authenticates through the `astraforge-operator` service account so Celery workers can `create`, `exec`, and `delete` pods without shipping `kubectl` binaries inside the containers.
 - A hybrid override (`docker-compose.hybrid.yml`) lets engineers keep the API + Celery services in Docker Compose while pointing them at a local Kind cluster; the override mounts `~/.kube`, rewrites `PROVISIONER=k8s`, and teaches the containers to reach the host's Kubernetes API via `host.docker.internal`.
