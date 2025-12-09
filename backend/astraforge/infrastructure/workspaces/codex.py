@@ -236,6 +236,17 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             mode, identifier = getattr(self.provisioner, "name", "workspace"), ref
         return mode, identifier
 
+    def _network_exists(self, network: str, stream: Callable[[dict[str, Any]], None] | None = None) -> bool:
+        try:
+            self.runner.run(
+                ["docker", "network", "inspect", network],
+                allow_failure=False,
+                stream=stream,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
     def _bootstrap_docker_container(
         self,
         container_name: str,
@@ -243,6 +254,15 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         stream: Callable[[dict[str, Any]], None],
     ) -> None:
         network = os.getenv("CODEX_WORKSPACE_NETWORK")
+        if network and not self._network_exists(network, stream):
+            stream(
+                {
+                    "type": "status",
+                    "stage": "workspace",
+                    "message": f"Workspace network {network} not found; falling back to default bridge",
+                }
+            )
+            network = None
         self.runner.run(
             ["docker", "rm", "-f", container_name],
             stream=stream,
@@ -276,6 +296,8 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         try:
             self.runner.run(pull_command, stream=stream)
         except subprocess.CalledProcessError as exc:
+            # best-effort cleanup if the first run left a container behind
+            self.runner.run(["docker", "rm", "-f", container_name], allow_failure=True)
             output_text = (exc.output or "").lower()
             should_fallback = any(
                 phrase in output_text
