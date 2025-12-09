@@ -137,3 +137,4 @@ volumes:
 
 networks:
   astraforge:
+    name: astraforge

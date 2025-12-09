@@ -146,6 +146,7 @@ services:
 
 networks:
   astraforge:
+    name: astraforge
 ```
 
 Notes:
