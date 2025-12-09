@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import secrets
 
 from astraforge.domain.providers.interfaces import Provisioner
 
@@ -14,7 +15,8 @@ class DockerProvisioner(Provisioner):
     image: str = "astraforge/codex-cli:latest"
 
     def spawn(self, repo: str, toolchain: str) -> str:  # pragma: no cover - stub
-        raw_name = f"codex-{repo}-{toolchain}"
+        suffix = secrets.token_hex(3)
+        raw_name = f"codex-{repo}-{toolchain}-{suffix}"
         container_name = self._sanitize(raw_name)
         return f"docker://{container_name}"
 
