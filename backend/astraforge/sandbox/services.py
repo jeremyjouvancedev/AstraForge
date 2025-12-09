@@ -27,6 +27,18 @@ def _render_command(command: str | Sequence[str]) -> str:
     return str(command)
 
 
+def _safe_volume_suffix(raw: str) -> str:
+    """Return a Docker volume-safe suffix (alnum, underscore, dash, dot)."""
+    allowed = []
+    for char in raw:
+        if char.isalnum() or char in {"_", "-", "."}:
+            allowed.append(char)
+        else:
+            allowed.append("-")
+    sanitized = "".join(allowed).strip("-") or "workspace"
+    return sanitized.lower()
+
+
 @dataclass
 class SandboxRuntime:
     ref: str
@@ -280,6 +292,9 @@ base64 "$TMPFILE"
             "--add-host",
             "host.docker.internal:host-gateway",
         ]
+        mount = self._workspace_volume_mount(session)
+        if mount:
+            args.extend(["--mount", mount])
         if session.cpu:
             args.extend(["--cpus", session.cpu])
         if session.memory:
@@ -358,3 +373,28 @@ base64 "$TMPFILE"
         if not base:
             return ""
         return base.rstrip("/") + "/" + storage_path.lstrip("/")
+
+    def _workspace_volume_mount(self, session: SandboxSession) -> str | None:
+        """Optionally attach a persistent Docker volume for the sandbox workspace."""
+        mode = os.getenv("SANDBOX_DOCKER_VOLUME_MODE", "").strip().lower()
+        if not mode:
+            return None
+
+        workspace_path = session.workspace_path or "/workspace"
+        prefix = os.getenv("SANDBOX_DOCKER_VOLUME_PREFIX", "astraforge-sandbox-")
+
+        if mode == "session":
+            volume = f"{prefix}session-{_safe_volume_suffix(str(session.id))}"
+        elif mode == "user":
+            volume = f"{prefix}user-{_safe_volume_suffix(str(session.user_id))}"
+        elif mode == "static":
+            configured = os.getenv("SANDBOX_DOCKER_VOLUME_NAME", "")
+            if not configured:
+                return None
+            volume = _safe_volume_suffix(configured)
+            if prefix and not configured.startswith(prefix):
+                volume = f"{prefix}{volume}"
+        else:
+            return None
+
+        return f"type=volume,source={volume},target={workspace_path}"

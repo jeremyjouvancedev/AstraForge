@@ -151,6 +151,23 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta-llm-proxy.outputs.tags }}
           labels: ${{ steps.meta-llm-proxy.outputs.labels }}
+      - name: Codex CLI image metadata
+        id: meta-codex-cli
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.registry.outputs.owner }}/astraforge-codex-cli
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Build Codex CLI image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/codex_cli_stub
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-codex-cli.outputs.tags }}
+          labels: ${{ steps.meta-codex-cli.outputs.labels }}
       - name: Sandbox image metadata
         id: meta-sandbox
         uses: docker/metadata-action@v5

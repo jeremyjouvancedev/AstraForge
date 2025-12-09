@@ -6,6 +6,7 @@ GitHub Actions builds and publishes Docker images to GHCR so Portainer can pull 
 - `ghcr.io/<namespace>/astraforge-backend`
 - `ghcr.io/<namespace>/astraforge-frontend`
 - `ghcr.io/<namespace>/astraforge-llm-proxy`
+- `ghcr.io/<namespace>/astraforge-codex-cli` (on-demand Codex workspace/sandbox base; pulled by the backend/worker)
 - `ghcr.io/<namespace>/astraforge-sandbox` (pulled by the backend when it spawns sandbox containers; you don’t run it as a service)
 
 Replace `<namespace>` with your GitHub username or org (lowercase) and keep the PAT scope to `read:packages` when pulling from Portainer.
@@ -78,13 +79,18 @@ services:
       EXECUTOR: ${EXECUTOR:-codex}
       RUN_LOG_STREAMER: ${RUN_LOG_STREAMER:-redis}
       CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-"0"}
-      ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-"1"}
+      ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-1}
+      CODEX_CLI_SKIP_PULL: ${CODEX_CLI_SKIP_PULL:-1}
+      CODEX_WORKSPACE_IMAGE: ${CODEX_WORKSPACE_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-astraforge.example.com,api.astraforge.example.com}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://astraforge.example.com,http://api.astraforge.example.com}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
+      SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
+      SANDBOX_MAX_LIFETIME_SEC: ${SANDBOX_MAX_LIFETIME_SEC:-3600}
     depends_on:
       - postgres
       - redis
@@ -108,13 +114,18 @@ services:
       EXECUTOR: ${EXECUTOR:-codex}
       RUN_LOG_STREAMER: ${RUN_LOG_STREAMER:-redis}
       CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-"0"}
-      ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-"1"}
+      ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-1}
+      CODEX_CLI_SKIP_PULL: ${CODEX_CLI_SKIP_PULL:-1}
+      CODEX_WORKSPACE_IMAGE: ${CODEX_WORKSPACE_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-astraforge.example.com,api.astraforge.example.com}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://astraforge.example.com,http://api.astraforge.example.com}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
+      SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
+      SANDBOX_MAX_LIFETIME_SEC: ${SANDBOX_MAX_LIFETIME_SEC:-3600}
     depends_on:
       - postgres
       - redis
@@ -133,6 +144,9 @@ Notes:
 - Postgres uses `pgvector/pgvector:pg16`, so the `vector` extension is available out of the box; run `CREATE EXTENSION IF NOT EXISTS vector;` in your init scripts if you add embeddings.
 - The bundled `astraforge` image serves both the SPA assets and `/api` on port `8001` via Django + WhiteNoise; no separate frontend container or `BACKEND_ORIGIN` env var is required.
 - Sandbox containers are still created on-demand by the backend (via `SANDBOX_IMAGE`, defaulting to the published `ghcr.io/<namespace>/astraforge-sandbox:latest`). Ensure your hosts/agents can pull from GHCR; you do **not** need to run the sandbox image as a long-lived service in the stack.
+- Keep `ASTRAFORGE_EXECUTE_COMMANDS` unquoted (`1`, not `"1"`) so the sandbox runner executes real Docker commands instead of staying in dry-run mode.
+- `CODEX_CLI_SKIP_PULL=1` assumes the sandbox image already exists on the host; unset or set to `0` if the host must pull from GHCR (and make sure `docker login ghcr.io` is in place for private images).
+- Override `CODEX_WORKSPACE_IMAGE` if you want to pin a specific Codex CLI tag (default `ghcr.io/<namespace>/astraforge-codex-cli:latest`); leave pull enabled or pre-load the image when using `CODEX_CLI_SKIP_PULL=1`.
 - Set `SECRET_KEY` to a strong value and adjust `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS` for your domains.
 
 ### Deployment flow
