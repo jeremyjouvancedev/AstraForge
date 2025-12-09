@@ -242,6 +242,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         image: str,
         stream: Callable[[dict[str, Any]], None],
     ) -> None:
+        network = os.getenv("CODEX_WORKSPACE_NETWORK")
         self.runner.run(
             ["docker", "rm", "-f", container_name],
             stream=stream,
@@ -262,6 +263,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             "docker",
             "run",
             "-d",
+            *(["--network", network] if network else []),
             *pull_args,
             "--name",
             container_name,
@@ -298,6 +300,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                     "docker",
                     "run",
                     "-d",
+                    *(["--network", network] if network else []),
                     "--name",
                     container_name,
                     "--add-host",
@@ -323,10 +326,12 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         mode: str,
         stream: Callable[[dict[str, Any]], None],
     ) -> str:
+        network = os.getenv("CODEX_WORKSPACE_NETWORK")
+        default_proxy = "http://llm-proxy:8080" if network else "http://host.docker.internal:18080"
         external_proxy = (
             os.getenv("CODEX_WORKSPACE_PROXY_URL")
             or os.getenv("LLM_PROXY_URL")
-            or "http://host.docker.internal:8080"
+            or default_proxy
         )
         if external_proxy and external_proxy.lower() != "local":
             stream(

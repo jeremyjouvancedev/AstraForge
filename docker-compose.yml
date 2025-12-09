@@ -13,9 +13,13 @@ services:
       CELERY_TASK_ALWAYS_EAGER: "0"
       UNSAFE_DISABLE_AUTH: "1"
       CODEX_CLI_SKIP_PULL: "1"
+      CODEX_WORKSPACE_NETWORK: astraforge
+      CODEX_WORKSPACE_PROXY_URL: http://llm-proxy:8080
     depends_on:
       - postgres
       - redis
+    networks:
+      - astraforge
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -31,10 +35,14 @@ services:
       - "5433:5433"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    networks:
+      - astraforge
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    networks:
+      - astraforge
   backend:
     build:
       context: ./backend
@@ -52,6 +60,8 @@ services:
       UNSAFE_DISABLE_AUTH: "1"
       LOG_LEVEL: DEBUG
       CODEX_CLI_SKIP_PULL: "1"
+      CODEX_WORKSPACE_NETWORK: astraforge
+      CODEX_WORKSPACE_PROXY_URL: http://llm-proxy:8080
     depends_on:
       - postgres
       - redis
@@ -62,6 +72,8 @@ services:
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - astraforge
   backend-worker:
     build:
       context: ./backend
@@ -79,6 +91,8 @@ services:
       UNSAFE_DISABLE_AUTH: "1"
       LOG_LEVEL: DEBUG
       CODEX_CLI_SKIP_PULL: "1"
+      CODEX_WORKSPACE_NETWORK: astraforge
+      CODEX_WORKSPACE_PROXY_URL: http://llm-proxy:8080
     depends_on:
       - postgres
       - redis
@@ -87,6 +101,8 @@ services:
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - astraforge
   llm-proxy:
     build:
       context: ./llm-proxy
@@ -95,6 +111,8 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
     ports:
       - "8081:8080"
+    networks:
+      - astraforge
   frontend:
     build:
       context: ./frontend
@@ -110,7 +128,12 @@ services:
       - "5174:5174"
     depends_on:
       - backend
+    networks:
+      - astraforge
 
 volumes:
   postgres-data:
   frontend-node-modules:
+
+networks:
+  astraforge:

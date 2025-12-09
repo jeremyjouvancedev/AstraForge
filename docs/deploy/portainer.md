@@ -54,6 +54,10 @@ services:
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    # Optional: expose if Codex workspaces use host-mapped proxy access. If you attach
+    # workspaces to the stack network (see CODEX_WORKSPACE_NETWORK), you can omit this.
+    ports:
+      - "18080:8080"
     networks:
       - astraforge
 
@@ -82,6 +86,8 @@ services:
       ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-1}
       CODEX_CLI_SKIP_PULL: ${CODEX_CLI_SKIP_PULL:-1}
       CODEX_WORKSPACE_IMAGE: ${CODEX_WORKSPACE_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest}
+      CODEX_WORKSPACE_NETWORK: ${CODEX_WORKSPACE_NETWORK:-astraforge}
+      CODEX_WORKSPACE_PROXY_URL: ${CODEX_WORKSPACE_PROXY_URL:-http://llm-proxy:8080}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
@@ -117,6 +123,8 @@ services:
       ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-1}
       CODEX_CLI_SKIP_PULL: ${CODEX_CLI_SKIP_PULL:-1}
       CODEX_WORKSPACE_IMAGE: ${CODEX_WORKSPACE_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest}
+      CODEX_WORKSPACE_NETWORK: ${CODEX_WORKSPACE_NETWORK:-astraforge}
+      CODEX_WORKSPACE_PROXY_URL: ${CODEX_WORKSPACE_PROXY_URL:-http://llm-proxy:8080}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
@@ -147,6 +155,7 @@ Notes:
 - Keep `ASTRAFORGE_EXECUTE_COMMANDS` unquoted (`1`, not `"1"`) so the sandbox runner executes real Docker commands instead of staying in dry-run mode.
 - `CODEX_CLI_SKIP_PULL=1` assumes the sandbox image already exists on the host; unset or set to `0` if the host must pull from GHCR (and make sure `docker login ghcr.io` is in place for private images).
 - Override `CODEX_WORKSPACE_IMAGE` if you want to pin a specific Codex CLI tag (default `ghcr.io/<namespace>/astraforge-codex-cli:latest`); leave pull enabled or pre-load the image when using `CODEX_CLI_SKIP_PULL=1`.
+- Attach Codex workspaces to the stack network by setting `CODEX_WORKSPACE_NETWORK=astraforge` (or your stack network name); this lets them reach the LLM proxy at `http://llm-proxy:8080` without host port mapping. If you leave it blank, the workspace stays on the default bridge and you’ll need `llm-proxy` published (e.g., host port `18080`) or set `CODEX_WORKSPACE_PROXY_URL` to a reachable host/IP:port.
 - Set `SECRET_KEY` to a strong value and adjust `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS` for your domains.
 
 ### Deployment flow
