@@ -10,7 +10,7 @@ class RendererRegistry {
     if (this.items.has(id)) {
       throw new Error(`Renderer ${id} already registered`);
     }
-    this.items.set(id, component);
+    this.items.set(id, component as ComponentType<unknown>);
   }
 
   resolve<TProps = unknown>(id: string) {
