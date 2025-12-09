@@ -90,9 +90,10 @@ services:
       CODEX_WORKSPACE_PROXY_URL: ${CODEX_WORKSPACE_PROXY_URL:-http://llm-proxy:8080}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
+      UNSAFE_DISABLE_AUTH: ${UNSAFE_DISABLE_AUTH:-"1"}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-astraforge.example.com,api.astraforge.example.com}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://astraforge.example.com,http://api.astraforge.example.com}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://host.docker.internal:8081,http://backend:8001}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
       # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
       SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
@@ -127,9 +128,10 @@ services:
       CODEX_WORKSPACE_PROXY_URL: ${CODEX_WORKSPACE_PROXY_URL:-http://llm-proxy:8080}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
+      UNSAFE_DISABLE_AUTH: ${UNSAFE_DISABLE_AUTH:-"1"}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-astraforge.example.com,api.astraforge.example.com}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://astraforge.example.com,http://api.astraforge.example.com}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://host.docker.internal:8081,http://backend:8001}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
       # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
       SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
@@ -158,6 +160,7 @@ Notes:
 - Override `CODEX_WORKSPACE_IMAGE` if you want to pin a specific Codex CLI tag (default `ghcr.io/<namespace>/astraforge-codex-cli:latest`); leave pull enabled or pre-load the image when using `CODEX_CLI_SKIP_PULL=1`.
 - Attach Codex workspaces to the stack network by setting `CODEX_WORKSPACE_NETWORK=astraforge` (or your stack network name); this lets them reach the LLM proxy at `http://llm-proxy:8080` without host port mapping. If you leave it blank, the workspace stays on the default bridge and you’ll need `llm-proxy` published (e.g., host port `18080`) or set `CODEX_WORKSPACE_PROXY_URL` to a reachable host/IP:port.
 - Set `SECRET_KEY` to a strong value and adjust `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS` for your domains.
+- For local/Portainer dev where you call the backend from workspaces via API key, set `UNSAFE_DISABLE_AUTH=1` to bypass CSRF/session checks. Do **not** use this in production.
 
 ### Deployment flow
 
