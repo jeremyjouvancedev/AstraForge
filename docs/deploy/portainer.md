@@ -118,9 +118,8 @@ services:
 
   frontend:
     image: ghcr.io/<namespace>/astraforge-frontend:latest
-    command: pnpm dev --host 0.0.0.0 --port 5174
     environment:
-      VITE_API_URL: http://backend:8001
+      BACKEND_ORIGIN: http://backend:8001
     depends_on:
       - backend
     networks:
@@ -141,7 +140,7 @@ configs:
       }
 
       upstream frontend_app {
-        server frontend:5174;
+        server frontend:80;
       }
 
       upstream backend_api {
@@ -180,6 +179,8 @@ configs:
         }
       }
 ```
+
+The frontend image now bakes a Vite production build into nginx and listens on port `80` inside the container. Set `BACKEND_ORIGIN` to the internal backend URL (default `http://backend:8001`) so `/api` traffic is proxied correctly; the reverse proxy above targets the frontend at port `80`.
 
 ### Deployment flow
 
