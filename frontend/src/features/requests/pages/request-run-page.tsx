@@ -117,26 +117,46 @@ export default function RequestRunPage() {
     if (!data?.metadata) return [];
     const rawRuns = data.metadata["runs"];
     if (!Array.isArray(rawRuns)) return [];
-    return rawRuns
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") return null;
-        const record = entry as Record<string, unknown>;
-        const id = typeof record["id"] === "string" ? (record["id"] as string) : null;
-        if (!id) return null;
-        const status = typeof record["status"] === "string" ? (record["status"] as string)
-          : (typeof record["state"] === "string" ? (record["state"] as string) : undefined);
-        const startedAt = typeof record["started_at"] === "string" ? (record["started_at"] as string)
-          : (typeof record["started_at"] === "number" ? new Date(record["started_at"] as number).toISOString() : null);
-        const finishedAt = typeof record["finished_at"] === "string" ? (record["finished_at"] as string)
-          : (typeof record["finished_at"] === "number" ? new Date(record["finished_at"] as number).toISOString() : null);
-        const eventsList = Array.isArray(record["events"]) ? ((record["events"] as unknown[]).filter((item) => item && typeof item === "object") as RunLogEvent[]) : [];
-        const artifacts = record["artifacts"] && typeof record["artifacts"] === "object" ? (record["artifacts"] as Record<string, unknown>) : undefined;
-        const diff = typeof record["diff"] === "string" ? (record["diff"] as string) : null;
-        const error = typeof record["error"] === "string" ? (record["error"] as string) : null;
-        const reports = record["reports"] && typeof record["reports"] === "object" ? (record["reports"] as Record<string, unknown>) : undefined;
-        return { id, status, started_at: startedAt, finished_at: finishedAt, events: eventsList, diff, error, artifacts, reports };
-      })
-      .filter((v): v is StoredRunRecord => v !== null);
+    const runs: StoredRunRecord[] = [];
+    rawRuns.forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      const record = entry as Record<string, unknown>;
+      const id = typeof record["id"] === "string" ? (record["id"] as string) : null;
+      if (!id) return;
+      const status =
+        typeof record["status"] === "string"
+          ? (record["status"] as string)
+          : typeof record["state"] === "string"
+            ? (record["state"] as string)
+            : undefined;
+      const startedAt =
+        typeof record["started_at"] === "string"
+          ? (record["started_at"] as string)
+          : typeof record["started_at"] === "number"
+            ? new Date(record["started_at"] as number).toISOString()
+            : null;
+      const finishedAt =
+        typeof record["finished_at"] === "string"
+          ? (record["finished_at"] as string)
+          : typeof record["finished_at"] === "number"
+            ? new Date(record["finished_at"] as number).toISOString()
+            : null;
+      const eventsList = Array.isArray(record["events"])
+        ? ((record["events"] as unknown[]).filter((item) => item && typeof item === "object") as RunLogEvent[])
+        : [];
+      const artifacts =
+        record["artifacts"] && typeof record["artifacts"] === "object"
+          ? (record["artifacts"] as Record<string, unknown>)
+          : undefined;
+      const diff = typeof record["diff"] === "string" ? (record["diff"] as string) : null;
+      const error = typeof record["error"] === "string" ? (record["error"] as string) : null;
+      const reports =
+        record["reports"] && typeof record["reports"] === "object"
+          ? (record["reports"] as Record<string, unknown>)
+          : undefined;
+      runs.push({ id, status, started_at: startedAt, finished_at: finishedAt, events: eventsList, diff, error, artifacts, reports });
+    });
+    return runs;
   }, [data?.metadata]);
 
   const liveRunIds = useMemo(() => {

@@ -58,7 +58,7 @@ export function RepositoryLinkList({ links, isLoading }: RepositoryLinkListProps
                   variant="ghost"
                   size="sm"
                   onClick={() => handleDelete(link.id)}
-                  disabled={mutation.isLoading && mutation.variables === link.id}
+                  disabled={mutation.isPending && mutation.variables === link.id}
                 >
                   Remove
                 </Button>

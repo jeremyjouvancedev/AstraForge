@@ -157,8 +157,8 @@ export function RepositoryLinkForm() {
               </p>
             )}
           </div>
-          <Button type="submit" disabled={mutation.isLoading}>
-            {mutation.isLoading ? "Linking..." : "Link Repository"}
+          <Button type="submit" disabled={mutation.isPending}>
+            {mutation.isPending ? "Linking..." : "Link Repository"}
           </Button>
           {mutation.isError && (
             <p className="text-sm text-destructive">

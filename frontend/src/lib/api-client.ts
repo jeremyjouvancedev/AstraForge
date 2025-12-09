@@ -42,6 +42,7 @@ export interface CreateRequestResponse {
   state: string;
   payload: ApiRequestPayload;
   project: RequestProject;
+  created_at?: string;
   metadata?: Record<string, unknown>;
   artifacts?: Record<string, unknown>;
 }

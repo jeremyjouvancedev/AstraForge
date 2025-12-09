@@ -1,14 +1,18 @@
-.PHONY: backend-serve frontend-dev lint format test compose-test generate-openapi install-deps package-build package-clean package-upload package-upload-test
+.PHONY: backend-serve frontend-dev frontend-build-image lint format test compose-test generate-openapi install-deps package-build package-clean package-upload package-upload-test
 
 COMPOSE ?= docker compose
 COMPOSE_TEST_PROJECT ?= astraforge-test
 COMPOSE_TEST_FILES ?= -f docker-compose.yml -f docker-compose.test.yml
+FRONTEND_IMAGE ?= astraforge-frontend:local
 
 backend-serve:
 	cd backend && python manage.py runserver 0.0.0.0:8001
 
 frontend-dev:
 	cd frontend && pnpm dev
+
+frontend-build-image:
+	docker build -t $(FRONTEND_IMAGE) -f frontend/Dockerfile frontend
 
 backend-test:
 	cd backend && pytest

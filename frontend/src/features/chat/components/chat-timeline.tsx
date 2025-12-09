@@ -91,7 +91,16 @@ const markdownComponents: Components = {
   li: ({ ...props }) => (
     <li {...props} className={cn("leading-relaxed", props.className)} />
   ),
-  code: ({ children, inline, className, ...props }) => {
+  code: ({
+    children,
+    inline,
+    className,
+    ...props
+  }: {
+    children?: React.ReactNode;
+    inline?: boolean;
+    className?: string;
+  } & HTMLAttributes<HTMLElement>) => {
     if (inline) {
       return (
         <code

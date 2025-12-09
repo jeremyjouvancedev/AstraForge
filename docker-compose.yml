@@ -105,6 +105,7 @@ services:
       - frontend-node-modules:/app/node_modules
     environment:
       VITE_API_URL: http://backend:8001
+      CI: "true"
     ports:
       - "5174:5174"
     depends_on:

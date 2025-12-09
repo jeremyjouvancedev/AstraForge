@@ -193,15 +193,10 @@ export function RunChatPanel({
     }
   }, [currentSignature, baseSignature, baseMessages]);
 
-  const sendMutation = useMutation({
+  const sendMutation = useMutation<{ status: string }, Error, { requestId: string; message: string }>({
     mutationFn: sendChatMessage,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["request-detail", requestId] });
-    },
-    onError: (_error, _variables, context) => {
-      if (context && typeof context.optimisticId === "string") {
-        setPendingMessages((current) => current.filter((message) => message.id !== context.optimisticId));
-      }
     },
   });
 
@@ -275,7 +270,9 @@ export function RunChatPanel({
     sendMutation.mutate(
       { requestId, message: trimmed },
       {
-        context: { optimisticId: id },
+        onError: () => {
+          setPendingMessages((current) => current.filter((message) => message.id !== id));
+        },
       }
     );
     setDraft("");

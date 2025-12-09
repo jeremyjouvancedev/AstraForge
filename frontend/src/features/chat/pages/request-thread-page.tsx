@@ -5,14 +5,17 @@ import { ChatComposer } from "@/features/chat/components/chat-composer";
 import { ChatTimeline } from "@/features/chat/components/chat-timeline";
 import { useChatThread } from "@/features/chat/hooks/use-chat-thread";
 import { rendererRegistry } from "@/lib/renderers/registry";
+import type { DiffPreviewProps } from "@/components/diff-preview";
+import type { SpecViewerProps } from "@/components/spec-viewer";
+import type { TestReportProps } from "@/components/test-report";
 
 export default function RequestThreadPage() {
   const params = useParams<{ id: string }>();
   const requestId = params.id ?? "";
   const { data, isLoading } = useChatThread(requestId);
-  const DiffRenderer = rendererRegistry.resolve("diff");
-  const SpecRenderer = rendererRegistry.resolve("spec");
-  const TestRenderer = rendererRegistry.resolve("test-report");
+  const DiffRenderer = rendererRegistry.resolve<DiffPreviewProps>("diff");
+  const SpecRenderer = rendererRegistry.resolve<SpecViewerProps>("spec");
+  const TestRenderer = rendererRegistry.resolve<TestReportProps>("test-report");
 
   const handleSend = (message: string) => {
     console.log("send message", message); // placeholder wiring

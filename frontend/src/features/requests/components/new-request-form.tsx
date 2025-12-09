@@ -99,7 +99,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
                   aria-label="Project"
                   className="rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60"
                   {...form.register("projectId")}
-                  disabled={mutation.isLoading}
+                  disabled={mutation.isPending}
                 >
                   {projects.map((project) => (
                     <option key={project.id} value={project.id}>
@@ -121,7 +121,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
                   {form.formState.errors.projectId.message}
                 </p>
               )}
-              <Button type="submit" disabled={mutation.isLoading} className="h-11 w-11 p-0">
+              <Button type="submit" disabled={mutation.isPending} className="h-11 w-11 p-0">
                 <ArrowUp size={16} />
               </Button>
             </div>

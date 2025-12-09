@@ -15,11 +15,12 @@ export function useRequestDetail(requestId: string) {
     queryKey: ["request-detail", requestId],
     enabled: Boolean(requestId),
     queryFn: () => fetchRequestDetail(requestId),
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       if (!requestId) {
         return false;
       }
-      if (!data || !TERMINAL_STATES.has(data.state)) {
+      const current = query.state.data;
+      if (!current || !TERMINAL_STATES.has(current.state)) {
         return 3000;
       }
       return false;
