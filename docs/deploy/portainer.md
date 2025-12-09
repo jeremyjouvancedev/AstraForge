@@ -1,10 +1,12 @@
 # Deploying to Portainer (TrueNAS)
 
-GitHub Actions now builds and publishes Docker images to GHCR so Portainer can pull them without running local builds. The workflow emits branch/tag/sha tags for every push and a `latest` tag from `main` for:
+GitHub Actions builds and publishes Docker images to GHCR so Portainer can pull them without running local builds. The recommended deployment is the bundled `astraforge` image, which serves the Django API and built Vite frontend on port `8001`. Legacy split images remain available if you need them for existing stacks. The workflow emits branch/tag/sha tags for every push and a `latest` tag from `main` for:
 
+- `ghcr.io/<namespace>/astraforge` (backend API + Celery + built frontend, served together)
 - `ghcr.io/<namespace>/astraforge-backend`
 - `ghcr.io/<namespace>/astraforge-frontend`
 - `ghcr.io/<namespace>/astraforge-llm-proxy`
+- `ghcr.io/<namespace>/astraforge-sandbox` (pulled by the backend when it spawns sandbox containers; you don’t run it as a service)
 
 Replace `<namespace>` with your GitHub username or org (lowercase) and keep the PAT scope to `read:packages` when pulling from Portainer.
 
@@ -20,31 +22,23 @@ Replace `<namespace>` with your GitHub username or org (lowercase) and keep the 
 3. Ensure Actions are enabled for the repo/organization.
 4. The CI workflow lives at `.github/workflows/ci.yaml`. Pushes to `main` (and tags/branches) build and push images; pull requests build only (no push). The Node cache uses `frontend/pnpm-lock.yaml`, so keep that lock file committed.
 
-## Stack template (isolated network + nginx reverse proxy)
+## Stack template (no reverse proxy needed)
 
-Use this Portainer stack to keep everything on a private overlay network and expose only nginx (listening on host port `8081`). Swap `<namespace>`, set hostnames, and adjust environment values for your TrueNAS secrets:
+Use this Portainer stack to keep everything on a private overlay network and expose the bundled app directly on host port `8081` (change as needed). Images live under `ghcr.io/jeremyjouvancedev/astraforge-*`; set hostnames and adjust environment values for your TrueNAS secrets:
 
 ```yaml
 version: "3.9"
 services:
-  reverse-proxy:
-    image: nginx:1.27
-    ports:
-      - "8081:8081"
-    networks:
-      - astraforge
-    configs:
-      - source: nginx_conf
-        target: /etc/nginx/conf.d/default.conf
-
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: astraforge
-      POSTGRES_USER: astraforge
-      POSTGRES_PASSWORD: astraforge
+      POSTGRES_DB: ${POSTGRES_DB:-astraforge}
+      POSTGRES_USER: ${POSTGRES_USER:-astraforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5433}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_PATH:-/portainer/Files/Volumes/astraforge-postgres}:/var/lib/postgresql/data
     command: ["postgres", "-p", "5433"]
     networks:
       - astraforge
@@ -55,141 +49,100 @@ services:
       - astraforge
 
   llm-proxy:
-    image: ghcr.io/<namespace>/astraforge-llm-proxy:latest
+    image: ghcr.io/jeremyjouvancedev/astraforge-llm-proxy:latest
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
     networks:
       - astraforge
 
-  backend-migrate:
-    image: ghcr.io/<namespace>/astraforge-backend:latest
+  app-migrate:
+    image: ghcr.io/jeremyjouvancedev/astraforge:latest
     command: python manage.py migrate
     environment:
-      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-astraforge}:${POSTGRES_PASSWORD:-astraforge}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-astraforge}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     depends_on:
       - postgres
       - redis
     networks:
       - astraforge
 
-  backend:
-    image: ghcr.io/<namespace>/astraforge-backend:latest
-    command: python manage.py runserver 0.0.0.0:8001
+  app:
+    image: ghcr.io/jeremyjouvancedev/astraforge:latest
+    ports:
+      - "8081:8001"
     environment:
-      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
-      REDIS_URL: redis://redis:6379/0
-      EXECUTOR: codex
-      RUN_LOG_STREAMER: redis
-      CELERY_TASK_ALWAYS_EAGER: "0"
-      ASTRAFORGE_EXECUTE_COMMANDS: "1"
-      LOG_LEVEL: INFO
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-astraforge}:${POSTGRES_PASSWORD:-astraforge}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-astraforge}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      EXECUTOR: ${EXECUTOR:-codex}
+      RUN_LOG_STREAMER: ${RUN_LOG_STREAMER:-redis}
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-"0"}
+      ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-"1"}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-astraforge.example.com,api.astraforge.example.com}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://astraforge.example.com,http://api.astraforge.example.com}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
     depends_on:
       - postgres
       - redis
-      - backend-migrate
+      - app-migrate
       - llm-proxy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      - astraforge
+      astraforge:
+        aliases:
+          - astraforge
+          - backend
+          - frontend
 
-  backend-worker:
-    image: ghcr.io/<namespace>/astraforge-backend:latest
+  app-worker:
+    image: ghcr.io/jeremyjouvancedev/astraforge:latest
     command: celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default --beat
     environment:
-      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
-      REDIS_URL: redis://redis:6379/0
-      EXECUTOR: codex
-      RUN_LOG_STREAMER: redis
-      CELERY_TASK_ALWAYS_EAGER: "0"
-      ASTRAFORGE_EXECUTE_COMMANDS: "1"
-      LOG_LEVEL: INFO
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-astraforge}:${POSTGRES_PASSWORD:-astraforge}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-astraforge}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      EXECUTOR: ${EXECUTOR:-codex}
+      RUN_LOG_STREAMER: ${RUN_LOG_STREAMER:-redis}
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-"0"}
+      ASTRAFORGE_EXECUTE_COMMANDS: ${ASTRAFORGE_EXECUTE_COMMANDS:-"1"}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-astraforge.example.com,api.astraforge.example.com}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://astraforge.example.com,http://api.astraforge.example.com}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
     depends_on:
       - postgres
       - redis
-      - backend-migrate
+      - app-migrate
       - llm-proxy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - astraforge
-
-  frontend:
-    image: ghcr.io/<namespace>/astraforge-frontend:latest
-    environment:
-      BACKEND_ORIGIN: http://backend:8001
-    depends_on:
-      - backend
-    networks:
-      - astraforge
-
-volumes:
-  postgres-data:
 
 networks:
   astraforge:
-
-configs:
-  nginx_conf:
-    content: |
-      map $http_upgrade $connection_upgrade {
-        default upgrade;
-        ''      close;
-      }
-
-      upstream frontend_app {
-        server frontend:80;
-      }
-
-      upstream backend_api {
-        server backend:8001;
-      }
-
-      server {
-        listen 8081;
-        server_name astraforge.example.com api.astraforge.example.com;
-
-        location / {
-          proxy_pass http://frontend_app;
-          proxy_set_header Host $host;
-          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-          proxy_http_version 1.1;
-          proxy_set_header Upgrade $http_upgrade;
-          proxy_set_header Connection $connection_upgrade;
-        }
-
-        location /api/ {
-          proxy_pass http://backend_api;
-          proxy_set_header Host $host;
-          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-          proxy_http_version 1.1;
-          proxy_set_header Upgrade $http_upgrade;
-          proxy_set_header Connection $connection_upgrade;
-        }
-
-        # WebSockets (adjust path to your websocket endpoint)
-        location /ws/ {
-          proxy_pass http://backend_api;
-          proxy_set_header Host $host;
-          proxy_http_version 1.1;
-          proxy_set_header Upgrade $http_upgrade;
-          proxy_set_header Connection $connection_upgrade;
-        }
-      }
 ```
 
-The frontend image now bakes a Vite production build into nginx and listens on port `80` inside the container. Set `BACKEND_ORIGIN` to the internal backend URL (default `http://backend:8001`) so `/api` traffic is proxied correctly; the reverse proxy above targets the frontend at port `80`.
+Notes:
+- Postgres uses `pgvector/pgvector:pg16`, so the `vector` extension is available out of the box; run `CREATE EXTENSION IF NOT EXISTS vector;` in your init scripts if you add embeddings.
+- The bundled `astraforge` image serves both the SPA assets and `/api` on port `8001` via Django + WhiteNoise; no separate frontend container or `BACKEND_ORIGIN` env var is required.
+- Sandbox containers are still created on-demand by the backend (via `SANDBOX_IMAGE`, defaulting to the published `ghcr.io/<namespace>/astraforge-sandbox:latest`). Ensure your hosts/agents can pull from GHCR; you do **not** need to run the sandbox image as a long-lived service in the stack.
+- Set `SECRET_KEY` to a strong value and adjust `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS` for your domains.
 
 ### Deployment flow
 
-1. Push to `main` to publish fresh `latest`/branch/SHA tags to GHCR.
+1. Push to `main` to publish fresh `latest`/branch/SHA tags to GHCR (including the combined `astraforge` image).
 2. In Portainer, create a new stack, paste the YAML above, and set env vars (`OPENAI_API_KEY`, optional `LLM_MODEL`, and any Django settings you override).
-3. Deploy; Portainer will pull GHCR images, run migrations, and bring up the API, worker, LLM proxy, and frontend.
+3. Deploy; Portainer will pull GHCR images, run migrations, and bring up the API/SPA, worker, and LLM proxy.
 4. Update by re-deploying the stack with a new tag (e.g., a specific SHA) or letting it track `latest`.
 
 Notes:
 - Keep `/var/run/docker.sock` mounted for the backend/worker only if you rely on Docker-based workspace execution; remove it on clusters where that access is not allowed.
 - Swap Postgres/Redis for external services if your TrueNAS already hosts them; update the URLs accordingly.
-- Set DNS for `astraforge.example.com` and `api.astraforge.example.com` (or your preferred hostnames) to the TrueNAS/Portainer host so nginx can route traffic. Add TLS by mounting certs/keys and updating the nginx config with `listen 443 ssl` plus `ssl_certificate` / `ssl_certificate_key`.
+- Set DNS for `astraforge.example.com` (or your preferred hostname) to the TrueNAS/Portainer host so nginx can route traffic. Add TLS by mounting certs/keys and updating the nginx config with `listen 443 ssl` plus `ssl_certificate` / `ssl_certificate_key`.

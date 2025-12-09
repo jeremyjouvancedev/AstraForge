@@ -21,3 +21,5 @@ redis>=5.0
 requests>=2.32
 structlog>=24.1
 tavily-python>=0.5.0
+gunicorn>=21.2
+whitenoise>=6.6

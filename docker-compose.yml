@@ -18,7 +18,7 @@ services:
       - redis
 
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg16
     command:
       - postgres
       - -p

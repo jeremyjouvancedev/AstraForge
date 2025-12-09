@@ -4,7 +4,7 @@ WORKDIR /app
 # Install pnpm via corepack and keep binaries in a predictable location
 ENV PNPM_HOME="/pnpm"
 ENV PATH="${PNPM_HOME}:${PATH}"
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@9.12.2 --activate
 
 # Install dependencies with a frozen lockfile for reproducible builds
 COPY package.json pnpm-lock.yaml ./

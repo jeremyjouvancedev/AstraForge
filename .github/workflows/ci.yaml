@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9.12.2
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -82,6 +82,24 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: AstraForge image metadata
+        id: meta-astraforge
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.registry.outputs.owner }}/astraforge
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Build AstraForge image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-astraforge.outputs.tags }}
+          labels: ${{ steps.meta-astraforge.outputs.labels }}
       - name: Backend image metadata
         id: meta-backend
         uses: docker/metadata-action@v5

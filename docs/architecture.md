@@ -230,6 +230,7 @@ runs regression tests, and assembles a merge request for approval.
 
 ## Delivery Pipeline
 - CI pipelines run linting, typing, tests, and container builds, then package Helm charts.
+- A bundled `astraforge` image publishes the Django API + Celery base + built Vite frontend (served via Gunicorn/WhiteNoise) so the same artifact can run the web and worker processes.
 - Contract tests validate message schemas against provider implementations.
 - Review bot posts automated findings on merge requests using configured reviewer identity.
 
