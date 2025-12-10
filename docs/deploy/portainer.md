@@ -35,7 +35,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-astraforge}
       POSTGRES_USER: ${POSTGRES_USER:-astraforge}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
       POSTGRES_PORT: ${POSTGRES_PORT:-5433}
     volumes:
@@ -86,7 +86,7 @@ services:
   llm-proxy:
     image: ghcr.io/jeremyjouvancedev/astraforge-llm-proxy:latest
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
     # Optional: expose if Codex workspaces use host-mapped proxy access. If you attach
     # workspaces to the stack network (see CODEX_WORKSPACE_NETWORK), you can omit this.
@@ -125,10 +125,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
       UNSAFE_DISABLE_AUTH: ${UNSAFE_DISABLE_AUTH:-"1"}
-      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://host.docker.internal:8081,http://backend:8001}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
       SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
       SANDBOX_MAX_LIFETIME_SEC: ${SANDBOX_MAX_LIFETIME_SEC:-3600}
@@ -171,10 +171,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest}
       UNSAFE_DISABLE_AUTH: ${UNSAFE_DISABLE_AUTH:-"1"}
-      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://host.docker.internal:8081,http://backend:8001}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
       SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
       SANDBOX_MAX_LIFETIME_SEC: ${SANDBOX_MAX_LIFETIME_SEC:-3600}
@@ -202,6 +202,8 @@ networks:
 ```
 
 Notes:
+- Portainer’s stack env interpolation does not support the `:?` “required var” guard. Set stack
+  variables for `POSTGRES_PASSWORD`, `OPENAI_API_KEY`, and `SECRET_KEY` explicitly before deploying.
 - Postgres uses `pgvector/pgvector:pg16`, so the `vector` extension is available out of the box; run `CREATE EXTENSION IF NOT EXISTS vector;` in your init scripts if you add embeddings.
 - The bundled `astraforge` image serves both the SPA assets and `/api` on port `8001` via Django + WhiteNoise; no separate frontend container or `BACKEND_ORIGIN` env var is required.
 - Sandbox containers are still created on-demand by the backend (via `SANDBOX_IMAGE`, defaulting to the published `ghcr.io/<namespace>/astraforge-sandbox:latest`). Ensure your hosts/agents can pull from GHCR; you do **not** need to run the sandbox image as a long-lived service in the stack.
