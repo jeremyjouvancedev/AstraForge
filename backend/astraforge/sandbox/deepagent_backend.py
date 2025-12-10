@@ -16,7 +16,7 @@ from deepagents.backends.utils import (
     perform_string_replacement,
 )
 
-from astraforge.sandbox.models import SandboxSession
+from astraforge.sandbox.models import SandboxSession, SandboxSnapshot
 from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
 
 try:
@@ -104,6 +104,8 @@ class _SandboxBackend(BackendProtocol):
             session = SandboxSession.objects.get(id=session_id)
         except SandboxSession.DoesNotExist as exc:
             raise RuntimeError(f"Sandbox session {session_id} not found") from exc
+
+        session = self._ensure_ready(session)
         # Mirror the HTTP backend: align root to the session's workspace path.
         self._workspace_root = session.workspace_path or self.root_dir
         return session
@@ -127,6 +129,32 @@ class _SandboxBackend(BackendProtocol):
             self._log.error("backend response to llm: %s", message)
         except Exception:
             pass
+
+    def _ensure_ready(self, session: SandboxSession) -> SandboxSession:
+        """Provision and restore a session if it is not currently ready."""
+        if session.status == SandboxSession.Status.READY:
+            return session
+
+        try:
+            self.orchestrator.provision(session)
+        except SandboxProvisionError as exc:
+            raise RuntimeError(f"Sandbox auto-provision failed: {exc}") from exc
+
+        metadata = session.metadata or {}
+        latest_snapshot_id = metadata.get("latest_snapshot_id")
+        if latest_snapshot_id:
+            snapshot = (
+                SandboxSnapshot.objects.filter(id=latest_snapshot_id, session=session).first()
+            )
+            if snapshot:
+                try:
+                    self.orchestrator.restore_snapshot(session, snapshot)
+                except SandboxProvisionError as exc:  # pragma: no cover - surfaced upstream
+                    raise RuntimeError(f"Snapshot restore failed: {exc}") from exc
+
+        # Refresh workspace root in case provision/restore updated it.
+        self._workspace_root = session.workspace_path or self.root_dir
+        return session
 
     # BackendProtocol implementation ---------------------------------------
 

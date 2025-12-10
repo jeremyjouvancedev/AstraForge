@@ -49,6 +49,40 @@ services:
     networks:
       - astraforge
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-astraforge}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-astraforge123}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - ${MINIO_DATA_PATH:-/portainer/Files/Volumes/astraforge-minio}:/data
+    networks:
+      - astraforge
+
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      set -e;
+      tries=0;
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-astraforge} ${MINIO_ROOT_PASSWORD:-astraforge123}; do
+        tries=$$((tries+1));
+        if [ $$tries -ge 30 ]; then echo 'MinIO not ready'; exit 1; fi;
+        sleep 2;
+      done;
+      mc mb --ignore-existing local/${SANDBOX_S3_BUCKET:-astraforge-snapshots};
+      "
+    networks:
+      - astraforge
+
   llm-proxy:
     image: ghcr.io/jeremyjouvancedev/astraforge-llm-proxy:latest
     environment:
@@ -98,9 +132,17 @@ services:
       # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
       SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
       SANDBOX_MAX_LIFETIME_SEC: ${SANDBOX_MAX_LIFETIME_SEC:-3600}
+      SANDBOX_S3_BUCKET: ${SANDBOX_S3_BUCKET:-astraforge-snapshots}
+      SANDBOX_S3_ENDPOINT_URL: ${SANDBOX_S3_ENDPOINT_URL:-http://minio:9000}
+      SANDBOX_S3_REGION: ${SANDBOX_S3_REGION:-us-east-1}
+      SANDBOX_S3_USE_SSL: ${SANDBOX_S3_USE_SSL:-0}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-astraforge}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-astraforge123}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
     depends_on:
       - postgres
       - redis
+      - minio-setup
       - app-migrate
       - llm-proxy
     volumes:
@@ -136,9 +178,17 @@ services:
       # DeepAgent sandbox defaults (10 minutes idle, 1 hour max lifetime)
       SANDBOX_IDLE_TIMEOUT_SEC: ${SANDBOX_IDLE_TIMEOUT_SEC:-600}
       SANDBOX_MAX_LIFETIME_SEC: ${SANDBOX_MAX_LIFETIME_SEC:-3600}
+      SANDBOX_S3_BUCKET: ${SANDBOX_S3_BUCKET:-astraforge-snapshots}
+      SANDBOX_S3_ENDPOINT_URL: ${SANDBOX_S3_ENDPOINT_URL:-http://minio:9000}
+      SANDBOX_S3_REGION: ${SANDBOX_S3_REGION:-us-east-1}
+      SANDBOX_S3_USE_SSL: ${SANDBOX_S3_USE_SSL:-0}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-astraforge}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-astraforge123}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
     depends_on:
       - postgres
       - redis
+      - minio-setup
       - app-migrate
       - llm-proxy
     volumes:
@@ -155,6 +205,7 @@ Notes:
 - Postgres uses `pgvector/pgvector:pg16`, so the `vector` extension is available out of the box; run `CREATE EXTENSION IF NOT EXISTS vector;` in your init scripts if you add embeddings.
 - The bundled `astraforge` image serves both the SPA assets and `/api` on port `8001` via Django + WhiteNoise; no separate frontend container or `BACKEND_ORIGIN` env var is required.
 - Sandbox containers are still created on-demand by the backend (via `SANDBOX_IMAGE`, defaulting to the published `ghcr.io/<namespace>/astraforge-sandbox:latest`). Ensure your hosts/agents can pull from GHCR; you do **not** need to run the sandbox image as a long-lived service in the stack.
+- MinIO provides snapshot storage for sandbox backups. The stack bootstraps a bucket named `${SANDBOX_S3_BUCKET:-astraforge-snapshots}` and the app/worker use `SANDBOX_S3_ENDPOINT_URL` + AWS-style credentials to upload and restore snapshots. Set `SANDBOX_S3_USE_SSL=1` if you front MinIO with TLS. Ports are not exposed; access the console via `docker exec` or temporary port-forwarding if needed.
 - Keep `ASTRAFORGE_EXECUTE_COMMANDS` unquoted (`1`, not `"1"`) so the sandbox runner executes real Docker commands instead of staying in dry-run mode.
 - `CODEX_CLI_SKIP_PULL=1` assumes the sandbox image already exists on the host; unset or set to `0` if the host must pull from GHCR (and make sure `docker login ghcr.io` is in place for private images).
 - Override `CODEX_WORKSPACE_IMAGE` if you want to pin a specific Codex CLI tag (default `ghcr.io/<namespace>/astraforge-codex-cli:latest`); leave pull enabled or pre-load the image when using `CODEX_CLI_SKIP_PULL=1`.

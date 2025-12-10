@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
+import re
 import shlex
 import subprocess
 import uuid
 from dataclasses import dataclass
 from typing import Optional, Sequence
+
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 
 from astraforge.infrastructure.provisioners import k8s as k8s_provisioner
 from astraforge.infrastructure.workspaces.codex import CommandRunner
@@ -49,6 +55,14 @@ class SandboxRuntime:
 class SandboxOrchestrator:
     def __init__(self, runner: CommandRunner | None = None):
         self.runner = runner or CommandRunner(dry_run=not _commands_enabled())
+        self._log = logging.getLogger(__name__)
+        self._s3_client_cached = None
+        self._s3_bucket = os.getenv("SANDBOX_S3_BUCKET", "").strip()
+        self._s3_endpoint = os.getenv("SANDBOX_S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL")
+        self._s3_region = os.getenv("SANDBOX_S3_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+        self._s3_use_ssl = (
+            os.getenv("SANDBOX_S3_USE_SSL", "1").lower() not in {"0", "false", "no"}
+        )
 
     def provision(self, session: SandboxSession) -> SandboxSession:
         if session.mode == SandboxSession.Mode.DOCKER:
@@ -181,11 +195,18 @@ base64 "$TMPFILE"
         include_paths = include_paths or [session.workspace_path]
         exclude_paths = exclude_paths or []
         snapshot_id = uuid.uuid4()
+        base_workspace = (session.workspace_path or "/workspace").rstrip("/") or "/workspace"
+        archive_dir = f"{base_workspace}/.sandbox-snapshots"
         key = f"snapshots/{session.id}/{snapshot_id}.tar.gz"
-        archive_path = f"/tmp/{snapshot_id}.tar.gz"
+        archive_path = f"{archive_dir}/{snapshot_id}.tar.gz"
         include = " ".join(shlex.quote(path) for path in include_paths)
-        exclude_clause = " ".join(f"--exclude={shlex.quote(pattern)}" for pattern in exclude_paths)
-        command = f"tar -czf {shlex.quote(archive_path)} {exclude_clause} {include}".strip()
+        excludes = list(exclude_paths) if exclude_paths is not None else []
+        excludes.append(archive_dir)
+        exclude_clause = " ".join(f"--exclude={shlex.quote(pattern)}" for pattern in excludes)
+        command = (
+            f"mkdir -p {shlex.quote(archive_dir)} && "
+            f"tar -czf {shlex.quote(archive_path)} {exclude_clause} {include}"
+        ).strip()
         result = self.execute(session, command)
         if result.exit_code != 0:
             raise SandboxProvisionError(f"Snapshot failed: {result.stdout.strip()}")
@@ -205,6 +226,34 @@ base64 "$TMPFILE"
             exclude_paths=exclude_paths,
             archive_path=archive_path,
         )
+        self._upload_snapshot_to_s3(session, snapshot, archive_path)
+        self._record_latest_snapshot(session, snapshot.id)
+        session.mark_activity()
+        return snapshot
+
+    def restore_snapshot(self, session: SandboxSession, snapshot: SandboxSnapshot):
+        """Extract a snapshot archive back into the sandbox workspace."""
+        if not snapshot.archive_path and not snapshot.s3_key:
+            raise SandboxProvisionError("Snapshot archive path is missing")
+
+        archive_path = snapshot.archive_path or f"/tmp/{snapshot.id}.tar.gz"
+        # Prefer S3 when a bucket is configured; fall back to an existing local archive inside the sandbox.
+        content = None
+        if snapshot.s3_key and self._s3_client():
+            content = self._download_snapshot_from_s3(snapshot)
+        if content:
+            upload = self.upload_bytes(session, archive_path, content)
+            if int(upload.exit_code) != 0:
+                message = (upload.stdout or upload.stderr or "").strip() or "Snapshot upload failed"
+                raise SandboxProvisionError(message)
+
+        command = f"tar -xzf {shlex.quote(archive_path)} -C /"
+        result = self.execute(session, command, cwd=session.workspace_path)
+        if result.exit_code != 0:
+            message = (result.stdout or result.stderr or "").strip() or "Snapshot restore failed"
+            raise SandboxProvisionError(message)
+
+        self._record_latest_snapshot(session, snapshot.id)
         session.mark_activity()
         return snapshot
 
@@ -303,13 +352,29 @@ base64 "$TMPFILE"
         try:
             self.runner.run(args, allow_failure=False)
         except subprocess.CalledProcessError as exc:  # pragma: no cover - surfaced upstream
-            session.status = SandboxSession.Status.FAILED
-            session.error_message = str(exc.output or exc)
-            session.save(update_fields=["status", "error_message", "updated_at"])
-            summary = session.error_message.strip() or "Docker workspace startup failed"
-            raise SandboxProvisionError(
-                f"Failed to provision Docker sandbox: {summary}"
-            ) from exc
+            message = str(exc.output or exc)
+            conflict = self._is_container_name_conflict(message, exit_code=getattr(exc, "returncode", None))
+            if conflict:
+                # Cleanup conflicting container and retry once.
+                self.runner.run(["docker", "rm", "-f", ident], allow_failure=True)
+                try:
+                    self.runner.run(args, allow_failure=False)
+                except subprocess.CalledProcessError as inner_exc:  # pragma: no cover - surfaced upstream
+                    session.status = SandboxSession.Status.FAILED
+                    session.error_message = str(inner_exc.output or inner_exc)
+                    session.save(update_fields=["status", "error_message", "updated_at"])
+                    summary = session.error_message.strip() or "Docker workspace startup failed"
+                    raise SandboxProvisionError(
+                        f"Failed to provision Docker sandbox after retry: {summary}"
+                    ) from inner_exc
+            else:
+                session.status = SandboxSession.Status.FAILED
+                session.error_message = message
+                session.save(update_fields=["status", "error_message", "updated_at"])
+                summary = session.error_message.strip() or "Docker workspace startup failed"
+                raise SandboxProvisionError(
+                    f"Failed to provision Docker sandbox: {summary}"
+                ) from exc
         return SandboxRuntime(
             ref=f"docker://{ident}",
             control_endpoint=f"docker://{ident}",
@@ -398,3 +463,109 @@ base64 "$TMPFILE"
             return None
 
         return f"type=volume,source={volume},target={workspace_path}"
+
+    def _record_latest_snapshot(self, session: SandboxSession, snapshot_id: uuid.UUID) -> None:
+        """Persist the latest snapshot pointer on the session for easy restore."""
+        try:
+            metadata = dict(session.metadata or {})
+            metadata["latest_snapshot_id"] = str(snapshot_id)
+            session.metadata = metadata
+            session.save(update_fields=["metadata", "updated_at"])
+        except Exception as exc:  # noqa: BLE001
+            # Do not block snapshot/restore flows if metadata save fails.
+            self._log.warning(
+                "Failed to record latest snapshot metadata",
+                extra={"session_id": str(session.id), "error": str(exc)},
+            )
+
+    # s3 helpers ------------------------------------------------------
+
+    def _s3_client(self):
+        if not self._s3_bucket:
+            return None
+        if self._s3_client_cached:
+            return self._s3_client_cached
+
+        session = boto3.session.Session()
+        self._s3_client_cached = session.client(
+            "s3",
+            endpoint_url=self._s3_endpoint,
+            region_name=self._s3_region,
+            use_ssl=self._s3_use_ssl,
+            config=Config(s3={"addressing_style": "path"}),
+        )
+        return self._s3_client_cached
+
+    def _snapshot_object_key(self, session: SandboxSession, snapshot_id: uuid.UUID) -> str:
+        return f"snapshots/{session.id}/{snapshot_id}.tar.gz"
+
+    def _read_file_from_sandbox(self, session: SandboxSession, path: str) -> bytes:
+        base64_cmd = f"base64 < {shlex.quote(path)}"
+        result = self.execute(session, base64_cmd)
+        if result.exit_code != 0:
+            message = (result.stdout or result.stderr or "").strip() or "Snapshot read failed"
+            raise SandboxProvisionError(message)
+        raw_b64 = (result.stdout or "").replace("\n", "").strip()
+        try:
+            return base64.b64decode(raw_b64.encode("ascii")) if raw_b64 else b""
+        except Exception as exc:  # noqa: BLE001
+            raise SandboxProvisionError("Unable to decode snapshot archive") from exc
+
+    def _upload_snapshot_to_s3(
+        self,
+        session: SandboxSession,
+        snapshot: SandboxSnapshot,
+        archive_path: str,
+    ) -> None:
+        client = self._s3_client()
+        if not client:
+            return
+
+        content = self._read_file_from_sandbox(session, archive_path)
+        key = snapshot.s3_key or self._snapshot_object_key(session, snapshot.id)
+
+        try:
+            client.put_object(
+                Bucket=self._s3_bucket,
+                Key=key,
+                Body=content,
+                ContentType="application/gzip",
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise SandboxProvisionError(f"Snapshot upload failed: {exc}") from exc
+
+        snapshot.s3_key = key
+        snapshot.save(update_fields=["s3_key"])
+        self._log.debug(
+            "Uploaded sandbox snapshot to s3",
+            extra={
+                "session_id": str(session.id),
+                "snapshot_id": str(snapshot.id),
+                "bucket": self._s3_bucket,
+                "key": key,
+            },
+        )
+
+    def _download_snapshot_from_s3(self, snapshot: SandboxSnapshot) -> bytes | None:
+        client = self._s3_client()
+        if not client or not snapshot.s3_key:
+            return None
+        try:
+            response = client.get_object(Bucket=self._s3_bucket, Key=snapshot.s3_key)
+            body = response.get("Body")
+            return body.read() if body else b""
+        except (BotoCoreError, ClientError) as exc:
+            raise SandboxProvisionError(f"Snapshot download failed: {exc}") from exc
+
+    def _is_container_name_conflict(self, message: str, exit_code: int | None = None) -> bool:
+        """Detect Docker name conflicts robustly across daemon variants."""
+        text = (message or "").lower()
+        if exit_code == 125 and "already in use" in text:
+            return True
+        conflict_patterns = [
+            r"container name.+already in use",
+            r"already in use.+container name",
+            r"conflict.*container name",
+            r"you have to remove .* to be able to reuse that name",
+        ]
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in conflict_patterns)

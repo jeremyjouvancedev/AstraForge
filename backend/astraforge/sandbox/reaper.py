@@ -38,6 +38,14 @@ class SandboxReaper:
             if not reason:
                 continue
             logger.info("Terminating stale sandbox session", extra={"id": str(session.id), "reason": reason})
+            try:
+                self.orchestrator.create_snapshot(session, label=f"auto-{reason}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to snapshot sandbox before reap",
+                    extra={"id": str(session.id), "reason": reason, "error": str(exc)},
+                    exc_info=True,
+                )
             self.orchestrator.terminate(session, reason=reason)
             terminated += 1
         return {"checked": len(candidates), "terminated": terminated}

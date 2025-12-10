@@ -316,12 +316,17 @@ wiring the observability stack into automated remediation.
 ### Engine
 
 - [ ] Add claude code
+- [ ] Add Mistral dev cli
 - [ ] Add Kimi Cli
 - [ ] Add Open Coder
 - [ ] Add Gemini Coder
+- [ ] Add Deep Code
+- [ ] Add Kilo Code
+- [ ]
 
 ### Feature
 
+- [ ] Add Openspec for nl to spec
 - [ ] Can choose base default docker image
 - [ ] Can batch modify
 - [ ] Can generate documentation

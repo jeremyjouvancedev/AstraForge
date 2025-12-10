@@ -87,19 +87,7 @@ class _SandboxBackend(BackendProtocol):
                     self._session_id = str(session_id)
                     return self._session_id
 
-        url = f"{self.base_url}/sandbox/sessions/"
-        response = self._http.post(
-            url, json=self._session_params, timeout=self._timeout
-        )
-        data = self._parse_json(response, expected_status=201)
-        try:
-            self._session_id = str(data["id"])
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"Unexpected sandbox session payload: {data!r}") from exc
-        workspace_path = str(data.get("workspace_path") or self.root_dir)
-        self._workspace_root = workspace_path
-        self.root_dir = workspace_path
-        return self._session_id
+        return self._start_session()
 
     def _abs_path(self, path: str) -> str:
         root = self._workspace_root or "/"
@@ -130,7 +118,7 @@ class _SandboxBackend(BackendProtocol):
             ) from exc
 
     def _shell(self, command: str, cwd: Optional[str] = None) -> _ShellResult:
-        session_id = self._ensure_session_id()
+        session_id = self._ensure_session_ready()
         url = f"{self.base_url}/sandbox/sessions/{session_id}/shell/"
         payload: Dict[str, Any] = {"command": command}
         if cwd:
@@ -148,7 +136,7 @@ class _SandboxBackend(BackendProtocol):
         return _ShellResult(exit_code=exit_code, stdout=stdout, stderr=stderr)
 
     def _upload_text(self, target: str, content: str) -> _ShellResult:
-        session_id = self._ensure_session_id()
+        session_id = self._ensure_session_ready()
         url = f"{self.base_url}/sandbox/sessions/{session_id}/upload/"
         payload = {
             "path": target,
@@ -161,6 +149,50 @@ class _SandboxBackend(BackendProtocol):
         stdout = str(data.get("stdout") or "")
         stderr = str(data.get("stderr") or "")
         return _ShellResult(exit_code=exit_code, stdout=stdout, stderr=stderr)
+
+    def _start_session(self, restore_snapshot_id: Optional[str] = None) -> str:
+        payload: Dict[str, Any] = dict(self._session_params)
+        if restore_snapshot_id:
+            payload["restore_snapshot_id"] = restore_snapshot_id
+        url = f"{self.base_url}/sandbox/sessions/"
+        response = self._http.post(url, json=payload, timeout=self._timeout)
+        data = self._parse_json(response, expected_status=201)
+        try:
+            self._session_id = str(data["id"])
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"Unexpected sandbox session payload: {data!r}") from exc
+        workspace_path = str(data.get("workspace_path") or self.root_dir)
+        self._workspace_root = workspace_path
+        self.root_dir = workspace_path
+        return self._session_id
+
+    def _get_session(self, session_id: str) -> Dict[str, Any]:
+        url = f"{self.base_url}/sandbox/sessions/{session_id}/"
+        response = self._http.get(url, timeout=self._timeout)
+        return self._parse_json(response, expected_status=200)
+
+    def _ensure_session_ready(self) -> str:
+        session_id = self._ensure_session_id()
+        try:
+            data = self._get_session(session_id)
+        except RuntimeError:
+            # If we cannot fetch the session, try creating a new one.
+            return self._start_session()
+
+        status_value = str(data.get("status") or "").lower()
+        workspace_path = str(data.get("workspace_path") or self.root_dir)
+        metadata = data.get("metadata") or {}
+        latest_snapshot_id = (
+            metadata.get("latest_snapshot_id") if isinstance(metadata, dict) else None
+        )
+
+        if status_value == "ready":
+            self._workspace_root = workspace_path
+            self.root_dir = workspace_path
+            return session_id
+
+        # Session not ready: create a new one and restore from the latest snapshot if present.
+        return self._start_session(restore_snapshot_id=str(latest_snapshot_id) if latest_snapshot_id else None)
 
     def _log_llm_error(self, message: str) -> None:
         try:

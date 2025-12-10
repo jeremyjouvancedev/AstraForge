@@ -54,6 +54,8 @@ def test_reaper_terminates_idle_sessions():
     assert result == {"checked": 1, "terminated": 1}
     assert session.status == SandboxSession.Status.TERMINATED
     assert session.metadata.get("terminated_reason") == "idle_timeout"
+    assert session.metadata.get("latest_snapshot_id")
+    assert any("tar" in " ".join(cmd) for cmd in runner.commands)
     assert any(cmd[:3] == ["docker", "rm", "-f"] for cmd in runner.commands)
 
 
@@ -94,3 +96,5 @@ def test_reaper_enforces_max_lifetime():
     assert result == {"checked": 1, "terminated": 1}
     assert session.status == SandboxSession.Status.TERMINATED
     assert session.metadata.get("terminated_reason") == "max_lifetime"
+    assert session.metadata.get("latest_snapshot_id")
+    assert any("tar" in " ".join(cmd) for cmd in runner.commands)
