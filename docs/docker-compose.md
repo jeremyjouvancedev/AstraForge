@@ -25,11 +25,21 @@ OPENAI_API_KEY=sk-...
 LLM_MODEL=gpt-4o-mini
 UNSAFE_DISABLE_AUTH=1   # keep this to skip login locally
 CODEX_CLI_SKIP_PULL=1   # prevents redundant image pulls
+CODEX_WORKSPACE_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest
+SANDBOX_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest
 ENV
 ```
 
 > The compose file already wires the Postgres/Redis URLs. Only add overrides if
 > you need different ports, credentials, or log verbosity.
+
+Because `CODEX_CLI_SKIP_PULL=1` is set in `docker-compose.yml`, you must pull the
+workspace and sandbox images before running migrations:
+
+```bash
+docker pull "$CODEX_WORKSPACE_IMAGE"
+docker pull "$SANDBOX_IMAGE"
+```
 
 ## 2. Build images and apply migrations
 

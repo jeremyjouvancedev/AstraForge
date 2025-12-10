@@ -1,174 +1,33 @@
 # AstraForge
 
+AstraForge is an AI-driven DevOps orchestrator that turns incidents and natural-language requests into reviewed, merge-ready pull requests. A Django + Celery backend coordinates agents inside isolated Codex workspaces, while a responsive React UI streams live run logs, diffs, and chat updates.
+
 ![home](./images/astra_forge_home.jpg)
 ![diff](./images/astra_forge_diff_view.jpg)
 ![log](./images/astra_forge_log_view.jpg)
 
-AstraForge is an AI-driven DevOps orchestrator that turns natural language requests into reviewed,
-merge-ready pull requests. A Django + Celery backend coordinates agents running inside isolated
-Codex workspaces, while a fully responsive React UI streams live run logs, diffs, and chat updates.
+- [What is AstraForge](#what-is-astraforge)
+- [AstraForge Python toolkit](#astraforge-python-toolkit-use-from-another-project)
+- [Quickstart (Docker Compose)](#quickstart-docker-compose)
+- [Local development (manual)](#local-development-manual)
+- [Other workflows](#other-workflows)
+- [Configuration](#configuration)
+- [Testing and quality](#testing-and-quality)
+- [Contributing](#contributing)
+- [Troubleshooting](#troubleshooting)
+- [Target error remediation flow](#target-error-remediation-flow)
+- [Roadmap](#roadmap)
+- [Monorepo layout](#monorepo-layout)
+- [Additional resources](#additional-resources)
 
-## Why AstraForge
+## What is AstraForge
 
-- **Auto-remediation from incident to merge** – Glitchtip/Sentry alerts forward stack traces,
-  request metadata, and breadcrumbs directly into Codex workspaces so patches, tests, and merge
-  requests are produced without manual triage.
-- **Agent-agnostic remote environments** – Human reviewers and any LLM executor can attach to the
-  same streamed workspace, replay runs, and resume context-rich conversations regardless of the agent
-  that started the job.
-- **Secure OS sandboxing** – Deep agents receive a locked-down OS surface area (OPA policies, network
-  guards, ephemeral secrets) so risky automation still runs safely while exposing enough control to
-  debug complex systems.
-- **Built for review-ready output** – Diff previews, run logs, and chat summaries keep reviewers in
-  the loop before a branch lands in CI, ensuring every automated change arrives with evidence.
+- **Auto-remediation to merge** – Glitchtip/Sentry alerts forward stack traces, request metadata, and breadcrumbs directly into Codex workspaces so patches, tests, and merge requests are produced without manual triage.
+- **Shared, agent-agnostic workspaces** – Human reviewers and any LLM executor can attach to the same streamed workspace, replay runs, and resume conversations regardless of who started the job.
+- **Secure sandboxing** – Deep agents get a locked-down OS surface (OPA policies, network guards, ephemeral secrets) so automation runs safely while still allowing real debugging.
+- **Built for reviewability** – Diff previews, run logs, and chat summaries keep reviewers in the loop before a branch lands in CI.
 
-See `docs/architecture.md` for the current high-level diagram (kept in mermaid format) plus ADRs that
-capture decisions as the system evolves.
-
-## Monorepo Layout
-
-```
-.
-├── backend/            # Django REST Framework API, Celery workers, provider registries
-│   └── astraforge/
-│       ├── domain/     # Pure domain models + repositories
-│       ├── application/# Use-cases + orchestration pipelines
-│       ├── interfaces/ # REST, SSE, registries, inbound adapters
-│       └── infrastructure/ # ORM, Redis, external service adapters
-├── frontend/           # Vite + React Query + shadcn/ui client
-├── shared/             # Generated OpenAPI schema and DTO packages
-├── llm-proxy/          # FastAPI wrapper that proxies OpenAI (or compatible) APIs
-├── docs/               # Architecture overview, ADRs, runbooks
-├── infra/              # Deployment scaffolding (docker, k8s, CI)
-├── opa/                # OPA/Gatekeeper policies enforced in CI
-└── images/             # Marketing and README screenshots
-```
-
-## Prerequisites
-
-- Python `>= 3.11`, `pip`, and `virtualenv`
-- Node.js `>= 20` with `pnpm` (the repo uses a lockfile)
-- Docker + Docker Compose for local provisioning
-- `make`, `pre-commit`, and `gitleaks`
-- Access to an OpenAI-compatible API key for the LLM proxy
-
-Install git hooks once so linting and leak scans run before each commit:
-
-```bash
-pip install pre-commit
-pre-commit install
-```
-
-## Local Development (manual workflow)
-
-1. **Install dependencies**
-
-   ```bash
-   make install-deps  # creates backend/.venv, installs backend + frontend deps
-   ```
-
-2. **Configure environment**
-
-   Create a `.env` in the repo root (or export variables) covering the values used in
-   `docker-compose.yml`, for example:
-
-   ```bash
-   cat <<'ENV' > .env
-   DATABASE_URL=postgres://astraforge:astraforge@localhost:5433/astraforge
-   REDIS_URL=redis://localhost:6379/0
-   EXECUTOR=codex
-   PROVISIONER=docker
-   RUN_LOG_STREAMER=redis
-   ASTRAFORGE_EXECUTE_COMMANDS=1
-   UNSAFE_DISABLE_AUTH=1   # only for local dev
-   CODEX_CLI_SKIP_PULL=1
-   LOG_LEVEL=DEBUG
-   OPENAI_API_KEY=sk-...
-   LLM_MODEL=gpt-4o-mini
-   ENV
-   ```
-
-3. **Migrate the database**
-
-   ```bash
-   source backend/.venv/bin/activate
-   cd backend
-   python manage.py migrate
-   ```
-
-4. **Run the backend API and Celery worker**
-
-   ```bash
-   # Terminal 1 – Django API
-   make backend-serve
-
-   # Terminal 2 – Celery worker queues
-   cd backend
-   celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default
-   ```
-
-5. **Launch the LLM proxy**
-
-   ```bash
-   cd llm-proxy
-   uvicorn app.main:app --reload --port 8080
-   ```
-
-6. **Build the Codex CLI runner stub** (used when a published image is unavailable)
-
-   ```bash
-   docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
-   ```
-
-7. **Start the frontend**
-
-   ```bash
-   cd frontend
-   pnpm dev
-   ```
-
-   Visit `http://localhost:5174`, register an account, and sign in. Authentication is disabled locally
-   when `UNSAFE_DISABLE_AUTH=1`.
-
-## Docker Compose Workflow
-
-Prefer Compose when you want the entire stack (Postgres, Redis, API, worker, LLM proxy, frontend)
-running with a single command:
-
-```bash
-docker compose run --rm backend-migrate
-docker compose up --build
-```
-
-The compose file mounts the repo for hot reloads and shares the Docker socket so workspaces can spin
-up isolated containers. Never ship with `UNSAFE_DISABLE_AUTH=1`; it is only for local testing.
-For a full walkthrough (env setup, lifecycle commands, troubleshooting), see `docs/docker-compose.md`.
-
-## Local Kubernetes Workflow
-
-Need to validate the Kubernetes provisioner or mirror a client cluster? Use the
-manifests under `infra/k8s/local` and follow `docs/kubernetes-local.md`.
-
-At a high level you will:
-
-1. Build the backend/worker, frontend, LLM proxy, and Codex workspace images (`backend/codex_cli_stub`).
-2. Load those images into Kind/k3d/Minikube (e.g., `kind load docker-image astraforge/backend:local`).
-3. Create the namespace + `astraforge-llm` secret, then `kubectl apply -k infra/k8s/local`.
-4. Port-forward `svc/frontend` and `svc/backend` so the UI and API stay reachable at
-   `http://localhost:5174` and `http://localhost:8001`.
-
-Prefer a hybrid approach where the API and Celery worker remain in Docker Compose but
-Codex workspaces run in Kubernetes? Generate a Docker-friendly kubeconfig
-(`kind get kubeconfig … | sed 's/0.0.0.0/host.docker.internal/g' > ~/.kube/config-hybrid`),
-export `HYBRID_KUBECONFIG=config-hybrid`, then start the stack with the override:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.hybrid.yml up backend backend-worker
-```
-
-The override mounts `~/.kube`, sets `PROVISIONER=k8s`, and injects `host.docker.internal` so
-the containers can talk to your laptop’s cluster while the rest of the services keep using
-Compose. See `docs/kubernetes-local.md` for the full walkthrough.
+See `docs/architecture.md` for the current mermaid diagram (kept up to date) and ADRs that capture architectural decisions.
 
 ## AstraForge Python toolkit (use from another project)
 
@@ -181,9 +40,9 @@ pip install astraforge-toolkit
 Toolkit contents:
 - `DeepAgentClient` – conversations, sandbox sessions, file upload/download, and streaming replies
 - `SandboxBackend` – DeepAgents backend that runs inside the remote sandbox
-- Sandbox LangChain tools: `sandbox_shell`, `sandbox_python_repl`, `sandbox_open_url_with_playwright`, `sandbox_view_image`
+- LangChain tools: `sandbox_shell`, `sandbox_python_repl`, `sandbox_open_url_with_playwright`, `sandbox_view_image`
 
-Create a sandbox session (no DeepAgent conversation):
+Create a sandbox session:
 
 ```python
 from astraforge_toolkit import DeepAgentClient
@@ -244,43 +103,148 @@ for chunk in client.stream_message(conv.conversation_id, "Hello, sandbox!"):
     print(chunk)
 ```
 
-For a ready-to-run smoke test against `http://localhost:8001/api`, open the notebook
-`astraforge-python-package/examples/local_api_test.ipynb`.
+For a ready-to-run smoke test against `http://localhost:8001/api`, open `astraforge-python-package/examples/local_api_test.ipynb`.
 
-## Testing & Quality Gates
+## Quickstart (Docker Compose)
+
+Fastest way to see the stack locally (API, worker, frontend, LLM proxy, Postgres, Redis, MinIO).
+
+1) Prereqs: Docker + Docker Compose, `make`, and an OpenAI-compatible API key.  
+2) Create a minimal `.env` in the repo root (adjust secrets in real deployments):
+
+```bash
+cat <<'ENV' > .env
+POSTGRES_PASSWORD=astraforge
+SECRET_KEY=dev-secret # replace in any non-local environment
+OPENAI_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini
+EXECUTOR=codex
+RUN_LOG_STREAMER=redis
+ASTRAFORGE_EXECUTE_COMMANDS=1
+UNSAFE_DISABLE_AUTH=1  # local only
+CODEX_CLI_SKIP_PULL=1 # pre-pull workspace/sandbox images when this is 1
+CODEX_WORKSPACE_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest
+SANDBOX_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest
+ENV
+```
+
+3) Pull the workspace and sandbox images (required because `CODEX_CLI_SKIP_PULL=1` in Compose):
+
+```bash
+docker pull "$CODEX_WORKSPACE_IMAGE"
+docker pull "$SANDBOX_IMAGE"
+```
+
+4) Run migrations and start the stack:
+
+```bash
+docker compose run --rm backend-migrate
+docker compose up --build
+```
+
+5) Open the app at `http://localhost:5174` (frontend) and API at `http://localhost:8001/api`. Authentication is disabled locally when `UNSAFE_DISABLE_AUTH=1`.  
+6) Stop with `docker compose down`. For more details and troubleshooting, see `docs/docker-compose.md`.
+
+## Local development (manual)
+
+1) Install toolchains:
+
+```bash
+make install-deps  # creates backend/.venv, installs backend + frontend deps
+pip install pre-commit && pre-commit install
+```
+
+2) Configure environment (`.env` at repo root, similar to the Quickstart sample) to set `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, and related values.  
+3) Run migrations:
+
+```bash
+source backend/.venv/bin/activate
+cd backend
+python manage.py migrate
+```
+
+4) Start services:
+
+```bash
+# Terminal 1 – Django API
+make backend-serve
+
+# Terminal 2 – Celery worker queues
+cd backend
+celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default
+```
+
+5) Launch the LLM proxy:
+
+```bash
+cd llm-proxy
+uvicorn app.main:app --reload --port 8080
+```
+
+6) Build the Codex CLI runner stub (only if you need a local image):
+
+```bash
+docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
+```
+
+7) Start the frontend:
+
+```bash
+cd frontend
+pnpm dev
+```
+
+Visit `http://localhost:5174` and sign in. Keep `UNSAFE_DISABLE_AUTH=1` limited to local dev.
+
+## Other workflows
+
+- **Compose + Kubernetes hybrid** – Keep API/worker in Docker Compose but run workspaces in Kubernetes with `docker-compose.hybrid.yml`. Export `HYBRID_KUBECONFIG` as described in `docs/kubernetes-local.md`.
+- **Local Kubernetes** – Use manifests in `infra/k8s/local` and follow `docs/kubernetes-local.md` (build images, load into Kind/k3d/Minikube, apply manifests, port-forward frontend/backend).
+
+## Configuration
+
+Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md` for full coverage):
+
+| Variable | Purpose / default |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection (default points to Compose Postgres on 5433) |
+| `REDIS_URL` | Redis connection (default `redis://redis:6379/0`) |
+| `OPENAI_API_KEY`, `LLM_MODEL` | LLM proxy credentials and model (default `gpt-4o-mini`) |
+| `EXECUTOR` | LLM executor name (default `codex`) |
+| `PROVISIONER` | Workspace provisioner (`docker` or `k8s`) |
+| `RUN_LOG_STREAMER` | Log transport (`redis` by default) |
+| `ASTRAFORGE_EXECUTE_COMMANDS` | Allow command execution in workspaces (set to `1` locally) |
+| `UNSAFE_DISABLE_AUTH` | Disable auth for local dev only (`1` locally, never in prod) |
+| `CODEX_WORKSPACE_IMAGE`, `CODEX_WORKSPACE_NETWORK`, `CODEX_WORKSPACE_PROXY_URL` | Workspace container image, network, and proxy used by Codex |
+| `SANDBOX_*`, `AWS_*` | MinIO/S3 sandbox storage settings (defaults provided for local) |
+| `SECRET_KEY`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | Django security settings; replace defaults outside local |
+
+## Testing and quality
 
 - `make lint` – Ruff + ESLint
 - `make format` – Ruff formatter + ESLint `--fix`
 - `make test` – `pytest` plus `pnpm test -- --run`
-- `gitleaks detect --config gitleaks.toml` – secret scanning before pushes
+- `gitleaks detect --config gitleaks.toml` – secret scanning
 - `make generate-openapi` – refresh `shared/openapi/schema.yaml` after API contract changes
 
-## Useful Commands
+## Contributing
 
-| Task | Command |
-| --- | --- |
-| Install toolchains | `make install-deps` |
-| Run API locally | `make backend-serve` |
-| Run Celery worker | `celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default` |
-| Start frontend | `make frontend-dev` or `pnpm dev` |
-| Build production assets | `pnpm build` |
-| Generate OpenAPI | `make generate-openapi` |
-| Refresh screenshots/docs | `docs/architecture.md`, `docs/adr/*` |
+- Open an issue or PR with a short rationale; reference related ADRs when applicable.
+- Before sending a PR, run `make lint`, `make test`, and `gitleaks detect --config gitleaks.toml`.
+- Keep docs in sync: update `docs/architecture.md` (mermaid diagram) and `docs/adr/*` for notable changes.
+- After backend API changes, regenerate the schema with `make generate-openapi`.
 
-## Additional Resources
+## Troubleshooting
 
-- `docs/architecture.md` – the canonical mermaid diagram plus subsystem explanations.
-- `docs/docker-compose.md` – runbook for starting/stopping the stack with Docker Compose.
-- `docs/sandbox.md` – sandbox orchestrator API (Docker + Kubernetes) and lifecycle tips.
-- `docs/adr/` – decision records that explain trade-offs.
-- `infra/` – Dockerfiles, Helm charts, and CI definitions.
-- `opa/` – Rego policies enforced before merges or deployments.
+- Postgres not reachable: confirm port `5433` is free and `.env` matches `docker-compose.yml`.
+- Docker socket mount errors: ensure Docker is running and your user can access `/var/run/docker.sock`.
+- LLM proxy issues: verify `OPENAI_API_KEY` and that the proxy is listening on `:8080` (or `18080` if exposed).
+- Frontend not loading: check `pnpm dev` is running on `5174` and no conflicting process holds the port.
+- MinIO bucket setup: if `minio-setup` fails, ensure `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` match across services.
 
-## Target Error Remediation Flow
+## Target error remediation flow
 
-Incoming exceptions from the deployed UI/API are captured by Glitchtip or Sentry, normalized, then
-forwarded into the Codex execution pipeline so fixes ship with the right context (stack trace,
-request metadata, and workspace snapshot). The workflow below shows the target automated loop:
+Incoming exceptions from the deployed UI/API are captured by Glitchtip or Sentry, normalized, then forwarded into the Codex execution pipeline so fixes ship with the right context (stack trace, request metadata, and workspace snapshot). The workflow below shows the target automated loop:
 
 ```mermaid
 flowchart LR
@@ -303,15 +267,13 @@ flowchart LR
     Workspace -->|patch + tests| Review
 ```
 
-See `docs/architecture.md` for the accompanying narrative plus operational considerations when
-wiring the observability stack into automated remediation.
+See `docs/architecture.md` for the accompanying narrative plus operational considerations when wiring the observability stack into automated remediation.
 
 ## Roadmap
 
-### Sanbox
+### Sandbox
 
 - [ ] Switch to SandboxBackendProtocol to have embedded shell tool instead of adding it in tools
-
 
 ### Engine
 
@@ -333,3 +295,31 @@ wiring the observability stack into automated remediation.
 - [ ] Can generate architecture mindmap
 - [ ] Add context7 mcp (for documentation latest version knowledge)
 - [ ] Add playwright mcp to launch and test the App
+
+## Monorepo layout
+
+```
+.
+├── backend/            # Django REST API, Celery workers, provider registries
+│   └── astraforge/
+│       ├── domain/     # Domain models + repositories
+│       ├── application/# Use-cases + orchestration pipelines
+│       ├── interfaces/ # REST, SSE, registries, inbound adapters
+│       └── infrastructure/ # ORM, Redis, external service adapters
+├── frontend/           # Vite + React Query + shadcn/ui client
+├── shared/             # Generated OpenAPI schema and DTO packages
+├── llm-proxy/          # FastAPI wrapper that proxies OpenAI (or compatible) APIs
+├── docs/               # Architecture overview, ADRs, runbooks
+├── infra/              # Deployment scaffolding (docker, k8s, CI)
+├── opa/                # OPA/Gatekeeper policies enforced in CI
+└── images/             # Marketing and README screenshots
+```
+
+## Additional resources
+
+- `docs/architecture.md` – canonical mermaid diagram and subsystem explanations.
+- `docs/docker-compose.md` – runbook for starting/stopping the stack with Docker Compose.
+- `docs/sandbox.md` – sandbox orchestrator API (Docker + Kubernetes) and lifecycle tips.
+- `docs/adr/` – decision records that explain trade-offs.
+- `infra/` – Dockerfiles, Helm charts, and CI definitions.
+- `opa/` – Rego policies enforced before merges or deployments.
