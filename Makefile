@@ -56,7 +56,8 @@ test:
 
 # Bring up db/redis, run backend+frontend tests in containers, then tear down.
 compose-test:
-	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) up -d postgres redis
+	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) build backend frontend
+	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) up -d postgres redis minio minio-setup
 	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) exec -T postgres sh -c 'until pg_isready -U "$${POSTGRES_USER:-astraforge}" -h localhost -p 5433; do sleep 1; done'
 	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) run --rm --no-deps -e CODEX_CLI_SKIP_PULL=0 backend python -m pytest
 	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) run --rm --no-deps frontend pnpm test -- --run --watch=false

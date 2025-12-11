@@ -197,7 +197,6 @@ base64 "$TMPFILE"
         snapshot_id = uuid.uuid4()
         base_workspace = (session.workspace_path or "/workspace").rstrip("/") or "/workspace"
         archive_dir = f"{base_workspace}/.sandbox-snapshots"
-        key = f"snapshots/{session.id}/{snapshot_id}.tar.gz"
         archive_path = f"{archive_dir}/{snapshot_id}.tar.gz"
         include = " ".join(shlex.quote(path) for path in include_paths)
         excludes = list(exclude_paths) if exclude_paths is not None else []
@@ -220,13 +219,23 @@ base64 "$TMPFILE"
             id=snapshot_id,
             session=session,
             label=label,
-            s3_key=key,
             size_bytes=size_bytes,
             include_paths=include_paths,
             exclude_paths=exclude_paths,
             archive_path=archive_path,
         )
-        self._upload_snapshot_to_s3(session, snapshot, archive_path)
+        try:
+            self._upload_snapshot_to_s3(session, snapshot, archive_path)
+        except SandboxProvisionError as exc:
+            self._log.warning(
+                "Snapshot upload to object storage failed; keeping local archive only",
+                extra={
+                    "session_id": str(session.id),
+                    "snapshot_id": str(snapshot.id),
+                    "bucket": self._s3_bucket,
+                    "error": str(exc),
+                },
+            )
         self._record_latest_snapshot(session, snapshot.id)
         session.mark_activity()
         return snapshot
@@ -555,7 +564,16 @@ base64 "$TMPFILE"
             body = response.get("Body")
             return body.read() if body else b""
         except (BotoCoreError, ClientError) as exc:
-            raise SandboxProvisionError(f"Snapshot download failed: {exc}") from exc
+            self._log.warning(
+                "Snapshot download failed; falling back to existing archive if present",
+                extra={
+                    "snapshot_id": str(snapshot.id),
+                    "bucket": self._s3_bucket,
+                    "key": snapshot.s3_key,
+                    "error": str(exc),
+                },
+            )
+            return None
 
     def _is_container_name_conflict(self, message: str, exit_code: int | None = None) -> bool:
         """Detect Docker name conflicts robustly across daemon variants."""
