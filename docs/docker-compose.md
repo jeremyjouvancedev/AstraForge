@@ -27,6 +27,7 @@ UNSAFE_DISABLE_AUTH=1   # keep this to skip login locally
 CODEX_CLI_SKIP_PULL=1   # prevents redundant image pulls
 CODEX_WORKSPACE_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest
 SANDBOX_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest
+SANDBOX_DOCKER_SECCOMP= # leave empty if your Docker daemon lacks the built-in "default" seccomp profile
 ENV
 ```
 
@@ -92,6 +93,11 @@ spawn workspaces.
   `ports` entries in `docker-compose.yml`.
 - **File permission issues on Linux** – add your user to the `docker` group so
   the mounted Docker socket remains writable.
+- **Seccomp profile error (`open default: no such file`)** – Some Docker
+  installs do not ship the built-in `default` seccomp profile. Set
+  `SANDBOX_DOCKER_SECCOMP=` (empty) in `.env` to skip the flag, or point it to a
+  real profile file. See Docker’s seccomp guide:
+  https://docs.docker.com/engine/security/seccomp/
 
 With these steps you can stand up AstraForge end-to-end in just a few minutes
 and iterate locally without juggling multiple terminal windows.

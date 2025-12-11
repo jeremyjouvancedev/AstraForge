@@ -88,18 +88,36 @@ class KubernetesProvisioner(Provisioner):
             name="workspace", empty_dir=client.V1EmptyDirVolumeSource()
         )
         volume_mount = client.V1VolumeMount(name="workspace", mount_path=self.volume_mount_path)
+        container_security = client.V1SecurityContext(
+            allow_privilege_escalation=False,
+            privileged=False,
+            read_only_root_filesystem=True,
+            run_as_non_root=True,
+            capabilities=client.V1Capabilities(drop=["ALL"]),
+            seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault"),
+        )
         container = client.V1Container(
             name="codex",
             image=self.image,
             image_pull_policy="IfNotPresent",
             command=["sleep", "infinity"],
             volume_mounts=[volume_mount],
+            security_context=container_security,
+        )
+        pod_security_context = client.V1PodSecurityContext(
+            run_as_non_root=True,
+            run_as_user=1000,
+            run_as_group=1000,
+            fs_group=1000,
+            seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault"),
         )
         spec = client.V1PodSpec(
             containers=[container],
             restart_policy="Never",
             volumes=[workspace_volume],
             service_account_name=self.service_account,
+            security_context=pod_security_context,
+            automount_service_account_token=False,
         )
         return client.V1Pod(metadata=metadata, spec=spec)
 

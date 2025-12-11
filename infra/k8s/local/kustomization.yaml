@@ -12,3 +12,4 @@ resources:
   - backend.yaml
   - backend-worker.yaml
   - frontend.yaml
+  - workspace-networkpolicy.yaml

@@ -1,4 +1,4 @@
-.PHONY: backend-serve frontend-dev frontend-build-image root-build-image lint format test compose-test generate-openapi install-deps package-build package-clean package-upload package-upload-test
+.PHONY: backend-serve frontend-dev frontend-build-image root-build-image lint format test compose-test generate-openapi install-deps package-build package-clean package-upload package-upload-test codex-image sandbox-image workspace-images
 
 # Helper targets for local dev, container builds, and packaging.
 
@@ -7,6 +7,8 @@ COMPOSE_TEST_PROJECT ?= astraforge-test
 COMPOSE_TEST_FILES ?= -f docker-compose.yml -f docker-compose.test.yml
 FRONTEND_IMAGE ?= astraforge-frontend:local
 ROOT_IMAGE ?= astraforge:local
+CODEX_IMAGE ?= astraforge/codex-cli:latest
+SANDBOX_IMAGE ?= astraforge/sandbox-daemon:latest
 
 # Run the Django dev server on 0.0.0.0:8001 (local code, no container).
 backend-serve:
@@ -23,6 +25,16 @@ frontend-build-image:
 # Build the bundled root image (backend + built frontend) from the repo root.
 root-build-image:
 	docker build -t $(ROOT_IMAGE) -f Dockerfile .
+
+# Build the Codex CLI workspace image used by the executor.
+codex-image:
+	docker build -t $(CODEX_IMAGE) backend/codex_cli_stub
+
+# Build the desktop sandbox daemon image.
+sandbox-image:
+	docker build -f sandbox/Dockerfile -t $(SANDBOX_IMAGE) .
+
+workspace-images: codex-image sandbox-image
 
 # Run backend unit tests via pytest.
 backend-test:

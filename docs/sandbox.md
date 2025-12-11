@@ -59,11 +59,21 @@ curl -X POST http://localhost:8001/api/sandbox/sessions/<id>/exec \
   -d '{"command":"ls -la","cwd":"/workspace"}'
 ```
 
+### Hardened Docker sandboxes
+
+- Create an internal-only bridge so sandboxes can talk to the AI gateway but not the internet: `docker network create --internal astraforge-sandbox`.
+- Attach the AI gateway (`llm-proxy`) container to that network (Compose already does this) and set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` on the backend/worker.
+- Security flags are enabled by default: `--read-only`, tmpfs mounts for `/workspace`, `/tmp`, and `/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, optional seccomp profile via `SANDBOX_DOCKER_SECCOMP`, and `--pids-limit` (512 by default). Disable them only if you explicitly need a writable rootfs or host gateway access (`SANDBOX_DOCKER_HOST_GATEWAY=0` by default).
+- Writes still land in `/workspace` via a tmpfs mount when no volume is configured; the fallback tmpfs is world-writable (mode `1777`) so the non-root sandbox user can treat `/workspace` like its home. Set `SANDBOX_DOCKER_VOLUME_MODE` (`session`/`user`/`static`) when you need persistence. Override tmpfs targets with `SANDBOX_DOCKER_TMPFS=/tmp:rw,nosuid,nodev;/run:rw,nosuid,nodev`.
+- If the sandbox must reach a different AI gateway, point `SANDBOX_DOCKER_NETWORK` at a bridge that exposes it, or set `CODEX_WORKSPACE_PROXY_URL` to an address reachable from that network.
+- Package installs: Pip/npm/pnpm already work inside `/workspace`. To allow `apt-get`, run as root and drop the read-only flag: set `SANDBOX_DOCKER_READ_ONLY=0`, `SANDBOX_DOCKER_USER=root`, and attach to a network with internet egress (unset `SANDBOX_DOCKER_NETWORK` or create a non-internal bridge). Use host firewall rules on that bridge to block RFC1918 ranges if you want “internet-only” egress. Re-enable the hardened defaults after provisioning dependencies.
+
 ## Kubernetes mode (secure isolation)
 
 - Export a kubeconfig reachable from the backend container (`PROVISIONER=k8s` and the hybrid override in `docker-compose.hybrid.yml` help when running API + worker via Compose).
 - Optional envs: `KUBERNETES_SERVICE_ACCOUNT`, `ASTRAFORGE_K8S_NAMESPACE`, `KUBERNETES_WORKSPACE_TIMEOUT`.
 - The orchestrator will create pods with the requested image and return `k8s://<namespace>/<pod>` references. Shell exec and uploads use `kubectl exec` under the hood.
+- Sandboxes run with non-root user/group IDs, read-only root filesystems, dropped capabilities, `seccomp: RuntimeDefault`, and service account tokens disabled. Apply the `infra/k8s/local/workspace-networkpolicy.yaml` overlay (or equivalent in your cluster) to allow DNS + `llm-proxy` + internet while blocking RFC1918/link-local ranges (so NAS/LAN stays unreachable). Use the `workspace-networkpolicy-open.yaml` variant only if you need unrestricted egress.
 
 ## Artifacts and snapshots
 

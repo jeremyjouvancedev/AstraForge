@@ -33,8 +33,10 @@ graph TD
     subgraph Agent Sandbox
         SandboxMgr[Session Manager]
         Reaper[Sandbox Reaper Task]
-        DockerSandboxes[(Docker Sandboxes)]
-        K8sSandboxes[(Kubernetes Pods)]
+        DockerSandboxes[(Docker Sandboxes\nread-only, drop caps)]
+        K8sSandboxes[(Kubernetes Pods\nseccomp + non-root)]
+        SandboxNet[(Isolated Sandbox Network)]
+        NetPolicy[LLM-only NetworkPolicy]
         Daemon[Sandbox Daemon (exec/GUI)]
     end
     LLMProxy[LLM Proxy Service]
@@ -58,6 +60,10 @@ graph TD
     SandboxMgr --> K8sSandboxes
     DockerSandboxes --> Daemon
     K8sSandboxes --> Daemon
+    DockerSandboxes --> SandboxNet
+    SandboxNet --> LLMProxy
+    K8sSandboxes --> NetPolicy
+    NetPolicy --> LLMProxy
     Daemon --> Artifacts
     API -->|publish prompt| RunLog
     Worker -->|emit events| RunLog
@@ -113,6 +119,7 @@ is frictionless.
 - Shell commands, file uploads, snapshots, and heartbeats are proxied through the orchestrator, which shells into the container/pod when no in-guest daemon is present; future iterations can swap in a full GUI daemon without changing the public contract.
 - Snapshots now write archives into `/workspace/.sandbox-snapshots/` (persisted when Docker volumes are enabled); both manual captures and auto-stop/auto-reap flows pin a `latest_snapshot_id` in session metadata so new sessions can restore via `restore_snapshot_id`. When `SANDBOX_S3_BUCKET` is set, archives are streamed out of the sandbox and uploaded to S3/MinIO (endpoint configurable via `SANDBOX_S3_ENDPOINT_URL`), and restores download from the same bucket before extracting into the workspace. If a user returns to a non-ready sandbox, API calls auto-provision a fresh runtime and apply the `latest_snapshot_id` so the session transparently resumes.
 - Artifacts and snapshots are tracked with UUID metadata, and download URLs are derived from `SANDBOX_ARTIFACT_BASE_URL` when available; GUI controls/streaming are stubbed until the sandbox daemon is integrated.
+- **Sandbox isolation hardening**: Docker sandboxes now start with `--read-only`, tmpfs mounts for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `seccomp=default`, and PID limits. They attach to `SANDBOX_DOCKER_NETWORK` (default `astraforge-sandbox`) with the host gateway disabled by default; keep it internal to block LAN or switch to a routed network with host firewall rules if you need internet-only egress. Kubernetes sandboxes run non-root with read-only root filesystems, dropped capabilities, runtime-default seccomp, and service account token auto-mount disabled; the `workspace-networkpolicy.yaml` overlay allows DNS + `llm-proxy` and internet egress while blocking RFC1918/link-local ranges (so the NAS/LAN stays unreachable).
 
 ### DeepAgent Sandbox SDK
 
@@ -216,6 +223,7 @@ runs regression tests, and assembles a merge request for approval.
 - 12-factor configuration via environment variables and secrets managers.
 - Keycloak OIDC for authentication; API enforces RBAC roles (admin/maintainer/reviewer/observer).
 - OPA/Gatekeeper policies ensure workspace diffs comply with path allowlists and size limits.
+- Sandbox egress is allowlisted: Docker sandboxes default to an isolated bridge (`astraforge-sandbox`) with seccomp+no-new-privileges+PID limits, while Kubernetes sandboxes inherit non-root, read-only security contexts and a NetworkPolicy that permits DNS + `llm-proxy` + internet but blocks RFC1918/link-local ranges (NAS/LAN).
 - Rate limiting, quotas, idempotency keys, and compensating actions for workspace cleanup.
 
 ## Extensibility

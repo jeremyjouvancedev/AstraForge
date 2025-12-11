@@ -94,6 +94,11 @@ services:
       CODEX_CLI_SKIP_PULL: "1"
       CODEX_WORKSPACE_NETWORK: astraforge
       CODEX_WORKSPACE_PROXY_URL: http://llm-proxy:8080
+      SANDBOX_DOCKER_NETWORK: astraforge-sandbox
+      SANDBOX_DOCKER_READ_ONLY: "1"
+      SANDBOX_DOCKER_SECCOMP: ""
+      SANDBOX_DOCKER_PIDS_LIMIT: "512"
+      SANDBOX_DOCKER_HOST_GATEWAY: "0"
       SANDBOX_S3_BUCKET: ${SANDBOX_S3_BUCKET:-astraforge-snapshots}
       SANDBOX_S3_ENDPOINT_URL: ${SANDBOX_S3_ENDPOINT_URL:-http://minio:9000}
       SANDBOX_S3_REGION: ${SANDBOX_S3_REGION:-us-east-1}
@@ -133,6 +138,11 @@ services:
       CODEX_CLI_SKIP_PULL: "1"
       CODEX_WORKSPACE_NETWORK: astraforge
       CODEX_WORKSPACE_PROXY_URL: http://llm-proxy:8080
+      SANDBOX_DOCKER_NETWORK: astraforge-sandbox
+      SANDBOX_DOCKER_READ_ONLY: "1"
+      SANDBOX_DOCKER_SECCOMP: ""
+      SANDBOX_DOCKER_PIDS_LIMIT: "512"
+      SANDBOX_DOCKER_HOST_GATEWAY: "0"
       SANDBOX_S3_BUCKET: ${SANDBOX_S3_BUCKET:-astraforge-snapshots}
       SANDBOX_S3_ENDPOINT_URL: ${SANDBOX_S3_ENDPOINT_URL:-http://minio:9000}
       SANDBOX_S3_REGION: ${SANDBOX_S3_REGION:-us-east-1}
@@ -161,6 +171,7 @@ services:
       - "8081:8080"
     networks:
       - astraforge
+      - astraforge-sandbox
   frontend:
     build:
       context: ./frontend
@@ -187,3 +198,6 @@ volumes:
 networks:
   astraforge:
     name: astraforge
+  astraforge-sandbox:
+    name: astraforge-sandbox
+    internal: true

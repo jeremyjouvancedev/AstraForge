@@ -220,6 +220,7 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 | `ASTRAFORGE_EXECUTE_COMMANDS` | Allow command execution in workspaces (set to `1` locally) |
 | `UNSAFE_DISABLE_AUTH` | Disable auth for local dev only (`1` locally, never in prod) |
 | `CODEX_WORKSPACE_IMAGE`, `CODEX_WORKSPACE_NETWORK`, `CODEX_WORKSPACE_PROXY_URL` | Workspace container image, network, and proxy used by Codex |
+| `SANDBOX_DOCKER_NETWORK`, `SANDBOX_DOCKER_READ_ONLY`, `SANDBOX_DOCKER_SECCOMP`, `SANDBOX_DOCKER_PIDS_LIMIT`, `SANDBOX_DOCKER_HOST_GATEWAY`, `SANDBOX_DOCKER_USER` | Harden sandbox containers (internal bridge name, read-only rootfs, seccomp profile, PID cap, host gateway toggle, optional run user); defaults target the isolated `astraforge-sandbox` network with egress only to the AI gateway. `SANDBOX_DOCKER_SECCOMP` defaults empty so no seccomp profile is passed; set it to a profile path or `unconfined` if you want the flag |
 | `SANDBOX_*`, `AWS_*` | MinIO/S3 sandbox storage settings (defaults provided for local) |
 | `SECRET_KEY`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | Django security settings; replace defaults outside local |
 

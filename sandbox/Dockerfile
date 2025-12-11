@@ -3,7 +3,10 @@ FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     WORKSPACE_DIR=/workspace \
-    DISPLAY=:99
+    DISPLAY=:99 \
+    PIP_CACHE_DIR=/workspace/.cache/pip \
+    NPM_CONFIG_CACHE=/workspace/.cache/npm \
+    PNPM_HOME=/workspace/.cache/pnpm
 
 # GUI base (headless X server + lightweight WM) and useful CLI tools.
 # Includes ImageMagick + x11-apps so the backend can capture screenshots via Xvfb,
@@ -16,7 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Non-root user for the sandbox
 RUN useradd -ms /bin/bash sandbox \
     && mkdir -p "${WORKSPACE_DIR}" \
-    && chown sandbox:sandbox "${WORKSPACE_DIR}"
+    && mkdir -p "${WORKSPACE_DIR}"/.cache/pip "${WORKSPACE_DIR}"/.cache/npm "${WORKSPACE_DIR}"/.cache/pnpm \
+    && chown -R sandbox:sandbox "${WORKSPACE_DIR}"
 
 # Install Playwright Python package globally and OS dependencies for Chromium.
 RUN pip install --no-cache-dir playwright \

@@ -27,6 +27,11 @@ def _commands_enabled() -> bool:
     return os.getenv("ASTRAFORGE_EXECUTE_COMMANDS", "0").lower() in {"1", "true", "yes"}
 
 
+def _env_flag(name: str, default: str | None = None) -> bool:
+    value = os.getenv(name, default or "")
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 def _render_command(command: str | Sequence[str]) -> str:
     if isinstance(command, (list, tuple)):
         return shlex.join(str(part) for part in command)
@@ -256,7 +261,14 @@ base64 "$TMPFILE"
                 message = (upload.stdout or upload.stderr or "").strip() or "Snapshot upload failed"
                 raise SandboxProvisionError(message)
 
-        command = f"tar -xzf {shlex.quote(archive_path)} -C /"
+        command = (
+            "tar "
+            "-xzf "
+            f"{shlex.quote(archive_path)} "
+            "-C / "
+            "--no-same-owner --no-same-permissions --no-overwrite-dir -m "
+            "--warning=no-unknown-keyword"
+        )
         result = self.execute(session, command, cwd=session.workspace_path)
         if result.exit_code != 0:
             message = (result.stdout or result.stderr or "").strip() or "Snapshot restore failed"
@@ -335,8 +347,58 @@ base64 "$TMPFILE"
 
     # internal helpers -------------------------------------------------
 
+    def _docker_network_args(self) -> list[str]:
+        network = os.getenv("SANDBOX_DOCKER_NETWORK") or os.getenv("CODEX_WORKSPACE_NETWORK")
+        if network:
+            return ["--network", network]
+        return ["--network", "none"]
+
+    def _docker_host_gateway_args(self) -> list[str]:
+        if _env_flag("SANDBOX_DOCKER_HOST_GATEWAY", "0"):
+            return ["--add-host", "host.docker.internal:host-gateway"]
+        return []
+
+    def _docker_tmpfs_args(self) -> list[str]:
+        tmpfs_config = os.getenv(
+            "SANDBOX_DOCKER_TMPFS", "/tmp:rw,nosuid,nodev;/run:rw,nosuid,nodev"
+        )
+        args: list[str] = []
+        for entry in tmpfs_config.split(";"):
+            entry = entry.strip()
+            if entry:
+                args.extend(["--tmpfs", entry])
+        return args
+
+    def _docker_security_args(self) -> list[str]:
+        args = ["--cap-drop", "ALL", "--security-opt", "no-new-privileges:true"]
+        seccomp_profile = os.getenv("SANDBOX_DOCKER_SECCOMP", "default").strip()
+        if seccomp_profile:
+            args.extend(["--security-opt", f"seccomp={seccomp_profile}"])
+        pids_limit = os.getenv("SANDBOX_DOCKER_PIDS_LIMIT", "512").strip()
+        if pids_limit:
+            args.extend(["--pids-limit", pids_limit])
+        if _env_flag("SANDBOX_DOCKER_READ_ONLY", "1"):
+            args.append("--read-only")
+            args.extend(self._docker_tmpfs_args())
+        return args
+
+    def _docker_user_args(self) -> list[str]:
+        user = os.getenv("SANDBOX_DOCKER_USER", "").strip()
+        return ["--user", user] if user else []
+
+    def _docker_label_args(self, session: SandboxSession) -> list[str]:
+        labels = {
+            "astraforge.sandbox.session": str(session.id),
+            "astraforge.sandbox.user": str(session.user_id),
+        }
+        args: list[str] = []
+        for key, value in labels.items():
+            if value:
+                args.extend(["--label", f"{key}={value}"])
+        return args
+
     def _spawn_docker(self, session: SandboxSession) -> SandboxRuntime:
-        ident = f"sandbox-{str(session.id).replace('-', '')[:12]}"
+        ident = f"sandbox-{str(session.id).replace('-', '')}"
         self.runner.run(["docker", "rm", "-f", ident], allow_failure=True)
 
         args = [
@@ -347,10 +409,17 @@ base64 "$TMPFILE"
             ident,
             "--hostname",
             ident,
-            "--add-host",
-            "host.docker.internal:host-gateway",
         ]
+        args.extend(self._docker_network_args())
+        args.extend(self._docker_host_gateway_args())
+        args.extend(self._docker_security_args())
+        args.extend(self._docker_user_args())
+        args.extend(self._docker_label_args(session))
+        workspace_path = session.workspace_path or "/workspace"
         mount = self._workspace_volume_mount(session)
+        if not mount and _env_flag("SANDBOX_DOCKER_READ_ONLY", "1"):
+            # World-writable workspace tmpfs so the non-root sandbox user can write.
+            mount = f"type=tmpfs,target={workspace_path},tmpfs-mode=1777"
         if mount:
             args.extend(["--mount", mount])
         if session.cpu:
@@ -369,8 +438,17 @@ base64 "$TMPFILE"
                 try:
                     self.runner.run(args, allow_failure=False)
                 except subprocess.CalledProcessError as inner_exc:  # pragma: no cover - surfaced upstream
+                    message = str(inner_exc.output or inner_exc)
+                    if self._is_container_name_conflict(
+                        message, exit_code=getattr(inner_exc, "returncode", None)
+                    ):
+                        adopted = self._try_adopt_existing_container(
+                            ident, workspace_path, session_id=str(session.id)
+                        )
+                        if adopted:
+                            return adopted
                     session.status = SandboxSession.Status.FAILED
-                    session.error_message = str(inner_exc.output or inner_exc)
+                    session.error_message = message
                     session.save(update_fields=["status", "error_message", "updated_at"])
                     summary = session.error_message.strip() or "Docker workspace startup failed"
                     raise SandboxProvisionError(
@@ -387,7 +465,7 @@ base64 "$TMPFILE"
         return SandboxRuntime(
             ref=f"docker://{ident}",
             control_endpoint=f"docker://{ident}",
-            workspace_path=session.workspace_path or "/workspace",
+            workspace_path=workspace_path,
         )
 
     def _spawn_kubernetes(self, session: SandboxSession) -> SandboxRuntime:
@@ -587,3 +665,36 @@ base64 "$TMPFILE"
             r"you have to remove .* to be able to reuse that name",
         ]
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in conflict_patterns)
+
+    def _try_adopt_existing_container(
+        self, ident: str, workspace_path: str, session_id: str | None = None
+    ) -> SandboxRuntime | None:
+        """If a container with the target name already exists, reuse it instead of failing."""
+        inspect = self.runner.run(
+            [
+                "docker",
+                "inspect",
+                "-f",
+                '{{ index .Config.Labels "astraforge.sandbox.session" }} {{ .State.Running }}',
+                ident,
+            ],
+            allow_failure=True,
+        )
+        if inspect.exit_code != 0:
+            return None
+        label_value, running_state = "", ""
+        parts = inspect.stdout.strip().split()
+        if parts:
+            label_value = parts[0]
+            running_state = parts[1] if len(parts) > 1 else ""
+        if session_id and label_value and label_value != session_id:
+            return None
+        if running_state.lower() not in {"true", "running"}:
+            started = self.runner.run(["docker", "start", ident], allow_failure=True)
+            if started.exit_code != 0:
+                return None
+        return SandboxRuntime(
+            ref=f"docker://{ident}",
+            control_endpoint=f"docker://{ident}",
+            workspace_path=workspace_path,
+        )

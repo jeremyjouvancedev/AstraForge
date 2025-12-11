@@ -1,6 +1,9 @@
 FROM python:3.11-slim
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    NPM_CONFIG_CACHE=/workspace/.cache/npm \
+    PIP_CACHE_DIR=/workspace/.cache/pip \
+    PNPM_HOME=/workspace/.cache/pnpm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates tini nodejs npm \
@@ -8,6 +11,8 @@ RUN apt-get update \
 
 RUN npm install -g @openai/codex \
     && if [ -f /usr/local/bin/codex ]; then mv /usr/local/bin/codex /usr/local/bin/codex-real; fi
+
+RUN mkdir -p /workspace/.cache/npm /workspace/.cache/pip /workspace/.cache/pnpm
 
 WORKDIR /workspace
 
