@@ -8,7 +8,6 @@
 ## Project Structure & Module Organization
 - `backend/` hosts the Django app (`astraforge/`) arranged by layer: `domain/`, `interfaces/`, `infrastructure/`, with pytest suites in `tests/` and commands via `manage.py`.
 - `frontend/` is the Vite React client; author UI under `src/` and colocate Vitest specs in `tests/`.
-- `shared/` stores the generated OpenAPI schema the backend emits; run `make generate-openapi` after API changes.
 - `docs/`, `infra/`, and `opa/` capture architectural notes, IaC bundles, and Rego policies consumed in CI.
 
 ## Build, Test, and Development Commands
@@ -17,7 +16,7 @@
 - `make frontend-dev` runs the Vite dev server on port `5174` with proxy defaults.
 - `make test` chains `pytest` and `pnpm test -- --run`; use it before pushing.
 - `make compose-test` spins up Postgres/Redis via docker compose with test overrides (no host ports, isolated project/volumes for a clean DB), forces CODEX_CLI_SKIP_PULL=0, waits for Postgres readiness, runs backend/frontend tests in containers, then tears everything down.
-- `pnpm build` packages the frontend, and `make generate-openapi` refreshes `shared/openapi/schema.yaml`.
+- `pnpm build` packages the frontend, and `make generate-openapi` refreshes the OpenAPI schema after API changes.
 
 ## Coding Style & Naming Conventions
 - Python: 4-space indent, `snake_case` for functions, `PascalCase` classes. Run `make lint` (Ruff check) and `make format` (Ruff formatter).

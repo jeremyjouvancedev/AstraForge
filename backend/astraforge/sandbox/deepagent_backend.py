@@ -6,7 +6,6 @@ import os
 import re
 import shlex
 from typing import Any, List, Mapping, Optional
-
 from deepagents.backends.protocol import BackendProtocol, EditResult, WriteResult
 from deepagents.backends.utils import (
     FileInfo,

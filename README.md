@@ -1,6 +1,10 @@
 # AstraForge
 
-AstraForge is an AI-driven DevOps orchestrator that turns incidents and natural-language requests into reviewed, merge-ready pull requests. A Django + Celery backend coordinates agents inside isolated Codex workspaces, while a responsive React UI streams live run logs, diffs, and chat updates.
+AstraForge is your on-call DevOps co-pilot, with two clear ways to plug in:
+- **Coding-agent sandbox** – start from the browser or API, drop incidents into Codex workspaces, let the agent debug and patch, then launch merge-ready MRs without leaving the UI.
+- **Managed DeepAgent backend** – call it via API or the Python package; we host and harden the LangChain DeepAgent sandbox so you get hands-free debugging without carrying the risk surface.
+
+A responsive web app streams live logs, diffs, and chat while the fixes ship.
 
 ![home](./images/astra_forge_home.jpg)
 ![diff](./images/astra_forge_diff_view.jpg)
@@ -24,7 +28,7 @@ AstraForge is an AI-driven DevOps orchestrator that turns incidents and natural-
 
 - **Auto-remediation to merge** – Glitchtip/Sentry alerts forward stack traces, request metadata, and breadcrumbs directly into Codex workspaces so patches, tests, and merge requests are produced without manual triage.
 - **Shared, agent-agnostic workspaces** – Human reviewers and any LLM executor can attach to the same streamed workspace, replay runs, and resume conversations regardless of who started the job.
-- **Secure sandboxing** – Deep agents get a locked-down OS surface (OPA policies, network guards, ephemeral secrets) so automation runs safely while still allowing real debugging.
+- **Secure sandboxing** – Coding agents run in your isolated Codex workspaces with auto-MR guardrails, while LangChain DeepAgents use the managed sandbox we operate (network guards, ephemeral secrets) for safe debugging.
 - **Built for reviewability** – Diff previews, run logs, and chat summaries keep reviewers in the loop before a branch lands in CI.
 
 See `docs/architecture.md` for the current mermaid diagram (kept up to date) and ADRs that capture architectural decisions.
@@ -225,13 +229,13 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 - `make format` – Ruff formatter + ESLint `--fix`
 - `make test` – `pytest` plus `pnpm test -- --run`
 - `gitleaks detect --config gitleaks.toml` – secret scanning
-- `make generate-openapi` – refresh `shared/openapi/schema.yaml` after API contract changes
+- `make generate-openapi` – refresh the OpenAPI schema after API contract changes
 
 ## Contributing
 
 - Open an issue or PR with a short rationale; reference related ADRs when applicable.
 - Before sending a PR, run `make lint`, `make test`, and `gitleaks detect --config gitleaks.toml`.
-- Keep docs in sync: update `docs/architecture.md` (mermaid diagram) and `docs/adr/*` for notable changes.
+- Keep docs in sync: update `docs/architecture.md` (mermaid diagram) when behavior changes.
 - After backend API changes, regenerate the schema with `make generate-openapi`.
 
 ## Troubleshooting
@@ -307,11 +311,9 @@ See `docs/architecture.md` for the accompanying narrative plus operational consi
 │       ├── interfaces/ # REST, SSE, registries, inbound adapters
 │       └── infrastructure/ # ORM, Redis, external service adapters
 ├── frontend/           # Vite + React Query + shadcn/ui client
-├── shared/             # Generated OpenAPI schema and DTO packages
 ├── llm-proxy/          # FastAPI wrapper that proxies OpenAI (or compatible) APIs
 ├── docs/               # Architecture overview, ADRs, runbooks
 ├── infra/              # Deployment scaffolding (docker, k8s, CI)
-├── opa/                # OPA/Gatekeeper policies enforced in CI
 └── images/             # Marketing and README screenshots
 ```
 
@@ -320,6 +322,5 @@ See `docs/architecture.md` for the accompanying narrative plus operational consi
 - `docs/architecture.md` – canonical mermaid diagram and subsystem explanations.
 - `docs/docker-compose.md` – runbook for starting/stopping the stack with Docker Compose.
 - `docs/sandbox.md` – sandbox orchestrator API (Docker + Kubernetes) and lifecycle tips.
-- `docs/adr/` – decision records that explain trade-offs.
 - `infra/` – Dockerfiles, Helm charts, and CI definitions.
 - `opa/` – Rego policies enforced before merges or deployments.

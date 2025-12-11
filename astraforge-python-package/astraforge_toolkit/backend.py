@@ -5,7 +5,9 @@ import logging
 import os
 import re
 import shlex
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 import requests
@@ -26,6 +28,12 @@ class _ShellResult:
     exit_code: int
     stdout: str
     stderr: str
+
+
+def _env_flag(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return value.lower() in {"1", "true", "yes", "on"}
 
 
 class _SandboxBackend(BackendProtocol):

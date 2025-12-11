@@ -63,9 +63,9 @@ compose-test:
 	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) run --rm --no-deps frontend pnpm test -- --run --watch=false
 	$(COMPOSE) $(COMPOSE_TEST_FILES) -p $(COMPOSE_TEST_PROJECT) down -v
 
-# Regenerate OpenAPI schema under shared/openapi.
+# Regenerate OpenAPI schema (outputs to repo root).
 generate-openapi:
-	cd backend && python manage.py spectacular --file ../shared/openapi/schema.yaml
+	cd backend && python manage.py spectacular --file ../openapi-schema.yaml
 
 # Build the standalone Python package (astraforge-python-package/dist).
 package-build:

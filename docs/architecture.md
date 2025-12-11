@@ -91,9 +91,6 @@ graph TD
 │   │   ├── features/     # Feature-sliced logic with React Query hooks
 │   │   └── lib/          # OpenAPI client, SSE helpers, feature flag registry
 │   └── tests/
-├── shared/
-│   ├── openapi/          # Generated OpenAPI schema + type-safe clients
-│   └── packages/         # Reusable libraries (e.g., message contracts, event schemas)
 ├── infra/
 │   ├── ci/               # GitHub Actions / GitLab CI pipelines
 │   └── k8s/              # Cluster manifests and local kustomize overlays
