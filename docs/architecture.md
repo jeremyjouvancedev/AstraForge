@@ -3,51 +3,52 @@
 AstraForge is an AI-assisted DevOps orchestrator that translates natural language requests into code changes, captures human approvals, and opens merge requests with automated review feedback. Requests now carry the raw user prompt end-to-end: the API stores it with minimal normalization, immediately queues workspace execution, and streams every event back to the client. The platform is organized as a polyglot monorepo with clear boundaries between domain logic, adapters, and infrastructure to support a modular, production-ready deployment.
 
 ```mermaid
-graph TD
-    subgraph Client UX
-        FE[Frontend SPA]
+flowchart TD
+    subgraph Client_UX["Client UX"]
+        FE["Frontend SPA"]
     end
-    subgraph External Clients
-        PySDK[Python DeepAgent SDK]
+    subgraph External_Clients["External Clients"]
+        PySDK["Python DeepAgent SDK"]
     end
-    subgraph Backend API
-        API[DRF API]
-        SandboxAPI[Sandbox Orchestrator]
-        Beat[Celery Beat Scheduler]
-        Worker[Celery Worker]
-        Registry[Provider Registry]
+    subgraph Backend_API["Backend API"]
+        API["DRF API"]
+        SandboxAPI["Sandbox Orchestrator"]
+        Beat["Celery Beat Scheduler"]
+        Worker["Celery Worker"]
+        Registry["Provider Registry"]
     end
     subgraph Storage
-        PG[(Postgres)]
-        Redis[(Redis)]
-        RunLog[(Redis Run Log Stream)]
-        Artifacts[(S3/MinIO Artifacts & Snapshots)]
-        DeepAgentCP[(LangGraph Postgres Checkpointer)]
+        PG["Postgres"]
+        RedisStore["Redis"]
+        RunLog["Redis Run Log Stream"]
+        Artifacts["S3/MinIO Artifacts & Snapshots"]
+        DeepAgentCP["LangGraph Postgres Checkpointer"]
     end
-    subgraph Workspace Orchestration
-        Provisioner[Docker/K8s Provisioner]
-        CLIImage[(Codex CLI Image)]
-        Workspace[Ephemeral Codex Container]
-        Proxy[Codex Proxy Wrapper]
+    subgraph Workspace_Orchestration["Workspace Orchestration"]
+        Provisioner["Docker/K8s Provisioner"]
+        CLIImage["Codex CLI Image"]
+        Workspace["Ephemeral Codex Container"]
+        Proxy["Codex Proxy Wrapper"]
+        Repo["Git Repository"]
     end
-    subgraph Agent Sandbox
-        SandboxMgr[Session Manager]
-        Reaper[Sandbox Reaper Task]
-        DockerSandboxes[(Docker Sandboxes\nread-only, drop caps)]
-        K8sSandboxes[(Kubernetes Pods\nseccomp + non-root)]
-        SandboxNet[(Isolated Sandbox Network)]
-        NetPolicy[LLM-only NetworkPolicy]
-        Daemon[Sandbox Daemon (exec/GUI)]
+    subgraph Agent_Sandbox["Agent Sandbox"]
+        SandboxMgr["Session Manager"]
+        Reaper["Sandbox Reaper Task"]
+        DockerSandboxes["Docker Sandboxes\nread-only, drop caps"]
+        K8sSandboxes["Kubernetes Pods\nseccomp + non-root"]
+        SandboxNet["Isolated Sandbox Network"]
+        NetPolicy["LLM-only NetworkPolicy"]
+        Daemon["Sandbox Daemon (exec/GUI)"]
     end
-    LLMProxy[LLM Proxy Service]
+    LLMProxy["LLM Proxy Service"]
 
     FE -->|HTTP/WebSocket| API
     PySDK -->|HTTPS + X-Api-Key| API
     API -->|SSE| FE
     API --> PG
-    API --> Redis
+    API --> RedisStore
     Worker --> PG
-    Worker --> Redis
+    Worker --> RedisStore
     Worker --> DeepAgentCP
     API --> Worker
     Beat --> Worker
@@ -70,9 +71,9 @@ graph TD
     Registry --> Provisioner
     Provisioner -->|docker/k8s run| Workspace
     Provisioner -. build fallback .-> CLIImage
-    Workspace -->|codex exec --skip-git-repo-check -o .codex/final_message.txt| Proxy
+    Workspace -->|codex exec --skip-git-repo-check\n-o .codex/final_message.txt| Proxy
     Proxy --> LLMProxy
-    Workspace -->|git clone/diff| Repo[(Git Repository)]
+    Workspace -->|git clone/diff| Repo
 ```
 
 ## Monorepo Layout
@@ -125,6 +126,57 @@ is frictionless.
 
 - A lightweight Python client (`AstraForgeSandboxBackend` package) wraps the `/api/deepagent/...` and `/api/sandbox/...` endpoints so external applications can create sandbox-backed DeepAgent conversations using only a base API URL and an `X-Api-Key`.
 - The same client works against local instances (for example `http://localhost:8001/api`) and hosted deployments, providing a single integration surface for experiments, CI jobs, or custom dashboards.
+
+### Python Toolkit + DeepAgent Sandbox Flow
+
+```mermaid
+flowchart LR
+    subgraph External Integrations
+        App[External app / notebook / CI]
+        Toolkit[astraforge-toolkit\nPyPI package]
+        CustomAgent[Custom DeepAgent runtime\n(create_deep_agent + SandboxBackend)]
+    end
+
+    subgraph AstraForge API (Django)
+        DeepAPI[/DeepAgent API\n/ deepagent/conversations, /messages/]
+        SandboxAPI[/Sandbox API\n/ sandbox/sessions, /shell, /files/]
+        HostedAgent[Hosted DeepAgent\n(LangGraph + policy-wrapped SandboxBackend)]
+        Checkpointer[(Postgres checkpointer)]
+    end
+
+    subgraph Sandbox Control Plane
+        Orchestrator[SandboxOrchestrator\n(Docker/K8s provisioner)]
+        SessionStore[(SandboxSession + Snapshot DB)]
+        DockerSandbox[Docker sandbox\nread-only rootfs]
+        K8sSandbox[Kubernetes sandbox\nnon-root + NetworkPolicy]
+        Workspace[/Workspace mount (/workspace)\n(tmpfs or volume)]
+    end
+
+    subgraph LLM Layer
+        LLMProxy[LLM proxy / OpenAI-compatible]
+        Model[LLM provider]
+    end
+
+    App -->|pip install| Toolkit
+    Toolkit -->|DeepAgentClient\ncreate_conversation| DeepAPI
+    Toolkit -->|SandboxBackend (HTTP)\nexec/upload/read| SandboxAPI
+    Toolkit --> CustomAgent
+    CustomAgent -->|tool calls\n(shell/python/write/edit)| SandboxAPI
+    DeepAPI -->|SSE stream\n(tokens, tool calls, artifacts)| Toolkit
+    DeepAPI --> HostedAgent
+    HostedAgent -->|filesystem + Playwright tools| Orchestrator
+    HostedAgent -->|LLM requests| LLMProxy --> Model
+    DeepAPI --> Checkpointer
+    SandboxAPI --> Orchestrator
+    Orchestrator --> SessionStore
+    Orchestrator --> DockerSandbox
+    Orchestrator --> K8sSandbox
+    DockerSandbox --> Workspace
+    K8sSandbox --> Workspace
+    Workspace -->|ls/read/write/edit/python/shell| HostedAgent
+```
+
+External teams install `astraforge-toolkit` to either (a) call the hosted DeepAgent API via `DeepAgentClient` and stream replies, or (b) run their own DeepAgents that talk directly to the sandbox API through the `SandboxBackend`. Both paths reuse the same sandbox control plane and enforce the policy-wrapped backend semantics (create-only writes, bounded workspace root, snapshot-aware session reuse) while the hosted agent continues to use the LLM proxy plus optional Postgres checkpointer.
 
 ## Frontend UI System
 

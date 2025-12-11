@@ -31,7 +31,10 @@ class RequestRepository(Protocol):
     def save(self, request: Request) -> None:  # pragma: no cover
         ...
 
-    def get(self, request_id: str) -> Request:  # pragma: no cover
+    def get(self, request_id: str, *, user_id: str | None = None) -> Request:  # pragma: no cover
+        ...
+
+    def list(self, *, user_id: str | None = None) -> list[Request]:  # pragma: no cover
         ...
 
 

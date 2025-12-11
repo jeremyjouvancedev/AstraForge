@@ -27,6 +27,7 @@ class RequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"project_id": ["Authentication required to select a project."]}
             )
+        user_id = str(request_obj.user.id)
         try:
             repository_link = RepositoryLink.objects.get(
                 id=project_id, user=request_obj.user
@@ -65,7 +66,12 @@ class RequestSerializer(serializers.Serializer):
                 "created_at": timezone.now().isoformat(),
             }
         ]
-        return Request(payload=payload, metadata=metadata, **validated_data)
+        return Request(
+            payload=payload,
+            metadata=metadata,
+            user_id=user_id,
+            **validated_data,
+        )
 
     def to_representation(self, instance: Request):
         project_internal = instance.metadata.get("project", {}) or {}

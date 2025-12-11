@@ -244,6 +244,7 @@ def test_process_request_populates_metadata():
     payload = RequestPayload(title="Add feature", description="desc", context={})
     request = Request(
         id="req-1",
+        user_id="user-1",
         tenant_id="tenant",
         source="direct_user",
         sender="user@example.com",
@@ -298,6 +299,7 @@ def test_execute_request_runs_workspace():
     payload = RequestPayload(title="Add feature", description="desc", context={})
     request = Request(
         id="req-2",
+        user_id="user-1",
         tenant_id="tenant",
         source="direct_user",
         sender="user@example.com",
@@ -356,6 +358,7 @@ def test_execute_request_uses_history_when_final_message_missing():
     payload = RequestPayload(title="Add feature", description="desc", context={})
     request = Request(
         id="req-history-only",
+        user_id="user-1",
         tenant_id="tenant",
         source="direct_user",
         sender="user@example.com",
@@ -402,6 +405,7 @@ def test_run_viewset_returns_run_history(api_client, user, monkeypatch):
     payload = RequestPayload(title="Add feature", description="desc", context={})
     request = Request(
         id="req-api-run",
+        user_id=str(user.id),
         tenant_id="tenant",
         source="direct_user",
         sender="user@example.com",
@@ -449,6 +453,7 @@ def test_run_viewset_falls_back_to_execution_metadata(api_client, user, monkeypa
     payload = RequestPayload(title="Legacy run", description="desc", context={})
     request = Request(
         id="req-fallback-run",
+        user_id=str(user.id),
         tenant_id="tenant",
         source="direct_user",
         sender="user@example.com",
@@ -489,6 +494,7 @@ def test_request_detail_includes_final_assistant_message(api_client, user, monke
 
     request = Request(
         id="req-chat-record",
+        user_id=str(user.id),
         tenant_id="tenant",
         source="direct_user",
         sender="user@example.com",
@@ -542,6 +548,7 @@ def test_merge_request_viewset_returns_merge_requests(api_client, user, monkeypa
     payload = RequestPayload(title="Add feature", description="desc", context={})
     request = Request(
         id="req-api-mr",
+        user_id=str(user.id),
         tenant_id="tenant",
         source="direct_user",
         sender="user@example.com",

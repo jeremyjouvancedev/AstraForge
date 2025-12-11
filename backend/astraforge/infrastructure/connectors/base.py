@@ -22,6 +22,7 @@ class DirectUserConnector(Connector):
         )
         return Request(
             id=str(uuid.uuid4()),
+            user_id=str(payload.get("user_id", "") or ""),
             tenant_id=self.tenant_id,
             source="direct_user",
             sender=payload.get("sender", ""),

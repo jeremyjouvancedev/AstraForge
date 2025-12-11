@@ -29,6 +29,7 @@ from astraforge.interfaces.rest import serializers
 from astraforge.interfaces.rest.renderers import EventStreamRenderer
 from astraforge.infrastructure.ai.deepagent_runtime import get_deep_agent
 from astraforge.infrastructure.ai.serializers import jsonable_chunk, encode_sse
+from astraforge.requests.models import RequestRecord
 from astraforge.sandbox.models import SandboxSession
 from django.http import StreamingHttpResponse
 from langchain_core.messages import message_to_dict
@@ -50,7 +51,10 @@ class RequestViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request_obj = serializer.save()
-        SubmitRequest(repository=repository)(request_obj)
+        try:
+            SubmitRequest(repository=repository)(request_obj)
+        except PermissionError as exc:
+            raise PermissionDenied(str(exc)) from exc
         container.resolve_run_log().publish(
             str(request_obj.id),
             {
@@ -66,7 +70,7 @@ class RequestViewSet(
         )
 
     def list(self, request, *args, **kwargs):
-        items = repository.list()
+        items = repository.list(user_id=str(request.user.id))
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
 
@@ -76,7 +80,7 @@ class RequestViewSet(
         serializer.is_valid(raise_exception=True)
         request_id = str(id)
         try:
-            repository.get(request_id)
+            repository.get(request_id, user_id=str(request.user.id))
         except KeyError as exc:
             raise NotFound(f"Request {request_id} not found") from exc
         app_tasks.execute_request_task.delay(
@@ -90,7 +94,7 @@ class RequestViewSet(
 
         request_id = self.kwargs[self.lookup_field]
         try:
-            return repository.get(str(request_id))
+            return repository.get(str(request_id), user_id=str(self.request.user.id))
         except KeyError as exc:  # pragma: no cover - fallback
             raise Http404(f"Request {request_id} not found") from exc
 
@@ -106,8 +110,10 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
         message_content = serializer.validated_data["message"]
         run_log = container.resolve_run_log()
         try:
-            request_obj = repository.get(request_id)
+            request_obj = repository.get(request_id, user_id=str(request.user.id))
         except KeyError:
+            if RequestRecord.objects.filter(id=request_id).exists():
+                raise PermissionDenied("Request not found")
             payload = RequestPayload(
                 title=message_content.strip() or "User message",
                 description=message_content,
@@ -116,6 +122,7 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             )
             request_obj = Request(
                 id=request_id,
+                user_id=str(request.user.id),
                 tenant_id="tenant-default",
                 source="direct_user",
                 sender="",
@@ -132,7 +139,10 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             }
         )
         request_obj.metadata["chat_messages"] = messages
-        repository.save(request_obj)
+        try:
+            repository.save(request_obj)
+        except PermissionError as exc:
+            raise PermissionDenied(str(exc)) from exc
         summary = message_content.strip()
         if summary:
             title_candidate = summary.split("\n", 1)[0].strip() or summary
@@ -177,6 +187,10 @@ class RunLogStreamView(APIView):
 
     def get(self, request, pk):  # pragma: no cover - SSE placeholder
         request_id = str(pk)
+        try:
+            repository.get(request_id, user_id=str(request.user.id))
+        except KeyError as exc:
+            raise NotFound("Request not found") from exc
         run_log = container.resolve_run_log()
 
         def event_stream():
@@ -567,22 +581,22 @@ class RunViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def list(self, request):
-        runs = self._collect_runs(include_events=False)
+        runs = self._collect_runs(include_events=False, user_id=str(request.user.id))
         serializer = serializers.RunSummarySerializer(runs, many=True)
         return Response(serializer.data)
 
     def retrieve(self, request, pk=None):
         run_id = str(pk) if pk is not None else ""
-        runs = self._collect_runs(include_events=True)
+        runs = self._collect_runs(include_events=True, user_id=str(request.user.id))
         for run in runs:
             if run["id"] == run_id:
                 serializer = serializers.RunDetailSerializer(run)
                 return Response(serializer.data)
         raise NotFound("Run not found")
 
-    def _collect_runs(self, *, include_events: bool) -> list[dict[str, object]]:
+    def _collect_runs(self, *, include_events: bool, user_id: str) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
-        for request_obj in repository.list():
+        for request_obj in repository.list(user_id=user_id):
             runs_meta = list(request_obj.metadata.get("runs", []) or [])
             if not runs_meta:
                 fallback = self._fallback_run(request_obj)
@@ -752,22 +766,22 @@ class MergeRequestViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def list(self, request):
-        merge_requests = self._collect_merge_requests()
+        merge_requests = self._collect_merge_requests(user_id=str(request.user.id))
         serializer = serializers.MergeRequestSerializer(merge_requests, many=True)
         return Response(serializer.data)
 
     def retrieve(self, request, pk=None):
         mr_id = str(pk) if pk is not None else ""
-        merge_requests = self._collect_merge_requests()
+        merge_requests = self._collect_merge_requests(user_id=str(request.user.id))
         for mr in merge_requests:
             if mr["id"] == mr_id:
                 serializer = serializers.MergeRequestSerializer(mr)
                 return Response(serializer.data)
         raise NotFound("Merge request not found")
 
-    def _collect_merge_requests(self) -> list[dict[str, object]]:
+    def _collect_merge_requests(self, *, user_id: str) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
-        for request_obj in repository.list():
+        for request_obj in repository.list(user_id=user_id):
             metadata_mr = request_obj.metadata.get("mr") or {}
             if not metadata_mr:
                 continue

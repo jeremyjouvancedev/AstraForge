@@ -17,7 +17,16 @@ class DjangoRequestRepository(RequestRepository):
 
     def save(self, request: Request) -> None:
         payload = self._serialize_payload(request.payload)
+        existing = self.model.objects.filter(id=request.id).first()
+        if (
+            existing
+            and existing.user_id
+            and request.user_id
+            and str(existing.user_id) != str(request.user_id)
+        ):
+            raise PermissionError("Request already exists for a different user.")
         defaults: Dict[str, object] = {
+            "user_id": request.user_id or None,
             "tenant_id": request.tenant_id,
             "source": request.source,
             "sender": request.sender,
@@ -34,15 +43,21 @@ class DjangoRequestRepository(RequestRepository):
         request.created_at = record.created_at
         request.updated_at = record.updated_at
 
-    def get(self, request_id: str) -> Request:
+    def get(self, request_id: str, *, user_id: str | None = None) -> Request:
         try:
-            record = self.model.objects.get(id=request_id)
+            query = self.model.objects
+            if user_id is not None:
+                query = query.filter(user_id=user_id)
+            record = query.get(id=request_id)
         except self.model.DoesNotExist as exc:
             raise KeyError(request_id) from exc
         return self._to_domain(record)
 
-    def list(self) -> List[Request]:
-        return [self._to_domain(record) for record in self.model.objects.order_by("-created_at")]
+    def list(self, *, user_id: str | None = None) -> List[Request]:
+        query = self.model.objects
+        if user_id is not None:
+            query = query.filter(user_id=user_id)
+        return [self._to_domain(record) for record in query.order_by("-created_at")]
 
     # helpers -----------------------------------------------------------
 
@@ -70,6 +85,7 @@ class DjangoRequestRepository(RequestRepository):
         payload = self._deserialize_payload(record.payload)
         request = Request(
             id=str(record.id),
+            user_id=str(record.user_id) if record.user_id else "",
             tenant_id=record.tenant_id,
             source=record.source,
             sender=record.sender,

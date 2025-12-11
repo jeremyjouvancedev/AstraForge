@@ -39,6 +39,7 @@ class RequestPayload:
 @dataclass(slots=True)
 class Request:
     id: str
+    user_id: str
     tenant_id: str
     source: str
     sender: str
