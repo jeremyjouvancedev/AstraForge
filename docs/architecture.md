@@ -71,7 +71,7 @@ flowchart TD
     Registry --> Provisioner
     Provisioner -->|docker/k8s run| Workspace
     Provisioner -. build fallback .-> CLIImage
-    Workspace -->|codex exec --skip-git-repo-check\n-o .codex/final_message.txt| Proxy
+    Workspace -->|codex exec --skip-git-repo-check -o .codex/final_message.txt| Proxy
     Proxy --> LLMProxy
     Workspace -->|git clone/diff| Repo
 ```
@@ -131,41 +131,35 @@ is frictionless.
 
 ```mermaid
 flowchart LR
-    subgraph External Integrations
-        App[External app / notebook / CI]
-        Toolkit[astraforge-toolkit\nPyPI package]
-        CustomAgent[Custom DeepAgent runtime\n(create_deep_agent + SandboxBackend)]
+    subgraph "External Integrations"
+        App["External app / notebook / CI"]
+        Toolkit["astraforge-toolkit\nPyPI package"]
+        CustomAgent["Custom DeepAgent runtime\n(create_deep_agent + SandboxBackend)"]
     end
 
-    subgraph AstraForge API (Django)
+    subgraph "AstraForge API (Django)"
         DeepAPI[/DeepAgent API\n/ deepagent/conversations, /messages/]
         SandboxAPI[/Sandbox API\n/ sandbox/sessions, /shell, /files/]
-        HostedAgent[Hosted DeepAgent\n(LangGraph + policy-wrapped SandboxBackend)]
-        Checkpointer[(Postgres checkpointer)]
+        HostedAgent["Hosted DeepAgent\n(LangGraph + policy-wrapped SandboxBackend)"]
+        Checkpointer["Postgres checkpointer"]
     end
 
-    subgraph Sandbox Control Plane
-        Orchestrator[SandboxOrchestrator\n(Docker/K8s provisioner)]
-        SessionStore[(SandboxSession + Snapshot DB)]
-        DockerSandbox[Docker sandbox\nread-only rootfs]
-        K8sSandbox[Kubernetes sandbox\nnon-root + NetworkPolicy]
-        Workspace[/Workspace mount (/workspace)\n(tmpfs or volume)]
+    subgraph "Sandbox Control Plane"
+        Orchestrator["SandboxOrchestrator\n(Docker/K8s provisioner)"]
+        SessionStore["SandboxSession + Snapshot DB"]
+        DockerSandbox["Docker sandbox\nread-only rootfs"]
+        K8sSandbox["Kubernetes sandbox\nnon-root + NetworkPolicy"]
+        Workspace["Workspace mount (/workspace)\n(tmpfs or volume)"]
     end
 
-    subgraph LLM Layer
-        LLMProxy[LLM proxy / OpenAI-compatible]
-        Model[LLM provider]
-    end
-
-    App -->|pip install| Toolkit
-    Toolkit -->|DeepAgentClient\ncreate_conversation| DeepAPI
-    Toolkit -->|SandboxBackend (HTTP)\nexec/upload/read| SandboxAPI
+    App -->|"pip install"| Toolkit
+    Toolkit -->|"DeepAgentClient calls"| DeepAPI
+    Toolkit -->|"SandboxBackend (HTTP) exec/upload/read"| SandboxAPI
     Toolkit --> CustomAgent
-    CustomAgent -->|tool calls\n(shell/python/write/edit)| SandboxAPI
-    DeepAPI -->|SSE stream\n(tokens, tool calls, artifacts)| Toolkit
+    CustomAgent -->|"tool calls (shell/python/write/edit)"| SandboxAPI
+    DeepAPI -->|"SSE stream (tokens, tool calls, artifacts)"| Toolkit
     DeepAPI --> HostedAgent
-    HostedAgent -->|filesystem + Playwright tools| Orchestrator
-    HostedAgent -->|LLM requests| LLMProxy --> Model
+    HostedAgent -->|"filesystem + Playwright tools"| Orchestrator
     DeepAPI --> Checkpointer
     SandboxAPI --> Orchestrator
     Orchestrator --> SessionStore
@@ -177,6 +171,117 @@ flowchart LR
 ```
 
 External teams install `astraforge-toolkit` to either (a) call the hosted DeepAgent API via `DeepAgentClient` and stream replies, or (b) run their own DeepAgents that talk directly to the sandbox API through the `SandboxBackend`. Both paths reuse the same sandbox control plane and enforce the policy-wrapped backend semantics (create-only writes, bounded workspace root, snapshot-aware session reuse) while the hosted agent continues to use the LLM proxy plus optional Postgres checkpointer.
+
+### DeepAgent System Architecture & Workflow
+
+```mermaid
+flowchart TD
+    UI["User Interface\nChat + File Uploads"]
+    Orchestrator["DeepAgent Orchestrator\n(LangGraph + policy SandboxBackend)"]
+    Memory["Memory / Knowledge\nCheckpointer + Run Log"]
+    Decomp["Task Decomposition\nTool routing + orchestration"]
+    UI --> Orchestrator
+    Orchestrator --> Memory
+    Orchestrator --> Decomp
+    Decomp --> Assign["Task Assignment & Dataflow"]
+
+    subgraph Sandbox["E2B Sandbox Environment (/workspace)"]
+        direction LR
+        WebAgent["Agent: Web\nTavily search + Playwright"]
+        DataAgent["Agent: Data\nAnalysis + API access"]
+        CodeAgent["Agent: Code\nPython REPL + shell + git"]
+        FileAgent["Agent: Files\nRead/Write/Edit + artifacts"]
+        OpsAgent["Agent: Ops\nWorkspace controls + snapshots"]
+        Exec["Execution & Combination\nAgents exchange data via workspace"]
+        WebAgent --> Exec
+        DataAgent --> Exec
+        CodeAgent --> Exec
+        FileAgent --> Exec
+        OpsAgent --> Exec
+        Exec --> WebAgent
+        Exec --> DataAgent
+        Exec --> CodeAgent
+        Exec --> FileAgent
+        Exec --> OpsAgent
+    end
+
+    Assign --> WebAgent
+    Assign --> DataAgent
+    Assign --> CodeAgent
+    Assign --> FileAgent
+    Assign --> OpsAgent
+    Exec --> Outputs["Outputs\nReports, diffs, artifacts, notifications"]
+    Outputs --> UI
+```
+
+### Custom Tools + Filesystem Backend
+
+```mermaid
+flowchart LR
+    subgraph "Agent Runtime"
+        UI["User / UI / Chat"]
+        Agent["DeepAgent runtime\n(LangGraph orchestration)"]
+        Custom["Your custom tools\n(domain-specific plugins)"]
+        FSTools["Filesystem toolbelt\nls | read | write | edit | glob | grep"]
+        ShellTool["Sandbox shell tool\nnon-interactive commands"]
+        PyRepl["Python REPL tool\nexecutes in sandbox"]
+        PlaywrightTool["Playwright browser tool\nopen_url_with_playwright"]
+        ImageTool["Image viewer tool\nsandbox_view_image"]
+        ArtifactTool["Artifact / snapshot actions\nexport + restore"]
+    end
+
+    subgraph "Sandbox Backend"
+        Policy["SandboxBackend + PolicyWrapper\n(enforce allowed_root)"]
+        ExecModes["Execution path\n- Internal: Django SandboxSession + Orchestrator\n- HTTP: astraforge-toolkit SandboxBackend"]
+    end
+
+    subgraph "Sandbox Session"
+        Container["Docker/K8s sandbox"]
+        Workspace["/workspace files\ncode, data, artifacts"]
+        Snapshots["Snapshots / artifacts export"]
+    end
+
+    UI --> Agent
+    Agent --> Custom
+    Agent --> FSTools
+    Agent --> ShellTool
+    Agent --> PyRepl
+    Agent --> PlaywrightTool
+    Agent --> ImageTool
+    Agent --> ArtifactTool
+    Custom --> Agent
+    FSTools --> Policy
+    ShellTool --> Policy
+    PyRepl --> Policy
+    PlaywrightTool --> Policy
+    ImageTool --> Policy
+    ArtifactTool --> Policy
+    Policy --> ExecModes --> Container --> Workspace
+    Workspace --> Snapshots
+    Workspace --> Outputs["Outputs\nreports, diffs, artifacts links"]
+    Outputs --> UI
+```
+
+### Simplified External Integration (DeepAgent + Sandbox)
+
+```mermaid
+flowchart LR
+    ExternalApp["External app"]
+    CustomAgent["Custom DeepAgent\n+ AstraForge tools"]
+    Toolkit["astraforge-toolkit\nSandboxBackend"]
+    API["AstraForge API"]
+    Sandbox["AstraForge Sandbox\nDocker or Kubernetes\n/workspace"]
+
+    ExternalApp -->|"call custom agent"| CustomAgent
+    CustomAgent -->|"uses toolkit + backend helpers"| Toolkit
+    Toolkit -->|"HTTP client"| API
+    API -->|"provision / exec"| Sandbox
+
+    ExternalApp -->|"upload file"| API
+    API -->|"write into /workspace"| Sandbox
+    Sandbox -->|"read/export file"| API
+    API -->|"download to app"| ExternalApp
+```
 
 ## Frontend UI System
 
