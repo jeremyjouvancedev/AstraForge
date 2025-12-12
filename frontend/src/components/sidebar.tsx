@@ -6,10 +6,10 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { to: "/", label: "Requests", icon: Inbox, exact: true },
-  { to: "/repositories", label: "Repositories", icon: Link2 },
-  { to: "/api-keys", label: "API Keys", icon: KeyRound },
-  { to: "/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain }
+  { to: "/app", label: "Requests", icon: Inbox, exact: true },
+  { to: "/app/repositories", label: "Repositories", icon: Link2 },
+  { to: "/app/api-keys", label: "API Keys", icon: KeyRound },
+  { to: "/app/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain }
 ];
 
 export function Sidebar() {
@@ -42,7 +42,7 @@ export function Sidebar() {
           AI DevOps workspace tuned for enterprise velocity.
         </p>
         <Button variant="default" size="sm" className="mt-4 w-full rounded-2xl" asChild>
-          <NavLink to="/">Start a Request</NavLink>
+          <NavLink to="/app">Start a Request</NavLink>
         </Button>
       </div>
 

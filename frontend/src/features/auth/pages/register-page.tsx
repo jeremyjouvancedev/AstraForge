@@ -26,14 +26,14 @@ export default function RegisterPage() {
   });
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/app" replace />;
   }
 
   const onSubmit = handleSubmit(async (values) => {
     try {
       setError(null);
       await registerUser(values);
-      navigate("/", { replace: true });
+      navigate("/app", { replace: true });
     } catch (err) {
       setError("Unable to register with provided details");
       console.error(err);

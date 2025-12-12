@@ -81,7 +81,7 @@ export function RequestsTable({ data, isLoading, onSelect }: RequestsTableProps)
             </button>
           ) : (
             <Link
-              to={`/requests/${request.id}/run`}
+              to={`/app/requests/${request.id}/run`}
               className="group block rounded-2xl border border-border/60 bg-card/70 px-5 py-4 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-card"
             >
               <div className="flex items-center justify-between">

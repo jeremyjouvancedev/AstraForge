@@ -25,14 +25,14 @@ export default function LoginPage() {
   });
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/app" replace />;
   }
 
   const onSubmit = handleSubmit(async (values) => {
     try {
       setError(null);
       await login(values);
-      navigate("/", { replace: true });
+      navigate("/app", { replace: true });
     } catch (err) {
       setError("Invalid username or password");
       console.error(err);

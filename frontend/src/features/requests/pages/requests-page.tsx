@@ -27,7 +27,7 @@ export default function RequestsPage() {
   };
 
   const handleRequestSelect = (requestId: string) => {
-    navigate(`/requests/${requestId}/run`);
+    navigate(`/app/requests/${requestId}/run`);
   };
 
   return (
@@ -49,7 +49,7 @@ export default function RequestsPage() {
               {requests?.length ?? 0} Active
             </Badge>
             <Button variant="outline" size="sm" asChild className="rounded-xl">
-              <Link to="/repositories">Manage repositories</Link>
+              <Link to="/app/repositories">Manage repositories</Link>
             </Button>
           </div>
         </div>
@@ -89,7 +89,7 @@ export default function RequestsPage() {
               Add at least one project so AstraForge knows where to deliver automated work.
             </p>
             <Button asChild variant="accent" size="sm" className="rounded-xl">
-              <Link to="/repositories">Link a project</Link>
+              <Link to="/app/repositories">Link a project</Link>
             </Button>
           </CardContent>
         </Card>

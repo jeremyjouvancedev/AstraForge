@@ -48,7 +48,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
       queryClient.invalidateQueries({ queryKey: ["requests"] });
       const resetProjectId = projects[0]?.id ?? "";
       form.reset({ projectId: resetProjectId, prompt: "" });
-      navigate(`/requests/${response.id}/run`);
+      navigate(`/app/requests/${response.id}/run`);
     }
   });
 
