@@ -1,7 +1,7 @@
 # Docker Compose Runbook
 
 Use Docker Compose whenever you want the entire AstraForge stack (Postgres, Redis,
-API, Celery worker, LLM proxy, and frontend) running with a single command. This guide walks
+MinIO, API, Celery worker, LLM proxy, and frontend) running with a single command. This guide walks
 through prepping environment variables, building images, and managing the lifecycle of the stack
 defined in `docker-compose.yml`.
 
@@ -41,6 +41,10 @@ workspace and sandbox images before running migrations:
 docker pull "$CODEX_WORKSPACE_IMAGE"
 docker pull "$SANDBOX_IMAGE"
 ```
+
+MinIO (plus a bootstrap job) runs alongside Postgres/Redis so sandbox snapshots
+have object storage; keep the default credentials in `.env` for local runs or
+override them if you already have a MinIO/S3 endpoint.
 
 ## 2. Build images and apply migrations
 

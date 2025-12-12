@@ -4,6 +4,8 @@ import uuid
 
 import pytest
 from django.contrib.auth import get_user_model
+from rest_framework import status
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from astraforge.sandbox.models import SandboxSession, SandboxSnapshot
 from astraforge.sandbox.views import SandboxSessionViewSet
@@ -54,7 +56,7 @@ def test_ensure_session_ready_reprovisions_and_restores(monkeypatch):
         id=uuid.uuid4(),
         session=session,
         label="latest",
-        archive_path="/workspace/.sandbox-snapshots/latest.tar.gz",
+        archive_path=f"/tmp/astraforge-snapshots/{session.id}/latest.tar.gz",
         include_paths=[session.workspace_path],
         exclude_paths=[],
     )
@@ -80,7 +82,7 @@ def test_deepagent_backend_autorestores_non_ready_session(monkeypatch):
         id=uuid.uuid4(),
         session=session,
         label="latest",
-        archive_path="/workspace/.sandbox-snapshots/latest.tar.gz",
+        archive_path=f"/tmp/astraforge-snapshots/{session.id}/latest.tar.gz",
         include_paths=[session.workspace_path],
         exclude_paths=[],
     )
@@ -128,3 +130,37 @@ def test_deepagent_backend_autorestores_non_ready_session(monkeypatch):
     assert session.status == SandboxSession.Status.READY
     assert orchestrator.provision_called is True
     assert orchestrator.restore_called_with == snapshot
+
+
+def test_create_reuses_existing_ready_session(monkeypatch):
+    user = get_user_model().objects.create_user(username="reuse", password="pass12345")
+    session = _create_session(
+        user,
+        status=SandboxSession.Status.READY,
+        ref="docker://sandbox-reuse",
+        control_endpoint="docker://sandbox-reuse",
+    )
+    factory = APIRequestFactory()
+    request = factory.post("/api/sandbox/sessions/", {"id": str(session.id)}, format="json")
+    force_authenticate(request, user=user)
+
+    class _OrchestratorNoop:
+        def __init__(self):
+            self.provision_called = False
+            self.restore_called_with = None
+
+        def provision(self, _session):
+            self.provision_called = True
+
+        def restore_snapshot(self, sess, snap):
+            self.restore_called_with = (sess, snap)
+
+    orchestrator = _OrchestratorNoop()
+    monkeypatch.setattr(SandboxSessionViewSet, "orchestrator", orchestrator)
+
+    response = SandboxSessionViewSet.as_view({"post": "create"})(request)
+    session.refresh_from_db()
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["id"] == str(session.id)
+    assert orchestrator.provision_called is False

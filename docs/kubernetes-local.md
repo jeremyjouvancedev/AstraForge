@@ -7,10 +7,10 @@ runtime configuration in parallel with the existing Docker Compose workflow.
 
 ## Prerequisites
 
-- Docker Engine (so you can build the backend, worker, frontend, and proxy images)
+- Docker Engine (so you can build the bundled app, worker, and proxy images)
 - `kubectl` 1.27+ and a local cluster (examples below use [Kind](https://kind.sigs.k8s.io/))
 - Access to an OpenAI-compatible API key for the LLM proxy
-- Ports `5174`, `8001`, and `8080` free on your workstation for port-forwarding
+- Ports `8001` (app/API) and `8080` (LLM proxy) free on your workstation for port-forwarding
 
 ## 1. Create (or reuse) a local cluster
 
@@ -25,13 +25,12 @@ the Postgres deployment can request an `emptyDir` volume.
 
 ## 2. Build the images for Kubernetes
 
-Build the same containers Compose uses, plus the Codex workspace image that the
-provisioner spawns, and tag them for local use:
+Build the bundled application image (serves API + built frontend), plus the LLM
+proxy and the Codex workspace image the provisioner spawns. Tag them for local
+use:
 
 ```bash
-docker build -t astraforge/backend:local backend
-# worker uses the backend image
-docker build -t astraforge/frontend:local frontend
+docker build -t astraforge:local .
 docker build -t astraforge/llm-proxy:local llm-proxy
 docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
 ```
@@ -40,8 +39,7 @@ When using Kind, load the freshly built images into the cluster so Kubernetes
 can pull them without contacting a registry:
 
 ```bash
-kind load docker-image astraforge/backend:local --name astraforge
-kind load docker-image astraforge/frontend:local --name astraforge
+kind load docker-image astraforge:local --name astraforge
 kind load docker-image astraforge/llm-proxy:local --name astraforge
 kind load docker-image astraforge/codex-cli:latest --name astraforge
 ```
@@ -66,9 +64,8 @@ kubectl -n astraforge-local create secret generic astraforge-llm \
 ```
 
 The backend, worker, and proxy pods read their local-safe defaults from the
-`astraforge-backend-env` and `astraforge-frontend-env` ConfigMaps, so most of the
-usual `.env` variables are not required here. Update those ConfigMaps if you need
-different log levels or URLs.
+`astraforge-backend-env` ConfigMap, so most of the usual `.env` variables are not
+required here. Update that ConfigMap if you need different log levels or URLs.
 
 ## 4. Deploy the stack
 
@@ -96,18 +93,15 @@ The manifests leave services as `ClusterIP` so they are isolated by default. Use
 port-forwarding when you want to drive the UI from your browser:
 
 ```bash
-# Terminal 1 – backend API and SSE
+# Terminal 1 – backend API + built frontend
 kubectl port-forward svc/backend 8001:8001 -n astraforge-local
-
-# Terminal 2 – frontend Vite dev server
-kubectl port-forward svc/frontend 5174:5174 -n astraforge-local
 
 # Optional – LLM proxy, if you want to call it directly
 kubectl port-forward svc/llm-proxy 8080:8080 -n astraforge-local
 ```
 
-Visit http://localhost:5174 to use the UI; it proxies API calls back to the
-backend service via the forwarded port at http://localhost:8001.
+Visit http://localhost:8001 to use the UI and API; the bundled image serves the
+built frontend and Django backend together.
 
 ## 6. Tear down
 
@@ -162,9 +156,11 @@ Kind (or other) cluster is running.
    The override switches `PROVISIONER=k8s`, mounts your kubeconfig into both the
    API and Celery worker containers, and ensures they can resolve
    `host.docker.internal` so the Kubernetes API server running on your laptop is
-   reachable from inside Docker.
+   reachable from inside Docker. Keep the `frontend` service if you want the live
+   Vite UI at http://localhost:5174; if you prefer the bundled app, omit it and
+   hit the backend at http://localhost:8001.
 
-Once everything is up you can drive the UI at http://localhost:5174 while all
+Once everything is up you can drive the UI from the chosen endpoint while all
 Codex executions run as Kubernetes pods that the backend spawns on demand.
 
 ## Troubleshooting
@@ -173,8 +169,9 @@ Codex executions run as Kubernetes pods that the backend spawns on demand.
   commands (or push to a registry) so the cluster can access the `:local` tags.
 - **LLM proxy fails to start** – confirm the `astraforge-llm` secret contains a
   valid `OPENAI_API_KEY`.
-- **Frontend cannot reach the backend** – make sure both `kubectl port-forward`
-  commands are running; the SPA calls `http://localhost:8001` by design.
+- **Frontend cannot reach the backend** – if you’re using the Vite frontend, make
+  sure both port-forwards (backend + frontend) are running; otherwise ensure the
+  backend port-forward to `http://localhost:8001` is up.
 - **Database reset between restarts** – the Postgres deployment uses `emptyDir`
   for fast feedback. For persistent volumes swap that block with a PVC in
   `infra/k8s/local/postgres.yaml`.

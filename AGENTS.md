@@ -46,20 +46,3 @@
   semantics (path resolution, create-only writes, edit/grep/read outputs), differing only by
   transport. Any change to one requires applying the same behavior to the other and updating tests
   and docs to reflect the shared contract.
-
-
-# TODO
-
-## Engine 
-- [ ] Add claude code
-- [ ] Add Kimi Cli
-- [ ] Add Open Coder
-- [ ] Add Gemini Coder
-
-## Feature
-- [ ] Can choose base default docker image
-- [ ] Can batch modify
-- [ ] Can generate documentation
-- [ ] Can generate architecture mindmap
-- [ ] Add context7 mcp (for documentation latest version knowledge)
-- [ ] Add playwright mcp to launch and test the App

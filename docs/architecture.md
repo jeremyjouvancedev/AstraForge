@@ -29,20 +29,21 @@ flowchart TD
         CLIImage["Codex CLI Image"]
         Workspace["Ephemeral Codex Container"]
         Proxy["Codex Proxy Wrapper"]
+        LLMProxy["LLM Proxy Service</br>(Codex only)"]
         Repo["Git Repository"]
     end
     subgraph Agent_Sandbox["Agent Sandbox"]
         SandboxMgr["Session Manager"]
         Reaper["Sandbox Reaper Task"]
-        DockerSandboxes["Docker Sandboxes\nread-only, drop caps"]
-        K8sSandboxes["Kubernetes Pods\nseccomp + non-root"]
+        DockerSandboxes["Docker Sandboxes</br>read-only, drop caps"]
+        K8sSandboxes["Kubernetes Pods</br>seccomp + non-root"]
         SandboxNet["Isolated Sandbox Network"]
-        NetPolicy["LLM-only NetworkPolicy"]
+        NetPolicy["Sandbox NetworkPolicy</br>(DNS + internet, RFC1918 blocked)"]
         Daemon["Sandbox Daemon (exec/GUI)"]
     end
-    LLMProxy["LLM Proxy Service"]
+    PublicNet["Public Internet"]
 
-    FE -->|HTTP/WebSocket| API
+    FE -->|HTTP + SSE| API
     PySDK -->|HTTPS + X-Api-Key| API
     API -->|SSE| FE
     API --> PG
@@ -62,9 +63,9 @@ flowchart TD
     DockerSandboxes --> Daemon
     K8sSandboxes --> Daemon
     DockerSandboxes --> SandboxNet
-    SandboxNet --> LLMProxy
     K8sSandboxes --> NetPolicy
-    NetPolicy --> LLMProxy
+    SandboxNet --> PublicNet
+    NetPolicy --> PublicNet
     Daemon --> Artifacts
     API -->|publish prompt| RunLog
     Worker -->|emit events| RunLog
@@ -80,51 +81,56 @@ flowchart TD
 
 ```
 ./ 
-├── backend/              # Django + Celery service implementing the API and orchestration pipelines
+├── backend/                 # Django + Celery service implementing the API and orchestration pipelines
 │   ├── pyproject.toml
 │   ├── manage.py
 │   └── astraforge/
-│       ├── config/       # Django settings (env-based, 12-factor)
-│       ├── domain/       # Pure domain models, aggregates, repositories, service ports
-│       ├── application/  # Use-cases, command/query handlers, state machine orchestration
-│       ├── interfaces/   # DRF viewsets, WebSocket/SSE gateways, provider registries
-│       ├── infrastructure/ # Django ORM, Redis, Celery, external service adapters
+│       ├── config/          # Django settings (env-based, 12-factor)
+│       ├── domain/          # Pure domain models, aggregates, repositories, service ports
+│       ├── application/     # Use-cases, command/query handlers, state machine orchestration
+│       ├── interfaces/      # DRF viewsets, WebSocket/SSE gateways, provider registries
+│       ├── infrastructure/  # Django ORM, Redis, Celery, external service adapters
 │       └── tests/
-├── frontend/             # React + shadcn/ui single-page app (Vite)
+├── frontend/                # React + shadcn/ui single-page app (Vite)
 │   ├── package.json
 │   ├── src/
-│   │   ├── app/          # Route layout (Requests, Conversations, Runs, MR Dashboard)
-│   │   ├── components/   # UI primitives, chat composer, diff preview widgets
-│   │   ├── features/     # Feature-sliced logic with React Query hooks
-│   │   └── lib/          # OpenAPI client, SSE helpers, feature flag registry
+│   │   ├── app/             # Route layout (Requests, Conversations, Runs, MR Dashboard)
+│   │   ├── components/      # UI primitives, chat composer, diff preview widgets
+│   │   ├── features/        # Feature-sliced logic with React Query hooks
+│   │   └── lib/             # OpenAPI client, SSE helpers, feature flag registry
 │   └── tests/
+├── llm-proxy/                # FastAPI wrapper that proxies OpenAI (or compatible) APIs
+├── sandbox/                  # Desktop/daemon Dockerfile for sandboxed sessions
+├── astraforge-python-package/ # Published `astraforge-toolkit` Python package
 ├── infra/
-│   ├── ci/               # GitHub Actions / GitLab CI pipelines
-│   └── k8s/              # Cluster manifests and local kustomize overlays
-│       └── local/        # Kind/k3d-ready stack mirroring docker-compose.yml
-├── docs/                 # Architecture, ADRs, runbooks
-└── tools/                # Developer utilities, pre-commit hooks, scripts
+│   ├── ci/                   # GitHub Actions / GitLab CI pipelines
+│   └── k8s/                  # Cluster manifests and local kustomize overlays
+│       └── local/            # Kind/k3d-ready stack mirroring docker-compose.yml
+├── docs/                     # Architecture, ADRs, runbooks
+└── images/                   # Marketing and README screenshots
 ```
 
-Local engineers can now pick between `docker-compose.yml` for socket-enabled Docker
-workspaces and `infra/k8s/local` for mirrored Kubernetes clusters (documented in
-`docs/kubernetes-local.md`). Both paths keep hot reloads and the same environment
-variables so switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`)
-is frictionless.
+The root `Dockerfile` builds the bundled application image that serves the Django
+API and built frontend together on port 8001; local engineers can still pick
+between `docker-compose.yml` for socket-enabled Docker workspaces and
+`infra/k8s/local` for mirrored Kubernetes clusters (documented in
+`docs/kubernetes-local.md`). Both paths keep the same environment variables so
+switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`) is frictionless.
 
 ## Sandbox Control Plane
 
 - **Sandbox orchestrator API** exposes `/api/sandbox/sessions/` to external agents so they can spin up isolated desktops on Docker (fast local dev) or Kubernetes (hardened multi-tenant) while keeping UUID-backed session identifiers.
 - Each session records a `ref` (`docker://…` or `k8s://namespace/pod`), a control endpoint, workspace path, and timeouts for idle (default 5 minutes) and max lifetime (default 1 hour) so cleanup can be enforced without manual intervention.
+- Kubernetes sandboxes now stamp the session ID into the pod name and reuse an existing pod on retry instead of spawning a new one, preventing duplicate runtimes for the same session.
 - Celery beat triggers a sandbox reaper task that inspects the idle and lifetime thresholds and asks the orchestrator to terminate stale Docker/Kubernetes sandboxes, persisting the `terminated_reason` in session metadata so clients understand why a session stopped.
 - Shell commands, file uploads, snapshots, and heartbeats are proxied through the orchestrator, which shells into the container/pod when no in-guest daemon is present; future iterations can swap in a full GUI daemon without changing the public contract.
-- Snapshots now write archives into `/workspace/.sandbox-snapshots/` (persisted when Docker volumes are enabled); both manual captures and auto-stop/auto-reap flows pin a `latest_snapshot_id` in session metadata so new sessions can restore via `restore_snapshot_id`. When `SANDBOX_S3_BUCKET` is set, archives are streamed out of the sandbox and uploaded to S3/MinIO (endpoint configurable via `SANDBOX_S3_ENDPOINT_URL`), and restores download from the same bucket before extracting into the workspace. If a user returns to a non-ready sandbox, API calls auto-provision a fresh runtime and apply the `latest_snapshot_id` so the session transparently resumes.
+- Snapshots now write archives into `/tmp/astraforge-snapshots/{session_id}/{snapshot_id}.tar.gz` by default (override with `SANDBOX_SNAPSHOT_DIR`); both manual captures and auto-stop/auto-reap flows pin a `latest_snapshot_id` in session metadata so new sessions can restore via `restore_snapshot_id`. When `SANDBOX_S3_BUCKET` is set, archives are streamed out of the sandbox and uploaded to S3/MinIO (endpoint configurable via `SANDBOX_S3_ENDPOINT_URL`), and restores download from the same bucket before extracting into the workspace. If a user returns to a non-ready sandbox, API calls auto-provision a fresh runtime and apply the `latest_snapshot_id` so the session transparently resumes.
 - Artifacts and snapshots are tracked with UUID metadata, and download URLs are derived from `SANDBOX_ARTIFACT_BASE_URL` when available; GUI controls/streaming are stubbed until the sandbox daemon is integrated.
-- **Sandbox isolation hardening**: Docker sandboxes now start with `--read-only`, tmpfs mounts for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `seccomp=default`, and PID limits. They attach to `SANDBOX_DOCKER_NETWORK` (default `astraforge-sandbox`) with the host gateway disabled by default; keep it internal to block LAN or switch to a routed network with host firewall rules if you need internet-only egress. Kubernetes sandboxes run non-root with read-only root filesystems, dropped capabilities, runtime-default seccomp, and service account token auto-mount disabled; the `workspace-networkpolicy.yaml` overlay allows DNS + `llm-proxy` and internet egress while blocking RFC1918/link-local ranges (so the NAS/LAN stays unreachable).
+- **Sandbox isolation hardening**: Docker sandboxes now start with `--read-only`, tmpfs mounts for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `seccomp=default`, and PID limits. They attach to `SANDBOX_DOCKER_NETWORK` (default `astraforge-sandbox`) with the host gateway disabled by default; keep it internal to block LAN or switch to a routed network with host firewall rules if you need internet-only egress. Kubernetes sandboxes run non-root with read-only root filesystems, dropped capabilities, runtime-default seccomp, and service account token auto-mount disabled; the `workspace-networkpolicy.yaml` overlay allows DNS + public internet egress while blocking RFC1918/link-local ranges (so the NAS/LAN stays unreachable), and Codex workspaces layer an additional `codex-egress-llm-proxy` policy so the LLM proxy remains a Codex-only dependency.
 
 ### DeepAgent Sandbox SDK
 
-- A lightweight Python client (`AstraForgeSandboxBackend` package) wraps the `/api/deepagent/...` and `/api/sandbox/...` endpoints so external applications can create sandbox-backed DeepAgent conversations using only a base API URL and an `X-Api-Key`.
+- A lightweight Python client (`astraforge-toolkit` package) wraps the `/api/deepagent/...` and `/api/sandbox/...` endpoints so external applications can create sandbox-backed DeepAgent conversations using only a base API URL and an `X-Api-Key` (`SandboxBackend`, `DeepAgentClient`, and LangChain tools).
 - The same client works against local instances (for example `http://localhost:8001/api`) and hosted deployments, providing a single integration surface for experiments, CI jobs, or custom dashboards.
 
 ### Python Toolkit + DeepAgent Sandbox Flow
@@ -133,53 +139,42 @@ is frictionless.
 flowchart LR
     subgraph "External Integrations"
         App["External app / notebook / CI"]
-        Toolkit["astraforge-toolkit\nPyPI package"]
-        CustomAgent["Custom DeepAgent runtime\n(create_deep_agent + SandboxBackend)"]
+        DeepAgent
+        subgraph Toolkit["AstraForge Toolkit"]
+            AstraForgeBackend
+            AstraForgeTools
+        end
     end
 
-    subgraph "AstraForge API (Django)"
-        DeepAPI[/DeepAgent API\n/ deepagent/conversations, /messages/]
-        SandboxAPI[/Sandbox API\n/ sandbox/sessions, /shell, /files/]
-        HostedAgent["Hosted DeepAgent\n(LangGraph + policy-wrapped SandboxBackend)"]
-        Checkpointer["Postgres checkpointer"]
+    subgraph "AstraForge"
+        SandboxAPI[/Sandbox API<br/>/ sandbox/sessions, /shell, /files/]
+        Orchestrator["SandboxOrchestrator<br/>(Docker/K8s provisioner)"]
+        DockerSandbox["Docker sandbox<br/>read-only rootfs"]
+        K8sSandbox["Kubernetes sandbox<br/>non-root + NetworkPolicy"]
+        Workspace["/workspace"]
     end
 
-    subgraph "Sandbox Control Plane"
-        Orchestrator["SandboxOrchestrator\n(Docker/K8s provisioner)"]
-        SessionStore["SandboxSession + Snapshot DB"]
-        DockerSandbox["Docker sandbox\nread-only rootfs"]
-        K8sSandbox["Kubernetes sandbox\nnon-root + NetworkPolicy"]
-        Workspace["Workspace mount (/workspace)\n(tmpfs or volume)"]
-    end
+    App -->|"pip install"| DeepAgent
+    DeepAgent --> Toolkit
 
-    App -->|"pip install"| Toolkit
-    Toolkit -->|"DeepAgentClient calls"| DeepAPI
     Toolkit -->|"SandboxBackend (HTTP) exec/upload/read"| SandboxAPI
-    Toolkit --> CustomAgent
-    CustomAgent -->|"tool calls (shell/python/write/edit)"| SandboxAPI
-    DeepAPI -->|"SSE stream (tokens, tool calls, artifacts)"| Toolkit
-    DeepAPI --> HostedAgent
-    HostedAgent -->|"filesystem + Playwright tools"| Orchestrator
-    DeepAPI --> Checkpointer
     SandboxAPI --> Orchestrator
-    Orchestrator --> SessionStore
     Orchestrator --> DockerSandbox
     Orchestrator --> K8sSandbox
     DockerSandbox --> Workspace
     K8sSandbox --> Workspace
-    Workspace -->|ls/read/write/edit/python/shell| HostedAgent
 ```
 
-External teams install `astraforge-toolkit` to either (a) call the hosted DeepAgent API via `DeepAgentClient` and stream replies, or (b) run their own DeepAgents that talk directly to the sandbox API through the `SandboxBackend`. Both paths reuse the same sandbox control plane and enforce the policy-wrapped backend semantics (create-only writes, bounded workspace root, snapshot-aware session reuse) while the hosted agent continues to use the LLM proxy plus optional Postgres checkpointer.
+External teams `pip install astraforge-toolkit` inside apps, notebooks, or CI to embed DeepAgent with the packaged `AstraForgeBackend` HTTP client and toolbelt; all filesystem, shell, and Python calls flow through the Sandbox API into Docker or Kubernetes sandboxes mounted at `/workspace`, preserving the same policy-wrapped semantics (allowed root, create-only writes, snapshot-aware reuse) whether the agent runs locally or alongside the hosted service.
 
 ### DeepAgent System Architecture & Workflow
 
 ```mermaid
 flowchart TD
-    UI["User Interface\nChat + File Uploads"]
-    Orchestrator["DeepAgent Orchestrator\n(LangGraph + policy SandboxBackend)"]
-    Memory["Memory / Knowledge\nCheckpointer + Run Log"]
-    Decomp["Task Decomposition\nTool routing + orchestration"]
+    UI["User Interface</br>Chat + File Uploads"]
+    Orchestrator["DeepAgent Orchestrator</br>(LangGraph + policy SandboxBackend)"]
+    Memory["Memory / Knowledge</br>Checkpointer + Run Log"]
+    Decomp["Task Decomposition</br>Tool routing + orchestration"]
     UI --> Orchestrator
     Orchestrator --> Memory
     Orchestrator --> Decomp
@@ -187,12 +182,12 @@ flowchart TD
 
     subgraph Sandbox["E2B Sandbox Environment (/workspace)"]
         direction LR
-        WebAgent["Agent: Web\nTavily search + Playwright"]
-        DataAgent["Agent: Data\nAnalysis + API access"]
-        CodeAgent["Agent: Code\nPython REPL + shell + git"]
-        FileAgent["Agent: Files\nRead/Write/Edit + artifacts"]
-        OpsAgent["Agent: Ops\nWorkspace controls + snapshots"]
-        Exec["Execution & Combination\nAgents exchange data via workspace"]
+        WebAgent["Agent: Web</br>Tavily search + Playwright"]
+        DataAgent["Agent: Data</br>Analysis + API access"]
+        CodeAgent["Agent: Code</br>Python REPL + shell + git"]
+        FileAgent["Agent: Files</br>Read/Write/Edit + artifacts"]
+        OpsAgent["Agent: Ops</br>Workspace controls + snapshots"]
+        Exec["Execution & Combination</br>Agents exchange data via workspace"]
         WebAgent --> Exec
         DataAgent --> Exec
         CodeAgent --> Exec
@@ -210,7 +205,7 @@ flowchart TD
     Assign --> CodeAgent
     Assign --> FileAgent
     Assign --> OpsAgent
-    Exec --> Outputs["Outputs\nReports, diffs, artifacts, notifications"]
+    Exec --> Outputs["Outputs</br>Reports, diffs, artifacts, notifications"]
     Outputs --> UI
 ```
 
@@ -220,24 +215,24 @@ flowchart TD
 flowchart LR
     subgraph "Agent Runtime"
         UI["User / UI / Chat"]
-        Agent["DeepAgent runtime\n(LangGraph orchestration)"]
-        Custom["Your custom tools\n(domain-specific plugins)"]
-        FSTools["Filesystem toolbelt\nls | read | write | edit | glob | grep"]
-        ShellTool["Sandbox shell tool\nnon-interactive commands"]
-        PyRepl["Python REPL tool\nexecutes in sandbox"]
-        PlaywrightTool["Playwright browser tool\nopen_url_with_playwright"]
-        ImageTool["Image viewer tool\nsandbox_view_image"]
-        ArtifactTool["Artifact / snapshot actions\nexport + restore"]
+        Agent["DeepAgent runtime</br>(LangGraph orchestration)"]
+        Custom["Your custom tools</br>(domain-specific plugins)"]
+        FSTools["Filesystem toolbelt</br>ls | read | write | edit | glob | grep"]
+        ShellTool["Sandbox shell tool</br>non-interactive commands"]
+        PyRepl["Python REPL tool</br>executes in sandbox"]
+        PlaywrightTool["Playwright browser tool</br>open_url_with_playwright"]
+        ImageTool["Image viewer tool</br>sandbox_view_image"]
+        ArtifactTool["Artifact / snapshot actions</br>export + restore"]
     end
 
     subgraph "Sandbox Backend"
-        Policy["SandboxBackend + PolicyWrapper\n(enforce allowed_root)"]
-        ExecModes["Execution path\n- Internal: Django SandboxSession + Orchestrator\n- HTTP: astraforge-toolkit SandboxBackend"]
+        Policy["SandboxBackend + PolicyWrapper</br>(enforce allowed_root)"]
+        ExecModes["Execution path</br>- Internal: Django SandboxSession + Orchestrator</br>- HTTP: astraforge-toolkit SandboxBackend"]
     end
 
     subgraph "Sandbox Session"
         Container["Docker/K8s sandbox"]
-        Workspace["/workspace files\ncode, data, artifacts"]
+        Workspace["/workspace files</br>code, data, artifacts"]
         Snapshots["Snapshots / artifacts export"]
     end
 
@@ -258,7 +253,7 @@ flowchart LR
     ArtifactTool --> Policy
     Policy --> ExecModes --> Container --> Workspace
     Workspace --> Snapshots
-    Workspace --> Outputs["Outputs\nreports, diffs, artifacts links"]
+    Workspace --> Outputs["Outputs</br>reports, diffs, artifacts links"]
     Outputs --> UI
 ```
 
@@ -267,10 +262,10 @@ flowchart LR
 ```mermaid
 flowchart LR
     ExternalApp["External app"]
-    CustomAgent["Custom DeepAgent\n+ AstraForge tools"]
-    Toolkit["astraforge-toolkit\nSandboxBackend"]
+    CustomAgent["Custom DeepAgent</br>+ AstraForge tools"]
+    Toolkit["astraforge-toolkit</br>SandboxBackend"]
     API["AstraForge API"]
-    Sandbox["AstraForge Sandbox\nDocker or Kubernetes\n/workspace"]
+    Sandbox["AstraForge Sandbox</br>Docker or Kubernetes</br>/workspace"]
 
     ExternalApp -->|"call custom agent"| CustomAgent
     CustomAgent -->|"uses toolkit + backend helpers"| Toolkit
@@ -305,6 +300,7 @@ flowchart LR
 - Local Kubernetes clusters rely on the `infra/k8s/local` kustomize overlay, which mirrors Compose services, runs Django migrations via init containers, and exposes the stack through `kubectl port-forward` so browsers can reach `http://localhost:5174` (frontend) and `http://localhost:8001` (backend) while exercising the Kubernetes provisioner.
 - The Kubernetes provisioner talks directly to the cluster using the Python client, spawning short-lived Codex workspace pods per request with `emptyDir` volumes mounted at `/workspaces`, and authenticates through the `astraforge-operator` service account so Celery workers can `create`, `exec`, and `delete` pods without shipping `kubectl` binaries inside the containers.
 - A hybrid override (`docker-compose.hybrid.yml`) lets engineers keep the API + Celery services in Docker Compose while pointing them at a local Kind cluster; the override mounts `~/.kube`, rewrites `PROVISIONER=k8s`, and teaches the containers to reach the host's Kubernetes API via `host.docker.internal`.
+- The LLM proxy now lives inside workspace orchestration and is a Codex-only dependency; sandboxed DeepAgent flows stay proxy-free while Codex workspaces keep their dedicated gateway.
 - Raw prompts are persisted with the request and transformed on-demand into lightweight development specs so the Codex CLI receives meaningful context without a separate planning task.
 - Follow-up chat messages (`POST /api/chat/`) append to the request metadata, publish user events, and immediately queue a new execution; the operator restores the Codex history JSONL into both the repository cache and the CLI home directory so multi-run conversations resume seamlessly.
 - When the registry image is unavailable, the bootstrapper compiles a local image, tags it `astraforge/codex-cli:latest`, and retries the launch.
@@ -380,7 +376,7 @@ runs regression tests, and assembles a merge request for approval.
 - 12-factor configuration via environment variables and secrets managers.
 - Keycloak OIDC for authentication; API enforces RBAC roles (admin/maintainer/reviewer/observer).
 - OPA/Gatekeeper policies ensure workspace diffs comply with path allowlists and size limits.
-- Sandbox egress is allowlisted: Docker sandboxes default to an isolated bridge (`astraforge-sandbox`) with seccomp+no-new-privileges+PID limits, while Kubernetes sandboxes inherit non-root, read-only security contexts and a NetworkPolicy that permits DNS + `llm-proxy` + internet but blocks RFC1918/link-local ranges (NAS/LAN).
+- Sandbox egress is allowlisted: Docker sandboxes default to an isolated bridge (`astraforge-sandbox`) with seccomp+no-new-privileges+PID limits, while Kubernetes sandboxes inherit non-root, read-only security contexts and a NetworkPolicy that permits DNS + public internet while blocking RFC1918/link-local ranges (NAS/LAN). Codex pods add a `codex-egress-llm-proxy` policy when they need the in-cluster LLM proxy; DeepAgent sandboxes stay proxy-free.
 - Rate limiting, quotas, idempotency keys, and compensating actions for workspace cleanup.
 
 ## Extensibility

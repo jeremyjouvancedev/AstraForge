@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import re
@@ -8,6 +9,7 @@ import shlex
 import subprocess
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Sequence
 
 import boto3
@@ -68,6 +70,13 @@ class SandboxOrchestrator:
         self._s3_use_ssl = (
             os.getenv("SANDBOX_S3_USE_SSL", "1").lower() not in {"0", "false", "no"}
         )
+        self._snapshot_base_dir = os.getenv("SANDBOX_SNAPSHOT_DIR", "").rstrip("/")
+
+    def _snapshot_dir(self, session: SandboxSession) -> str:
+        """Return a per-session snapshot directory outside the workspace."""
+        if self._snapshot_base_dir:
+            return f"{self._snapshot_base_dir.rstrip('/')}/{session.id}"
+        return f"/tmp/astraforge-snapshots/{session.id}"
 
     def provision(self, session: SandboxSession) -> SandboxSession:
         if session.mode == SandboxSession.Mode.DOCKER:
@@ -201,7 +210,7 @@ base64 "$TMPFILE"
         exclude_paths = exclude_paths or []
         snapshot_id = uuid.uuid4()
         base_workspace = (session.workspace_path or "/workspace").rstrip("/") or "/workspace"
-        archive_dir = f"{base_workspace}/.sandbox-snapshots"
+        archive_dir = self._snapshot_dir(session)
         archive_path = f"{archive_dir}/{snapshot_id}.tar.gz"
         include = " ".join(shlex.quote(path) for path in include_paths)
         excludes = list(exclude_paths) if exclude_paths is not None else []
@@ -211,64 +220,125 @@ base64 "$TMPFILE"
             f"mkdir -p {shlex.quote(archive_dir)} && "
             f"tar -czf {shlex.quote(archive_path)} {exclude_clause} {include}"
         ).strip()
-        result = self.execute(session, command)
-        if result.exit_code != 0:
-            raise SandboxProvisionError(f"Snapshot failed: {result.stdout.strip()}")
-        size_cmd = f"stat -c %s {shlex.quote(archive_path)}"
-        size_result = self.execute(session, size_cmd)
-        try:
-            size_bytes = int((size_result.stdout or '0').strip() or 0)
-        except ValueError:
-            size_bytes = 0
-        snapshot = SandboxSnapshot.objects.create(
-            id=snapshot_id,
-            session=session,
-            label=label,
-            size_bytes=size_bytes,
-            include_paths=include_paths,
-            exclude_paths=exclude_paths,
-            archive_path=archive_path,
+        self._log.info(
+            "Creating sandbox snapshot",
+            extra={
+                "session_id": str(session.id),
+                "snapshot_id": str(snapshot_id),
+                "label": label,
+                "include_paths": include_paths,
+                "exclude_paths": exclude_paths,
+                "archive_path": archive_path,
+            },
         )
         try:
-            self._upload_snapshot_to_s3(session, snapshot, archive_path)
-        except SandboxProvisionError as exc:
-            self._log.warning(
-                "Snapshot upload to object storage failed; keeping local archive only",
+            result = self.execute(session, command)
+            if result.exit_code != 0:
+                raise SandboxProvisionError(f"Snapshot failed: {result.stdout.strip()}")
+            size_cmd = f"stat -c %s {shlex.quote(archive_path)}"
+            size_result = self.execute(session, size_cmd)
+            try:
+                size_bytes = int((size_result.stdout or '0').strip() or 0)
+            except ValueError:
+                size_bytes = 0
+            snapshot = SandboxSnapshot.objects.create(
+                id=snapshot_id,
+                session=session,
+                label=label,
+                size_bytes=size_bytes,
+                include_paths=include_paths,
+                exclude_paths=exclude_paths,
+                archive_path=archive_path,
+            )
+            try:
+                self._upload_snapshot_to_s3(session, snapshot, archive_path)
+            except SandboxProvisionError as exc:
+                self._log.warning(
+                    "Snapshot upload to object storage failed; keeping local archive only",
+                    extra={
+                        "session_id": str(session.id),
+                        "snapshot_id": str(snapshot.id),
+                        "bucket": self._s3_bucket,
+                        "error": str(exc),
+                    },
+                )
+            self._record_latest_snapshot(session, snapshot.id)
+            session.mark_activity()
+            self._log.info(
+                "Sandbox snapshot created",
                 extra={
                     "session_id": str(session.id),
                     "snapshot_id": str(snapshot.id),
-                    "bucket": self._s3_bucket,
-                    "error": str(exc),
+                    "archive_path": archive_path,
+                    "size_bytes": size_bytes,
+                    "s3_bucket": self._s3_bucket,
+                    "s3_key": snapshot.s3_key or "",
                 },
             )
-        self._record_latest_snapshot(session, snapshot.id)
-        session.mark_activity()
-        return snapshot
+            return snapshot
+        except Exception:
+            self._log.exception(
+                "Failed to create sandbox snapshot",
+                extra={
+                    "session_id": str(session.id),
+                    "snapshot_id": str(snapshot_id),
+                    "archive_path": archive_path,
+                    "include_paths": include_paths,
+                    "exclude_paths": exclude_paths,
+                },
+            )
+            raise
 
     def restore_snapshot(self, session: SandboxSession, snapshot: SandboxSnapshot):
         """Extract a snapshot archive back into the sandbox workspace."""
         if not snapshot.archive_path and not snapshot.s3_key:
             raise SandboxProvisionError("Snapshot archive path is missing")
 
-        archive_path = snapshot.archive_path or f"/tmp/{snapshot.id}.tar.gz"
+        archive_path = snapshot.archive_path or f"{self._snapshot_dir(session)}/{snapshot.id}.tar.gz"
         # Prefer S3 when a bucket is configured; fall back to an existing local archive inside the sandbox.
         content = None
+        download_attempted = False
         if snapshot.s3_key and self._s3_client():
+            download_attempted = True
             content = self._download_snapshot_from_s3(snapshot)
         if content:
             upload = self.upload_bytes(session, archive_path, content)
             if int(upload.exit_code) != 0:
                 message = (upload.stdout or upload.stderr or "").strip() or "Snapshot upload failed"
                 raise SandboxProvisionError(message)
+        exists = self.execute(session, f"test -s {shlex.quote(archive_path)}")
+        if exists.exit_code != 0:
+            message = "Snapshot archive is missing or empty"
+            if download_attempted and snapshot.s3_key:
+                message = "Snapshot archive is unavailable in remote storage"
+            raise SandboxProvisionError(message)
 
-        command = (
-            "tar "
-            "-xzf "
-            f"{shlex.quote(archive_path)} "
-            "-C / "
-            "--no-same-owner --no-same-permissions --no-overwrite-dir -m "
-            "--warning=no-unknown-keyword"
-        )
+        workspace_root = (session.workspace_path or "/workspace").rstrip("/") or "/workspace"
+        include_paths = snapshot.include_paths or []
+        base_dir = "/"
+        strip_components = 0
+        if len(include_paths) == 1:
+            included = str(include_paths[0] or "").rstrip("/") or workspace_root
+            if os.path.abspath(included) == os.path.abspath(workspace_root):
+                base_dir = workspace_root
+                parts = [part for part in Path(workspace_root).parts if part not in {"", "/"}]
+                strip_components = len(parts)
+
+        command_parts = [
+            "tar",
+            "-xzf",
+            shlex.quote(archive_path),
+            "-C",
+            shlex.quote(base_dir),
+            "--no-same-owner",
+            "--no-same-permissions",
+            "--no-overwrite-dir",
+            "-m",
+            "--warning=no-unknown-keyword",
+        ]
+        if strip_components:
+            command_parts.append(f"--strip-components={strip_components}")
+        command = " ".join(command_parts)
         result = self.execute(session, command, cwd=session.workspace_path)
         if result.exit_code != 0:
             message = (result.stdout or result.stderr or "").strip() or "Snapshot restore failed"
@@ -398,8 +468,13 @@ base64 "$TMPFILE"
         return args
 
     def _spawn_docker(self, session: SandboxSession) -> SandboxRuntime:
-        ident = f"sandbox-{str(session.id).replace('-', '')}"
-        self.runner.run(["docker", "rm", "-f", ident], allow_failure=True)
+        ident = f"sandbox-{session.id}"
+        workspace_path = session.workspace_path or "/workspace"
+        adopted = self._try_adopt_existing_container(
+            ident, workspace_path, session_id=str(session.id)
+        )
+        if adopted:
+            return adopted
 
         args = [
             "docker",
@@ -415,7 +490,6 @@ base64 "$TMPFILE"
         args.extend(self._docker_security_args())
         args.extend(self._docker_user_args())
         args.extend(self._docker_label_args(session))
-        workspace_path = session.workspace_path or "/workspace"
         mount = self._workspace_volume_mount(session)
         if not mount and _env_flag("SANDBOX_DOCKER_READ_ONLY", "1"):
             # World-writable workspace tmpfs so the non-root sandbox user can write.
@@ -433,6 +507,11 @@ base64 "$TMPFILE"
             message = str(exc.output or exc)
             conflict = self._is_container_name_conflict(message, exit_code=getattr(exc, "returncode", None))
             if conflict:
+                adopted = self._try_adopt_existing_container(
+                    ident, workspace_path, session_id=str(session.id)
+                )
+                if adopted:
+                    return adopted
                 # Cleanup conflicting container and retry once.
                 self.runner.run(["docker", "rm", "-f", ident], allow_failure=True)
                 try:
@@ -462,6 +541,15 @@ base64 "$TMPFILE"
                 raise SandboxProvisionError(
                     f"Failed to provision Docker sandbox: {summary}"
                 ) from exc
+        running, detail = self._ensure_container_active(ident)
+        if not running:
+            self.runner.run(["docker", "rm", "-f", ident], allow_failure=True)
+            session.status = SandboxSession.Status.FAILED
+            session.error_message = (
+                f"Docker sandbox container is not running: {detail or 'unknown state'}"
+            )
+            session.save(update_fields=["status", "error_message", "updated_at"])
+            raise SandboxProvisionError(session.error_message)
         return SandboxRuntime(
             ref=f"docker://{ident}",
             control_endpoint=f"docker://{ident}",
@@ -663,8 +751,59 @@ base64 "$TMPFILE"
             r"already in use.+container name",
             r"conflict.*container name",
             r"you have to remove .* to be able to reuse that name",
+            r"marked for removal",
         ]
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in conflict_patterns)
+
+    def _inspect_container_state(self, ident: str) -> tuple[bool, str, str, int | None]:
+        """Return (running, status, error, exit_code) for a Docker container."""
+        inspect = self.runner.run(
+            ["docker", "inspect", "-f", "{{json .State}}", ident],
+            allow_failure=True,
+        )
+        if inspect.exit_code != 0:
+            message = (inspect.stderr or inspect.stdout or "").strip()
+            return False, "unknown", message, None
+        raw_state = (inspect.stdout or "").strip()
+        try:
+            data = json.loads(raw_state or "{}")
+        except Exception:
+            return False, "unknown", raw_state, None
+        running = bool(data.get("Running"))
+        status = str(data.get("Status") or "")
+        error = str(data.get("Error") or "").strip()
+        exit_code_raw = data.get("ExitCode")
+        try:
+            exit_code = int(exit_code_raw)
+        except (TypeError, ValueError):
+            exit_code = None
+        return running, status, error, exit_code
+
+    def _format_container_state(self, status: str, error: str, exit_code: int | None) -> str:
+        parts = []
+        if status:
+            parts.append(f"status={status}")
+        if exit_code is not None:
+            parts.append(f"exit_code={exit_code}")
+        if error:
+            parts.append(error)
+        return "; ".join(part for part in parts if part) or "container is not running"
+
+    def _ensure_container_active(self, ident: str) -> tuple[bool, str]:
+        """Start the container if needed and confirm it is running."""
+        running, status, error, exit_code = self._inspect_container_state(ident)
+        if running:
+            return True, ""
+        started = self.runner.run(["docker", "start", ident], allow_failure=True)
+        if started.exit_code == 0:
+            running, status, error, exit_code = self._inspect_container_state(ident)
+            if running:
+                return True, ""
+        detail = self._format_container_state(status, error, exit_code)
+        fallback = (started.stderr or started.stdout or "").strip()
+        if fallback and fallback not in detail:
+            detail = f"{detail}; {fallback}"
+        return False, detail
 
     def _try_adopt_existing_container(
         self, ident: str, workspace_path: str, session_id: str | None = None
@@ -675,24 +814,24 @@ base64 "$TMPFILE"
                 "docker",
                 "inspect",
                 "-f",
-                '{{ index .Config.Labels "astraforge.sandbox.session" }} {{ .State.Running }}',
+                '{{ index .Config.Labels "astraforge.sandbox.session" }}|{{ .State.Running }}',
                 ident,
             ],
             allow_failure=True,
         )
         if inspect.exit_code != 0:
             return None
-        label_value, running_state = "", ""
-        parts = inspect.stdout.strip().split()
+        label_value = ""
+        parts = inspect.stdout.strip().split("|", maxsplit=1)
         if parts:
-            label_value = parts[0]
-            running_state = parts[1] if len(parts) > 1 else ""
+            label_value = parts[0].strip()
+        if label_value in {"<no value>", "<nil>"}:
+            label_value = ""
         if session_id and label_value and label_value != session_id:
             return None
-        if running_state.lower() not in {"true", "running"}:
-            started = self.runner.run(["docker", "start", ident], allow_failure=True)
-            if started.exit_code != 0:
-                return None
+        running, _ = self._ensure_container_active(ident)
+        if not running:
+            return None
         return SandboxRuntime(
             ref=f"docker://{ident}",
             control_endpoint=f"docker://{ident}",

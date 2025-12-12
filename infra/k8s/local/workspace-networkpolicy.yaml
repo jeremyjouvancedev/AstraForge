@@ -23,14 +23,6 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow AI gateway inside the cluster
-    - to:
-        - podSelector:
-            matchLabels:
-              app: llm-proxy
-      ports:
-        - protocol: TCP
-          port: 8080
     # Allow internet egress but block RFC1918/link-local ranges (protect NAS/LAN)
     - to:
         - ipBlock:
@@ -42,3 +34,28 @@ spec:
               - 100.64.0.0/10
               - 169.254.0.0/16
               - 127.0.0.0/8
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: codex-egress-llm-proxy
+  labels:
+    app.kubernetes.io/name: astraforge
+    app.kubernetes.io/component: sandbox-security
+    app.kubernetes.io/part-of: astraforge
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: astraforge-workspace
+      astraforge.dev/toolchain: codex
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: llm-proxy
+      ports:
+        - protocol: TCP
+          port: 8080

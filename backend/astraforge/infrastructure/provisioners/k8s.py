@@ -34,13 +34,17 @@ class KubernetesProvisioner(Provisioner):
     def spawn(self, repo: str, toolchain: str) -> str:
         pod_name = self._build_pod_name(repo, toolchain)
         api = self._ensure_api()
-        pod = self._build_pod(pod_name)
+        pod = self._build_pod(pod_name, toolchain)
         try:
             api.create_namespaced_pod(namespace=self.namespace, body=pod)
         except ApiException as exc:  # pragma: no cover - surface rich error upstream
-            raise WorkspaceProvisioningError(
-                f"Failed to create workspace pod {pod_name}: {exc.reason}"
-            ) from exc
+            already_exists = getattr(exc, "status", None) == 409 or (
+                exc.reason and "AlreadyExists" in exc.reason
+            )
+            if not already_exists:
+                raise WorkspaceProvisioningError(
+                    f"Failed to create workspace pod {pod_name}: {exc.reason}"
+                ) from exc
         self._wait_until_ready(api, pod_name)
         return f"k8s://{self.namespace}/{pod_name}"
 
@@ -75,13 +79,14 @@ class KubernetesProvisioner(Provisioner):
         self._api = client.CoreV1Api()
         return self._api
 
-    def _build_pod(self, name: str) -> client.V1Pod:
+    def _build_pod(self, name: str, toolchain: str) -> client.V1Pod:
         metadata = client.V1ObjectMeta(
             name=name,
             namespace=self.namespace,
             labels={
                 "app.kubernetes.io/name": "astraforge-workspace",
                 "astraforge.dev/workspace": name,
+                "astraforge.dev/toolchain": toolchain,
             },
         )
         workspace_volume = client.V1Volume(
@@ -149,8 +154,12 @@ class KubernetesProvisioner(Provisioner):
     def _build_pod_name(self, repo: str, toolchain: str) -> str:
         base = f"{repo}-{toolchain}".lower()
         slug = re.sub(r"[^a-z0-9-]+", "-", base).strip("-") or "workspace"
+        if toolchain == "sandbox":
+            # Keep sandbox pods stable per session to avoid duplicate creations.
+            trimmed = slug[: max(0, 63 - len("sandbox-"))].strip("-") or "workspace"
+            return f"sandbox-{trimmed}"
         suffix = secrets.token_hex(3)
-        trimmed = slug[: max(0, 50)]
+        trimmed = slug[: max(0, 50)].strip("-") or "workspace"
         return f"codex-{trimmed}-{suffix}"
 
     def _parse_ref(self, ref: str) -> Tuple[str, str]:

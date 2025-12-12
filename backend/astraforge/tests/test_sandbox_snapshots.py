@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 
 from astraforge.domain.models.workspace import CommandResult
 from astraforge.sandbox.models import SandboxSession, SandboxSnapshot
-from astraforge.sandbox.services import SandboxOrchestrator
+from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
 
 pytestmark = pytest.mark.django_db
 
@@ -47,17 +47,18 @@ def test_create_snapshot_records_latest_metadata():
 
     session.refresh_from_db()
     assert session.metadata["latest_snapshot_id"] == str(snapshot.id)
-    assert snapshot.archive_path.startswith("/workspace/.sandbox-snapshots/")
+    assert snapshot.archive_path.startswith(f"/tmp/astraforge-snapshots/{session.id}/")
     assert any("tar" in " ".join(cmd) for cmd in runner.commands)
 
 
 def test_restore_snapshot_updates_metadata_and_executes_tar():
     user = get_user_model().objects.create_user(username="restorer", password="pass12345")
     session = _create_session(user)
+    archive_path = f"/tmp/astraforge-snapshots/{session.id}/restore-me.tar.gz"
     snapshot = SandboxSnapshot.objects.create(
         session=session,
         label="latest",
-        archive_path="/workspace/.sandbox-snapshots/restore-me.tar.gz",
+        archive_path=archive_path,
         include_paths=[session.workspace_path],
         exclude_paths=[],
     )
@@ -69,7 +70,8 @@ def test_restore_snapshot_updates_metadata_and_executes_tar():
     session.refresh_from_db()
     assert session.metadata["latest_snapshot_id"] == str(snapshot.id)
     joined_commands = " ".join(" ".join(cmd) for cmd in runner.commands)
-    assert "tar -xzf /workspace/.sandbox-snapshots/restore-me.tar.gz -C /" in joined_commands
+    assert f"tar -xzf {archive_path} -C /workspace" in joined_commands
+    assert "--strip-components=1" in joined_commands
 
 
 def test_create_snapshot_uploads_to_s3(monkeypatch):
@@ -113,11 +115,12 @@ def test_create_snapshot_uploads_to_s3(monkeypatch):
 def test_restore_snapshot_downloads_from_s3(monkeypatch):
     user = get_user_model().objects.create_user(username="restore-s3", password="pass12345")
     session = _create_session(user)
+    archive_path = f"/tmp/astraforge-snapshots/{session.id}/s3.tar.gz"
     snapshot = SandboxSnapshot.objects.create(
         session=session,
         label="s3",
         s3_key=f"snapshots/{session.id}/s3.tar.gz",
-        archive_path="/workspace/.sandbox-snapshots/s3.tar.gz",
+        archive_path=archive_path,
         include_paths=[session.workspace_path],
         exclude_paths=[],
     )
@@ -139,4 +142,35 @@ def test_restore_snapshot_downloads_from_s3(monkeypatch):
 
     assert uploaded and uploaded[0] == b"payload"
     joined_commands = " ".join(" ".join(cmd) for cmd in runner.commands)
-    assert "tar -xzf /workspace/.sandbox-snapshots/s3.tar.gz -C /" in joined_commands
+    assert f"tar -xzf {archive_path} -C /workspace" in joined_commands
+    assert "--strip-components=1" in joined_commands
+
+
+def test_restore_snapshot_missing_archive_raises(monkeypatch):
+    user = get_user_model().objects.create_user(username="restore-missing", password="pass12345")
+    session = _create_session(user)
+    archive_path = f"/tmp/astraforge-snapshots/{session.id}/missing.tar.gz"
+    snapshot = SandboxSnapshot.objects.create(
+        session=session,
+        label="missing",
+        s3_key=f"snapshots/{session.id}/missing.tar.gz",
+        archive_path=archive_path,
+        include_paths=[session.workspace_path],
+        exclude_paths=[],
+    )
+    runner = _RunnerSpy()
+    orchestrator = SandboxOrchestrator(runner=runner)
+    monkeypatch.setenv("SANDBOX_S3_BUCKET", "astraforge-snapshots")
+    orchestrator._s3_bucket = "astraforge-snapshots"
+    monkeypatch.setattr(orchestrator, "_s3_client", lambda: object())
+    monkeypatch.setattr(orchestrator, "_download_snapshot_from_s3", lambda _snap: None)
+
+    def fake_execute(_session, command, cwd=None, timeout_sec=None):
+        if "test -s" in command:
+            return CommandResult(exit_code=1, stdout="", stderr="")
+        return CommandResult(exit_code=0, stdout="", stderr="")
+
+    monkeypatch.setattr(orchestrator, "execute", fake_execute)
+
+    with pytest.raises(SandboxProvisionError):
+        orchestrator.restore_snapshot(session, snapshot)

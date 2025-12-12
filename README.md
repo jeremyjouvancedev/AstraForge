@@ -6,9 +6,13 @@ AstraForge is your on-call DevOps co-pilot, with two clear ways to plug in:
 
 A responsive web app streams live logs, diffs, and chat while the fixes ship.
 
-![home](./images/astra_forge_home.jpg)
-![diff](./images/astra_forge_diff_view.jpg)
-![log](./images/astra_forge_log_view.jpg)
+> Note: AstraForge is under active development; endpoints, workflows, and stack layout may evolve.
+
+## How to connect with deep agent
+
+![howtouse](./images/simplify_astraforge.png)
+
+
 
 - [What is AstraForge](#what-is-astraforge)
 - [AstraForge Python toolkit](#astraforge-python-toolkit-use-from-another-project)
@@ -175,7 +179,7 @@ make backend-serve
 
 # Terminal 2 – Celery worker queues
 cd backend
-celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default
+celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default --beat
 ```
 
 5) Launch the LLM proxy:
@@ -205,6 +209,12 @@ Visit `http://localhost:5174` and sign in. Keep `UNSAFE_DISABLE_AUTH=1` limited 
 - **Compose + Kubernetes hybrid** – Keep API/worker in Docker Compose but run workspaces in Kubernetes with `docker-compose.hybrid.yml`. Export `HYBRID_KUBECONFIG` as described in `docs/kubernetes-local.md`.
 - **Local Kubernetes** – Use manifests in `infra/k8s/local` and follow `docs/kubernetes-local.md` (build images, load into Kind/k3d/Minikube, apply manifests, port-forward frontend/backend).
 
+## Frontend webapp
+
+![home](./images/astra_forge_home.jpg)
+![diff](./images/astra_forge_diff_view.jpg)
+![log](./images/astra_forge_log_view.jpg)
+
 ## Configuration
 
 Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md` for full coverage):
@@ -220,7 +230,7 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 | `ASTRAFORGE_EXECUTE_COMMANDS` | Allow command execution in workspaces (set to `1` locally) |
 | `UNSAFE_DISABLE_AUTH` | Disable auth for local dev only (`1` locally, never in prod) |
 | `CODEX_WORKSPACE_IMAGE`, `CODEX_WORKSPACE_NETWORK`, `CODEX_WORKSPACE_PROXY_URL` | Workspace container image, network, and proxy used by Codex |
-| `SANDBOX_DOCKER_NETWORK`, `SANDBOX_DOCKER_READ_ONLY`, `SANDBOX_DOCKER_SECCOMP`, `SANDBOX_DOCKER_PIDS_LIMIT`, `SANDBOX_DOCKER_HOST_GATEWAY`, `SANDBOX_DOCKER_USER` | Harden sandbox containers (internal bridge name, read-only rootfs, seccomp profile, PID cap, host gateway toggle, optional run user); defaults target the isolated `astraforge-sandbox` network with egress only to the AI gateway. `SANDBOX_DOCKER_SECCOMP` defaults empty so no seccomp profile is passed; set it to a profile path or `unconfined` if you want the flag |
+| `SANDBOX_DOCKER_NETWORK`, `SANDBOX_DOCKER_READ_ONLY`, `SANDBOX_DOCKER_SECCOMP`, `SANDBOX_DOCKER_PIDS_LIMIT`, `SANDBOX_DOCKER_HOST_GATEWAY`, `SANDBOX_DOCKER_USER` | Harden sandbox containers (internal bridge name, read-only rootfs, seccomp profile, PID cap, host gateway toggle, optional run user); defaults target the isolated `astraforge-sandbox` network with egress only to the AI gateway. `SANDBOX_DOCKER_SECCOMP` defaults to `default`; set it to empty, a custom profile path, or `unconfined` to override |
 | `SANDBOX_*`, `AWS_*` | MinIO/S3 sandbox storage settings (defaults provided for local) |
 | `SECRET_KEY`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | Django security settings; replace defaults outside local |
 
@@ -243,7 +253,7 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 
 - Postgres not reachable: confirm port `5433` is free and `.env` matches `docker-compose.yml`.
 - Docker socket mount errors: ensure Docker is running and your user can access `/var/run/docker.sock`.
-- LLM proxy issues: verify `OPENAI_API_KEY` and that the proxy is listening on `:8080` (or `18080` if exposed).
+- LLM proxy issues: verify `OPENAI_API_KEY` and that the proxy is listening on host port `:8081` (container `:8080`, or `18080` if exposed separately).
 - Frontend not loading: check `pnpm dev` is running on `5174` and no conflicting process holds the port.
 - MinIO bucket setup: if `minio-setup` fails, ensure `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` match across services.
 
@@ -300,22 +310,28 @@ See `docs/architecture.md` for the accompanying narrative plus operational consi
 - [ ] Can generate architecture mindmap
 - [ ] Add context7 mcp (for documentation latest version knowledge)
 - [ ] Add playwright mcp to launch and test the App
+- [ ] Add SSO connection
+- [ ] Add API rate limiting (RPM)
+- [ ] Limit number of concurrent sandboxes
+- [ ] Add Glitchtip webhook to auto-patch reported bugs
 
 ## Monorepo layout
 
 ```
 .
-├── backend/            # Django REST API, Celery workers, provider registries
+├── backend/                 # Django REST API, Celery workers, provider registries
 │   └── astraforge/
-│       ├── domain/     # Domain models + repositories
-│       ├── application/# Use-cases + orchestration pipelines
-│       ├── interfaces/ # REST, SSE, registries, inbound adapters
-│       └── infrastructure/ # ORM, Redis, external service adapters
-├── frontend/           # Vite + React Query + shadcn/ui client
-├── llm-proxy/          # FastAPI wrapper that proxies OpenAI (or compatible) APIs
-├── docs/               # Architecture overview, ADRs, runbooks
-├── infra/              # Deployment scaffolding (docker, k8s, CI)
-└── images/             # Marketing and README screenshots
+│       ├── domain/          # Domain models + repositories
+│       ├── application/     # Use-cases + orchestration pipelines
+│       ├── interfaces/      # REST, SSE, registries, inbound adapters
+│       └── infrastructure/  # ORM, Redis, external service adapters
+├── frontend/                # Vite + React Query + shadcn/ui client
+├── llm-proxy/                # FastAPI wrapper that proxies OpenAI (or compatible) APIs
+├── sandbox/                  # Sandbox desktop/daemon Dockerfile and assets
+├── astraforge-python-package/ # Published `astraforge-toolkit` Python package
+├── docs/                     # Architecture overview, ADRs, runbooks
+├── infra/                    # Deployment scaffolding (docker, k8s, CI)
+└── images/                   # Marketing and README screenshots
 ```
 
 ## Additional resources

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "astraforge-toolkit"
-version = "0.1.6"
+version = "0.1.11"
 description = "HTTP client and sandbox backend for AstraForge DeepAgent."
 authors = [
   { name = "AstraForge Contributors", email = "jeremy.jouvance@gmail.com" }

@@ -61,21 +61,29 @@ class SandboxSessionViewSet(
             )
             if not restore_snapshot:
                 return Response({"detail": "Snapshot not found"}, status=status.HTTP_404_NOT_FOUND)
-        session = create_serializer.save()
+        requested_id = create_serializer.validated_data.get("id")
+        existing_session = None
+        if requested_id:
+            existing_session = SandboxSession.objects.filter(id=requested_id, user=request.user).first()
+        session = existing_session or create_serializer.save()
+        created = existing_session is None
         try:
-            self.orchestrator.provision(session)
+            if session.status != SandboxSession.Status.READY:
+                self.orchestrator.provision(session)
             if restore_snapshot:
                 self.orchestrator.restore_snapshot(session, restore_snapshot)
         except SandboxProvisionError as exc:
-            try:
-                self.orchestrator.terminate(session, reason="restore_failed")
-            except Exception:
-                pass
+            if created:
+                try:
+                    self.orchestrator.terminate(session, reason="restore_failed")
+                except Exception:
+                    pass
             status_code = status.HTTP_404_NOT_FOUND if restore_snapshot else status.HTTP_400_BAD_REQUEST
             return Response({"detail": str(exc)}, status=status_code)
         output = SandboxSessionSerializer(session)
-        headers = {"Location": str(session.id)}
-        return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
+        headers = {"Location": str(session.id)} if created else {}
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(output.data, status=status_code, headers=headers)
 
     def destroy(self, request, *args, **kwargs):
         session = self.get_object()
@@ -93,7 +101,9 @@ class SandboxSessionViewSet(
 
     @action(detail=True, methods=["post"], url_path="shell")
     def shell(self, request, pk=None):
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         serializer = SandboxExecSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         start = time.monotonic()
@@ -120,7 +130,9 @@ class SandboxSessionViewSet(
 
     @action(detail=True, methods=["post"], url_path="upload")
     def upload(self, request, pk=None):
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         serializer = SandboxUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -142,7 +154,9 @@ class SandboxSessionViewSet(
 
     @action(detail=True, methods=["post"], url_path="files/upload")
     def files_upload(self, request, pk=None):
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         path = request.query_params.get("path") or request.data.get("path")
         if not path:
             return Response({"detail": "path is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -158,7 +172,9 @@ class SandboxSessionViewSet(
 
     @action(detail=True, methods=["post"], url_path="files/export")
     def files_export(self, request, pk=None):
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         serializer = SandboxFileExportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         filename = serializer.validated_data.get("filename") or serializer.validated_data["path"].split("/")[-1]
@@ -176,7 +192,9 @@ class SandboxSessionViewSet(
     @action(detail=True, methods=["get"], url_path="files/content")
     def files_content(self, request, pk=None):
         """Stream a file's bytes from inside the sandbox as a direct download."""
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         path = request.query_params.get("path")
         if not path:
             return Response({"detail": "path is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -200,7 +218,9 @@ class SandboxSessionViewSet(
 
     @action(detail=True, methods=["post"], url_path="snapshot")
     def snapshot(self, request, pk=None):
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         serializer = SandboxSnapshotCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -223,7 +243,9 @@ class SandboxSessionViewSet(
 
     @action(detail=True, methods=["get", "post"], url_path="snapshots")
     def snapshots(self, request, pk=None):
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         if request.method.lower() == "get":
             snapshots = self.orchestrator.list_snapshots(session)
             data = SandboxSnapshotSerializer(snapshots, many=True).data
@@ -265,7 +287,9 @@ class SandboxSessionViewSet(
 
     @action(detail=True, methods=["get"], url_path="screenshot")
     def screenshot(self, request, pk=None):
-        session = self._ensure_session_ready(self.get_object())
+        session, error = self._get_ready_session_or_response(self.get_object())
+        if error:
+            return error
         try:
             image_bytes = self.orchestrator.capture_screenshot(session)
         except SandboxProvisionError:
@@ -284,6 +308,14 @@ class SandboxSessionViewSet(
                 exc_info=True,
             )
             return None
+
+    def _get_ready_session_or_response(
+        self, session: SandboxSession
+    ) -> tuple[SandboxSession | None, Response | None]:
+        try:
+            return self._ensure_session_ready(session), None
+        except SandboxProvisionError as exc:
+            return None, Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     def _ensure_session_ready(self, session: SandboxSession) -> SandboxSession:
         """Auto-provision and restore if the sandbox is not currently ready."""

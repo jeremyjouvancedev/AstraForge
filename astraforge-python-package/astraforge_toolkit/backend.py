@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
@@ -34,6 +35,16 @@ def _env_flag(value: Optional[str]) -> bool:
     if value is None:
         return False
     return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
 
 
 class _SandboxBackend(BackendProtocol):
@@ -79,6 +90,8 @@ class _SandboxBackend(BackendProtocol):
         self._workspace_root = root_dir
         self._http: Session = session or requests.Session()
         self._http.headers.setdefault("X-Api-Key", self.api_key)
+        self._ready_timeout = _env_float("ASTRA_FORGE_SANDBOX_READY_TIMEOUT", 30.0)
+        self._ready_poll_interval = _env_float("ASTRA_FORGE_SANDBOX_READY_POLL_INTERVAL", 0.5)
 
     # internal helpers ------------------------------------------------------
 
@@ -95,7 +108,7 @@ class _SandboxBackend(BackendProtocol):
                     self._session_id = str(session_id)
                     return self._session_id
 
-        return self._start_session()
+        return self._start_session(session_id=self._session_id)
 
     def _abs_path(self, path: str) -> str:
         root = self._workspace_root or "/"
@@ -106,9 +119,10 @@ class _SandboxBackend(BackendProtocol):
         return f"{root.rstrip('/')}/{path.lstrip('/')}"
 
     def _parse_json(
-        self, response: Response, *, expected_status: int
+        self, response: Response, *, expected_status: int | tuple[int, ...]
     ) -> Dict[str, Any]:
-        if response.status_code != expected_status:
+        expected = expected_status if isinstance(expected_status, tuple) else (expected_status,)
+        if response.status_code not in expected:
             detail: Any
             try:
                 payload = response.json()
@@ -158,13 +172,27 @@ class _SandboxBackend(BackendProtocol):
         stderr = str(data.get("stderr") or "")
         return _ShellResult(exit_code=exit_code, stdout=stdout, stderr=stderr)
 
-    def _start_session(self, restore_snapshot_id: Optional[str] = None) -> str:
+    def _start_session(self, restore_snapshot_id: Optional[str] = None, *, session_id: Optional[str] = None) -> str:
         payload: Dict[str, Any] = dict(self._session_params)
+        target_session_id = session_id or self._session_id
+        if target_session_id:
+            payload.setdefault("id", target_session_id)
         if restore_snapshot_id:
             payload["restore_snapshot_id"] = restore_snapshot_id
         url = f"{self.base_url}/sandbox/sessions/"
         response = self._http.post(url, json=payload, timeout=self._timeout)
-        data = self._parse_json(response, expected_status=201)
+        if response.status_code == 404:
+            # The pinned session cannot be reused (e.g., container marked for removal); retry without the id.
+            retry_payload = dict(payload)
+            if target_session_id:
+                retry_payload.pop("id", None)
+                response = self._http.post(url, json=retry_payload, timeout=self._timeout)
+            # If the snapshot is corrupted, a second 404 may include tar/gzip errors.
+            # Drop the restore_snapshot_id so we can still provision a fresh session.
+            if response.status_code == 404 and retry_payload.get("restore_snapshot_id"):
+                retry_payload.pop("restore_snapshot_id", None)
+                response = self._http.post(url, json=retry_payload, timeout=self._timeout)
+        data = self._parse_json(response, expected_status=(200, 201))
         try:
             self._session_id = str(data["id"])
         except Exception as exc:  # noqa: BLE001
@@ -185,7 +213,7 @@ class _SandboxBackend(BackendProtocol):
             data = self._get_session(session_id)
         except RuntimeError:
             # If we cannot fetch the session, try creating a new one.
-            return self._start_session()
+            return self._start_session(session_id=self._session_id)
 
         status_value = str(data.get("status") or "").lower()
         workspace_path = str(data.get("workspace_path") or self.root_dir)
@@ -193,14 +221,74 @@ class _SandboxBackend(BackendProtocol):
         latest_snapshot_id = (
             metadata.get("latest_snapshot_id") if isinstance(metadata, dict) else None
         )
+        expires_at_raw = data.get("expires_at")
+        expired = False
+        if isinstance(expires_at_raw, str) and expires_at_raw:
+            try:
+                from datetime import datetime, timezone
+
+                expires_dt = datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
+                expired = expires_dt < datetime.now(timezone.utc)
+            except Exception:
+                expired = False
+
+        if expired:
+            return self._start_session(
+                restore_snapshot_id=str(latest_snapshot_id) if latest_snapshot_id else None,
+                session_id=session_id,
+            )
 
         if status_value == "ready":
             self._workspace_root = workspace_path
             self.root_dir = workspace_path
             return session_id
 
-        # Session not ready: create a new one and restore from the latest snapshot if present.
-        return self._start_session(restore_snapshot_id=str(latest_snapshot_id) if latest_snapshot_id else None)
+        if status_value in {"failed", "terminated"}:
+            return self._start_session(
+                restore_snapshot_id=str(latest_snapshot_id) if latest_snapshot_id else None,
+                session_id=session_id,
+            )
+
+        ready_id, ready_workspace = self._wait_for_ready(
+            session_id=session_id,
+            latest_snapshot_id=latest_snapshot_id,
+            current_workspace=workspace_path,
+        )
+        self._workspace_root = ready_workspace
+        self.root_dir = ready_workspace
+        return ready_id
+
+    def _wait_for_ready(
+        self,
+        *,
+        session_id: str,
+        latest_snapshot_id: Optional[str],
+        current_workspace: str,
+    ) -> tuple[str, str]:
+        """Poll a starting session until it is ready or falls back to a fresh one."""
+        deadline = time.time() + self._ready_timeout
+        workspace_path = current_workspace
+        while time.time() < deadline:
+            data = self._get_session(session_id)
+            status_value = str(data.get("status") or "").lower()
+            workspace_path = str(data.get("workspace_path") or workspace_path)
+            metadata = data.get("metadata") or {}
+            latest_snapshot_id = (
+                metadata.get("latest_snapshot_id") if isinstance(metadata, dict) else latest_snapshot_id
+            )
+
+            if status_value == "ready":
+                return session_id, workspace_path
+            if status_value in {"failed", "terminated"}:
+                new_id = self._start_session(
+                    restore_snapshot_id=str(latest_snapshot_id) if latest_snapshot_id else None,
+                    session_id=session_id,
+                )
+                return new_id, self._workspace_root
+            time.sleep(self._ready_poll_interval)
+        raise RuntimeError(
+            f"Sandbox session {session_id} still starting after {self._ready_timeout} seconds"
+        )
 
     def _log_llm_error(self, message: str) -> None:
         try:

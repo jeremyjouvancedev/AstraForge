@@ -56,3 +56,13 @@ def test_get_file_content_uses_trailing_slash_and_decodes_text():
     url, kwargs = session.get_calls[0]
     assert url.endswith("/sandbox/sessions/abc/files/content/")
     assert kwargs["params"] == {"path": "/workspace/test.txt"}
+
+
+def test_get_file_content_replaces_invalid_bytes_on_decode():
+    session = DummySession(get_content=b"\xff\xfehello")
+    client = DeepAgentClient(base_url="http://localhost/api", api_key="key", session=session)
+
+    content = client.get_file_content("abc", "/workspace/test.bin", encoding="utf-8")
+
+    assert isinstance(content, str)
+    assert "hello" in content

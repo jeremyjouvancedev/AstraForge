@@ -27,7 +27,7 @@ spec:
             - -c
             - until pg_isready -h postgres -p 5433; do sleep 2; done
         - name: migrate
-          image: astraforge/backend:local
+          image: astraforge:local
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -38,13 +38,8 @@ spec:
             - migrate
       containers:
         - name: backend
-          image: astraforge/backend:local
+          image: astraforge:local
           imagePullPolicy: IfNotPresent
-          command:
-            - python
-            - manage.py
-            - runserver
-            - 0.0.0.0:8001
           envFrom:
             - configMapRef:
                 name: astraforge-backend-env

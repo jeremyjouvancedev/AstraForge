@@ -21,6 +21,10 @@ class _RunnerConflictThenSuccess:
     def run(self, command, *, cwd=None, env=None, stream=None, allow_failure=False):
         rendered = list(command)
         self.calls.append(rendered)
+        if rendered[:2] == ["docker", "inspect"]:
+            return CommandResult(exit_code=1, stdout="", stderr="not found")
+        if rendered[:2] == ["docker", "rm"]:
+            return CommandResult(exit_code=0, stdout="", stderr="")
         if rendered[:3] == ["docker", "run", "-d"] and not self.failed_once:
             self.failed_once = True
             raise subprocess.CalledProcessError(
@@ -38,6 +42,8 @@ class _RunnerRecorder:
     def run(self, command, *, cwd=None, env=None, stream=None, allow_failure=False):
         rendered = list(command)
         self.calls.append(rendered)
+        if rendered[:2] == ["docker", "inspect"]:
+            return CommandResult(exit_code=1, stdout="", stderr="not found")
         return CommandResult(exit_code=0, stdout="", stderr="")
 
 
@@ -65,11 +71,45 @@ def test_spawn_docker_retries_on_conflict():
     runtime = orchestrator._spawn_docker(session)
 
     assert runtime.ref.startswith("docker://")
-    # Expect: initial rm, first run (conflict), rm retry, second run.
-    assert runner.calls[0][:3] == ["docker", "rm", "-f"]
+    # Expect: initial inspect, first run (conflict), inspect retry, rm retry, second run.
+    assert runner.calls[0][:2] == ["docker", "inspect"]
     assert runner.calls[1][:3] == ["docker", "run", "-d"]
-    assert runner.calls[2][:3] == ["docker", "rm", "-f"]
-    assert runner.calls[3][:3] == ["docker", "run", "-d"]
+    assert runner.calls[2][:2] == ["docker", "inspect"]
+    assert runner.calls[3][:3] == ["docker", "rm", "-f"]
+    assert runner.calls[4][:3] == ["docker", "run", "-d"]
+
+
+def test_spawn_docker_retries_when_marked_for_removal():
+    class _RunnerMarkedForRemoval(_RunnerConflictThenSuccess):
+        def run(self, command, *, cwd=None, env=None, stream=None, allow_failure=False):
+            rendered = list(command)
+            self.calls.append(rendered)
+            if rendered[:2] == ["docker", "inspect"]:
+                return CommandResult(exit_code=1, stdout="", stderr="not found")
+            if rendered[:2] == ["docker", "rm"]:
+                return CommandResult(exit_code=0, stdout="", stderr="")
+            if rendered[:3] == ["docker", "run", "-d"] and not self.failed_once:
+                self.failed_once = True
+                raise subprocess.CalledProcessError(
+                    125,
+                    rendered,
+                    output="docker: Error response from daemon: Conflict. The container name is already in use by container which is marked for removal and cannot be started.",
+                )
+            return CommandResult(exit_code=0, stdout="", stderr="")
+
+    user = get_user_model().objects.create_user(username="runner-removal", password="pass12345")
+    session = _create_session(user)
+    runner = _RunnerMarkedForRemoval()
+    orchestrator = SandboxOrchestrator(runner=runner)
+
+    runtime = orchestrator._spawn_docker(session)
+
+    assert runtime.ref.startswith("docker://")
+    assert runner.calls[0][:2] == ["docker", "inspect"]
+    assert runner.calls[1][:3] == ["docker", "run", "-d"]
+    assert runner.calls[2][:2] == ["docker", "inspect"]
+    assert runner.calls[3][:3] == ["docker", "rm", "-f"]
+    assert runner.calls[4][:3] == ["docker", "run", "-d"]
 
 
 def test_spawn_docker_raises_after_conflict_retry_fails():
@@ -93,12 +133,13 @@ def test_spawn_docker_raises_after_conflict_retry_fails():
     with pytest.raises(SandboxProvisionError):
         orchestrator._spawn_docker(session)
 
-    # Should have attempted rm, run, rm, run, inspect adoption.
-    assert runner.calls[0][:3] == ["docker", "rm", "-f"]
+    # Should have attempted inspect, run, inspect, rm, run, inspect adoption.
+    assert runner.calls[0][:2] == ["docker", "inspect"]
     assert runner.calls[1][:3] == ["docker", "run", "-d"]
-    assert runner.calls[2][:3] == ["docker", "rm", "-f"]
-    assert runner.calls[3][:3] == ["docker", "run", "-d"]
-    assert runner.calls[4][:2] == ["docker", "inspect"]
+    assert runner.calls[2][:2] == ["docker", "inspect"]
+    assert runner.calls[3][:3] == ["docker", "rm", "-f"]
+    assert runner.calls[4][:3] == ["docker", "run", "-d"]
+    assert runner.calls[5][:2] == ["docker", "inspect"]
 
 
 def test_spawn_docker_adopts_conflicting_container():
@@ -106,15 +147,19 @@ def test_spawn_docker_adopts_conflicting_container():
         def __init__(self, session_id: str) -> None:
             self.calls: list[list[str]] = []
             self.session_id = session_id
+            self.seen_conflict = False
 
         def run(self, command, *, cwd=None, env=None, stream=None, allow_failure=False):
             rendered = list(command)
             self.calls.append(rendered)
             if rendered[:3] == ["docker", "run", "-d"]:
+                self.seen_conflict = True
                 raise subprocess.CalledProcessError(
                     125, rendered, output="Conflict. The container name is already in use."
                 )
             if rendered[:2] == ["docker", "inspect"]:
+                if not self.seen_conflict:
+                    return CommandResult(exit_code=1, stdout="", stderr="")
                 return CommandResult(exit_code=0, stdout=f"{self.session_id} false\n", stderr="")
             if rendered[:2] == ["docker", "start"]:
                 return CommandResult(exit_code=0, stdout="", stderr="")
@@ -128,9 +173,53 @@ def test_spawn_docker_adopts_conflicting_container():
     runtime = orchestrator._spawn_docker(session)
 
     assert runtime.ref.startswith("docker://sandbox-")
-    assert any(call[:2] == ["docker", "inspect"] for call in runner.calls)
-    assert any(call[:2] == ["docker", "start"] for call in runner.calls)
+    assert runner.calls[0][:2] == ["docker", "inspect"]
+    assert runner.calls[1][:3] == ["docker", "run", "-d"]
+    assert runner.calls[2][:2] == ["docker", "inspect"]
+    assert runner.calls[3][:2] == ["docker", "start"]
+    assert not any(call[:3] == ["docker", "rm", "-f"] for call in runner.calls)
 
+
+def test_spawn_docker_reuses_existing_container_before_run():
+    class _RunnerAdoptOnly:
+        def __init__(self, session_id: str) -> None:
+            self.calls: list[list[str]] = []
+            self.session_id = session_id
+
+        def run(self, command, *, cwd=None, env=None, stream=None, allow_failure=False):
+            rendered = list(command)
+            self.calls.append(rendered)
+            if rendered[:2] == ["docker", "inspect"]:
+                return CommandResult(exit_code=0, stdout=f"{self.session_id} true\n", stderr="")
+            return CommandResult(exit_code=0, stdout="", stderr="")
+
+    user = get_user_model().objects.create_user(username="adopter", password="pass12345")
+    session = _create_session(user)
+    runner = _RunnerAdoptOnly(str(session.id))
+    orchestrator = SandboxOrchestrator(runner=runner)
+
+    runtime = orchestrator._spawn_docker(session)
+
+    assert runtime.ref.startswith("docker://sandbox-")
+    assert runner.calls[0][:2] == ["docker", "inspect"]
+    assert not any(call[:3] == ["docker", "run", "-d"] for call in runner.calls)
+    assert not any(call[:3] == ["docker", "rm", "-f"] for call in runner.calls)
+
+
+def test_spawn_docker_names_container_with_session_id():
+    user = get_user_model().objects.create_user(username="namedsession", password="pass12345")
+    session = _create_session(user)
+    runner = _RunnerRecorder()
+    orchestrator = SandboxOrchestrator(runner=runner)
+
+    runtime = orchestrator._spawn_docker(session)
+
+    assert runtime.ref == f"docker://sandbox-{session.id}"
+    run_calls = [call for call in runner.calls if call[:3] == ["docker", "run", "-d"]]
+    assert len(run_calls) == 1
+    args = run_calls[0]
+    assert "--name" in args
+    assert args[args.index("--name") + 1] == f"sandbox-{session.id}"
 
 def test_restore_snapshot_uses_safe_tar(monkeypatch):
     user = get_user_model().objects.create_user(username="restorer", password="pass12345")
@@ -161,6 +250,7 @@ def test_restore_snapshot_uses_safe_tar(monkeypatch):
     assert "--no-same-permissions" in recorded["command"]
     assert "--no-overwrite-dir" in recorded["command"]
     assert "-m" in recorded["command"]
+    assert "--strip-components=1" in recorded["command"]
 
 
 def test_spawn_docker_applies_network_and_security(monkeypatch):

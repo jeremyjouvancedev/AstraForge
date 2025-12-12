@@ -261,7 +261,10 @@ class DeepAgentClient:
         )
         self._ensure_ok(response, expected_status=200)
         if encoding:
-            return response.content.decode(encoding)
+            try:
+                return response.content.decode(encoding)
+            except UnicodeDecodeError:
+                return response.content.decode(encoding, errors="replace")
         return response.content
 
     def export_file(

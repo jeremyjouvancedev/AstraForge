@@ -15,6 +15,7 @@ def _default_image() -> str:
 
 
 class SandboxSessionCreateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(required=False, allow_null=True)
     mode = serializers.ChoiceField(choices=SandboxSession.Mode.choices, default=SandboxSession.Mode.DOCKER)
     image = serializers.CharField(default=_default_image)
     cpu = serializers.CharField(required=False, allow_blank=True)
@@ -33,7 +34,8 @@ class SandboxSessionCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):  # pragma: no cover - used by viewset
         user = self.context["request"].user
-        return SandboxSession.objects.create(user=user, **validated_data)
+        session_id = validated_data.pop("id", None)
+        return SandboxSession.objects.create(user=user, id=session_id, **validated_data)
 
 
 class SandboxSnapshotSerializer(serializers.ModelSerializer):
