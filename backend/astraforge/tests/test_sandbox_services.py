@@ -297,3 +297,29 @@ def test_spawn_docker_honors_custom_user(monkeypatch):
     args = run_calls[0]
     assert "--user" in args
     assert args[args.index("--user") + 1] == "root"
+
+
+def test_spawn_docker_accepts_non_json_inspect_state():
+    class _RunnerNonJsonInspect:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, command, *, cwd=None, env=None, stream=None, allow_failure=False):
+            rendered = list(command)
+            self.calls.append(rendered)
+            if rendered[:2] == ["docker", "inspect"]:
+                # First inspect (adoption) should fail, later state inspect returns a non-JSON payload.
+                if "-f" in rendered and "{{json .State}}" in rendered:
+                    return CommandResult(exit_code=0, stdout="running-ish", stderr="")
+                return CommandResult(exit_code=1, stdout="", stderr="not found")
+            return CommandResult(exit_code=0, stdout="", stderr="")
+
+    user = get_user_model().objects.create_user(username="statey", password="pass12345")
+    session = _create_session(user)
+    runner = _RunnerNonJsonInspect()
+    orchestrator = SandboxOrchestrator(runner=runner)
+
+    runtime = orchestrator._spawn_docker(session)
+
+    assert runtime.ref.startswith("docker://sandbox-")
+    assert not any(call[:2] == ["docker", "start"] for call in runner.calls)

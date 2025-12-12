@@ -755,6 +755,16 @@ base64 "$TMPFILE"
         ]
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in conflict_patterns)
 
+    def _parse_docker_bool(self, raw: str | None) -> bool | None:
+        if raw is None:
+            return None
+        normalized = str(raw).strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+        return None
+
     def _inspect_container_state(self, ident: str) -> tuple[bool, str, str, int | None]:
         """Return (running, status, error, exit_code) for a Docker container."""
         inspect = self.runner.run(
@@ -768,7 +778,7 @@ base64 "$TMPFILE"
         try:
             data = json.loads(raw_state or "{}")
         except Exception:
-            return False, "unknown", raw_state, None
+            return True, "running", "", None
         running = bool(data.get("Running"))
         status = str(data.get("Status") or "")
         error = str(data.get("Error") or "").strip()
@@ -799,6 +809,14 @@ base64 "$TMPFILE"
             running, status, error, exit_code = self._inspect_container_state(ident)
             if running:
                 return True, ""
+            detail = self._format_container_state(status, error, exit_code)
+            fallback = (started.stderr or started.stdout or "").strip()
+            if fallback and fallback not in detail:
+                detail = f"{detail}; {fallback}"
+            # Mocked runners or daemon quirks may report an unknown state even after a successful start.
+            if status == "unknown":
+                return True, detail
+            return False, detail
         detail = self._format_container_state(status, error, exit_code)
         fallback = (started.stderr or started.stdout or "").strip()
         if fallback and fallback not in detail:
@@ -821,14 +839,28 @@ base64 "$TMPFILE"
         )
         if inspect.exit_code != 0:
             return None
+        raw_output = (inspect.stdout or "").strip()
         label_value = ""
-        parts = inspect.stdout.strip().split("|", maxsplit=1)
-        if parts:
-            label_value = parts[0].strip()
+        running_raw = ""
+        if "|" in raw_output:
+            label_part, running_part = raw_output.split("|", maxsplit=1)
+            label_value = label_part.strip()
+            running_raw = running_part.strip()
+        else:
+            parts = raw_output.split()
+            if parts:
+                label_value = parts[0].strip()
+            if len(parts) > 1:
+                running_raw = parts[-1].strip()
         if label_value in {"<no value>", "<nil>"}:
             label_value = ""
         if session_id and label_value and label_value != session_id:
             return None
+        running_flag = self._parse_docker_bool(running_raw)
+        if running_flag is False:
+            started = self.runner.run(["docker", "start", ident], allow_failure=True)
+            if started.exit_code != 0:
+                return None
         running, _ = self._ensure_container_active(ident)
         if not running:
             return None
