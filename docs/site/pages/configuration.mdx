@@ -1,0 +1,46 @@
+# Configuration & secrets
+
+Key environment variables for running AstraForge across backend, sandbox, and the LLM proxy. Keep secrets in a vault or `.env` that is excluded from version control.
+
+## Core application
+
+- `SECRET_KEY` – Django secret; required outside local dev.
+- `DATABASE_URL` – Postgres connection string.
+- `REDIS_URL` – Redis connection (run log + cache).
+- `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` – hostnames/ingress domains.
+- `UNSAFE_DISABLE_AUTH` – set to `0` for production; `1` only for local dev.
+
+## LLM proxy
+
+- `OPENAI_API_KEY`, `LLM_MODEL` – credentials and model name.
+- `EXECUTOR` – default executor (`codex`).
+- `CODEX_WORKSPACE_PROXY_URL` – URL the workspace containers use to reach the proxy (often the service DNS name on the sandbox network).
+
+## Sandbox runtime
+
+- `PROVISIONER` – `docker` (default) or `k8s`.
+- `SANDBOX_IMAGE` – sandbox container image (desktop/daemon).
+- `SANDBOX_DOCKER_NETWORK` – bridge to attach to; use an internal bridge for isolation.
+- `SANDBOX_DOCKER_READ_ONLY` – keep `1` for hardened rootfs; set `0` only if you must install packages at runtime.
+- `SANDBOX_DOCKER_SECCOMP` – `default`, a custom profile path, or empty to disable the flag.
+- `SANDBOX_DOCKER_USER` – optional user override (set `root` only when necessary).
+- `SANDBOX_DOCKER_TMPFS` – override tmpfs mounts (default covers `/workspace`, `/tmp`, `/run`).
+- `SANDBOX_DOCKER_HOST_GATEWAY` – `0` blocks host gateway; set `1` if you must reach host services.
+- `SANDBOX_REAP_INTERVAL_SEC`, `SANDBOX_DEFAULT_IDLE_TIMEOUT_SEC`, `SANDBOX_DEFAULT_MAX_LIFETIME_SEC` – control idle/lifetime enforcement and reaper cadence.
+
+## Snapshots and artifacts
+
+- `SANDBOX_SNAPSHOT_DIR` – on-disk archive location (default `/tmp/astraforge-snapshots`).
+- `SANDBOX_S3_BUCKET`, `SANDBOX_S3_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` – enable S3/MinIO storage for snapshots/artifacts.
+- `SANDBOX_ARTIFACT_BASE_URL` – base URL used to mint `download_url` values for exported files.
+
+## Frontend
+
+- `VITE_API_BASE_URL` (if using a custom backend URL for the Vite dev server).
+
+## Testing and tooling
+
+- `CODEX_CLI_SKIP_PULL` – `1` to skip image pulls when images are preloaded (set in Compose).
+- `ASTRAFORGE_EXECUTE_COMMANDS` – `1` to allow workspace command execution (required for agents).
+
+Keep backend and `astraforge-python-package` sandbox behaviors in parity: changes to sandbox file handling, snapshots, or shell execution must be mirrored in both codebases and documented here.

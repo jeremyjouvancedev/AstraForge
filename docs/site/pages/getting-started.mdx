@@ -1,0 +1,51 @@
+# Getting started
+
+Follow these steps to run AstraForge locally with the provided Make targets and pnpm tooling.
+
+## Prerequisites
+
+- pnpm `9.x`
+- Python 3.11+ with virtualenv support
+- Docker (required for compose-based flows and sandbox containers)
+
+If you are missing dependencies, run the bootstrap target from the repo root:
+
+```bash
+make install-deps
+```
+
+## Configure environment
+
+Copy `.env.example` to `.env` and adjust secrets, database URLs, and sandbox options to match your local setup. Keep `PROVISIONER` aligned with your chosen runtime (`docker` or `k8s`).
+
+## Run the stack locally
+
+Start the Django API and workers:
+
+```bash
+make backend-serve
+```
+
+Launch the Vite frontend in another terminal:
+
+```bash
+make frontend-dev
+```
+
+The API listens on `http://localhost:8001` and the frontend dev server on `http://localhost:5174` (with proxies configured by default).
+
+## Tests
+
+Before pushing changes, run the combined backend and frontend suites:
+
+```bash
+make test
+```
+
+For containerized isolation, use the compose workflow:
+
+```bash
+make compose-test
+```
+
+This spins up Postgres/Redis, waits for readiness, runs the tests in containers, and tears everything down afterward.

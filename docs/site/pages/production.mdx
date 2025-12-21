@@ -1,0 +1,89 @@
+# Production deployment
+
+This guide covers running AstraForge in a production-like environment with hardened defaults, migrations, and predictable image versions.
+
+## Prerequisites
+
+- Docker Engine + Compose v2.20+ (or a Kubernetes cluster for sandbox workloads)
+- Postgres and Redis reachable from the backend/worker
+- OpenAI-compatible credentials for the LLM proxy
+- TLS termination (reverse proxy or ingress)
+
+## Images and versions
+
+- Backend/worker/LLM proxy images are built from this repo (root `Dockerfile` plus `llm-proxy/`).
+- Workspace runner and sandbox images: pin `CODEX_WORKSPACE_IMAGE` and `SANDBOX_IMAGE` to known tags (pull them before first run when `CODEX_CLI_SKIP_PULL=1`).
+
+## Environment and secrets
+
+- Copy `.env.example` to `.env` and set `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `LLM_MODEL`, and `PROVISIONER` (`docker` or `k8s`).
+- Leave `UNSAFE_DISABLE_AUTH` unset (or `0`) outside local dev.
+- When using S3/MinIO for snapshots/artifacts, set `SANDBOX_S3_BUCKET`, `SANDBOX_S3_ENDPOINT_URL`, and `AWS_*` credentials.
+- For Docker sandboxes, keep `SANDBOX_DOCKER_READ_ONLY=1`, `SANDBOX_DOCKER_SECCOMP=default` (or a custom profile), and `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` (internal bridge) unless you explicitly need broader egress.
+
+See [Configuration & secrets](/configuration) for a detailed variable breakdown.
+
+## Deploy with Docker Compose
+
+1. Pull sandbox/workspace images:
+
+```bash
+docker pull "$CODEX_WORKSPACE_IMAGE"
+docker pull "$SANDBOX_IMAGE"
+```
+
+2. Run migrations:
+
+```bash
+docker compose run --rm backend-migrate
+```
+
+3. Start the stack (API, worker, frontend, proxy, databases):
+
+```bash
+docker compose up --build -d
+```
+
+4. Verify:
+   - API: `curl -I http://localhost:8001/api/healthz`
+   - Frontend: open `http://localhost:5174`
+   - Proxy: `curl -I http://localhost:8081/health`
+
+5. Stop/cleanup:
+
+```bash
+docker compose down    # keep volumes
+docker compose down -v # reset Postgres/Redis/MinIO volumes
+```
+
+For a compose + Kubernetes hybrid, use `docker-compose.hybrid.yml` and export `HYBRID_KUBECONFIG` to point to your cluster for sandbox pods.
+
+## Deploy with Kubernetes
+
+- Build and push images to a registry reachable by the cluster.
+- Apply manifests from `infra/k8s/local` (adapt namespaces, ingress, storage classes).
+- Set `PROVISIONER=k8s` on the backend/worker and provide a kubeconfig. The sandbox pods run non-root with `RuntimeDefault` seccomp and a NetworkPolicy that allows DNS + public internet but blocks RFC1918.
+- Ensure secrets (API keys, database URLs) are stored in Kubernetes Secrets and mounted as env vars.
+
+## Data and durability
+
+- Postgres: persistent volume for application data.
+- Redis: persistence optional; recommended for production to preserve run logs between restarts.
+- Snapshots/artifacts: prefer S3/MinIO for durability and horizontal scaling. Local disk (`SANDBOX_SNAPSHOT_DIR`) is acceptable for small installs.
+
+## Security hardening checklist
+
+- Disable `UNSAFE_DISABLE_AUTH`; configure your auth provider or API key strategy.
+- Enforce TLS at the proxy/ingress layer.
+- Keep sandbox network isolated: use an internal bridge or NetworkPolicy that blocks RFC1918.
+- Leave sandbox rootfs read-only; only relax for image bootstrap steps.
+- Run `gitleaks detect --config gitleaks.toml` in CI.
+- Rotate API keys regularly; store them in your secret manager.
+- Keep `docs/architecture.md` and sandbox contract docs in sync when behavior changes.
+
+## Monitoring and logging
+
+- API/worker logs: `docker compose logs -f backend backend-worker` or cluster log aggregation.
+- Liveness: `GET /api/healthz` (backend) and `GET /health` (LLM proxy).
+- Sandbox reaper cadence: controlled by `SANDBOX_REAP_INTERVAL_SEC` (default 60s); monitor reaper logs to ensure idle and max-lifetime limits are enforced.
+- Metrics: integrate with your platform logging/metrics stack (Datadog, Prometheus) via sidecars or log forwarders attached to containers/pods.

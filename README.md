@@ -21,6 +21,7 @@ A responsive web app streams live logs, diffs, and chat while the fixes ship.
 - [Other workflows](#other-workflows)
 - [Configuration](#configuration)
 - [Testing and quality](#testing-and-quality)
+- [Documentation site](#documentation-site)
 - [Contributing](#contributing)
 - [Troubleshooting](#troubleshooting)
 - [Target error remediation flow](#target-error-remediation-flow)
@@ -241,6 +242,26 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 - `make test` – `pytest` plus `pnpm test -- --run`
 - `gitleaks detect --config gitleaks.toml` – secret scanning
 - `make generate-openapi` – refresh the OpenAPI schema after API contract changes
+
+## Documentation site
+
+- Location: `docs/site` (Nextra + Next.js, MDX pages under `pages/`).
+- Run locally:
+
+```bash
+cd docs/site
+pnpm install
+pnpm dev
+```
+
+- Key pages: production deployment, configuration/secrets, sandbox overview, sandbox Python client (`docs/site/pages/sandbox-python-client.mdx`), and operations/testing runbooks.
+- Build static output for publishing:
+
+```bash
+pnpm build && pnpm export
+```
+
+Update `docs/site/pages/_meta.json` when adding new pages. Keep the canonical mermaid architecture diagram current in `docs/architecture.md`.
 
 ## Contributing
 

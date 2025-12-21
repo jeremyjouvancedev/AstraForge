@@ -1,0 +1,26 @@
+# Contributing
+
+We welcome updates to both the product and the documentation. Keep these guardrails in mind when editing the docs site.
+
+## How to work on docs
+
+1. Install dependencies in `docs/site` (use `pnpm install`).
+2. Run the local server:
+
+```bash
+pnpm dev
+```
+
+3. Edit or add MDX pages under `docs/site/pages`. Update `_meta.json` to surface new pages in the sidebar.
+4. Build or export to validate static output:
+
+```bash
+pnpm build && pnpm export
+```
+
+## Style and content guidelines
+
+- Prefer concise, task-oriented sections with clear commands for backend (`make backend-serve`), frontend (`make frontend-dev`), and testing (`make test` or `make compose-test`).
+- Keep the canonical system diagram in `docs/architecture.md` up to date whenever architecture changes. Mirror critical diagrams here when they help readers.
+- Keep links stable; use relative paths within the docs site and avoid hard-coding environment-specific URLs.
+- Remember the sandbox parity rule: if you document sandbox behavior, ensure both `backend/astraforge/sandbox/deepagent_backend.py` and `astraforge-python-package/astraforge_toolkit/backend.py` match the described contract.
