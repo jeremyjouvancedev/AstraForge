@@ -160,11 +160,13 @@ export async function fetchRepositoryLinks() {
 }
 
 export async function createRepositoryLink(payload: CreateRepositoryLinkPayload) {
+  await ensureCsrfToken();
   const response = await apiClient.post<RepositoryLink>("/repository-links/", payload);
   return response.data;
 }
 
 export async function deleteRepositoryLink(id: string) {
+  await ensureCsrfToken();
   await apiClient.delete(`/repository-links/${id}/`);
 }
 

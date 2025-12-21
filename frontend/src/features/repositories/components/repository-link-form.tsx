@@ -58,7 +58,7 @@ export function RepositoryLinkForm() {
   const form = useForm<RepositoryLinkFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      provider: "gitlab",
+      provider: "github",
       repository: "",
       access_token: "",
       base_url: undefined
@@ -180,7 +180,13 @@ export function RepositoryLinkForm() {
               </p>
             )}
           </div>
-          <Button type="submit" variant="brand" className="rounded-xl" disabled={mutation.isPending}>
+          <Button
+            type="button"
+            onClick={onSubmit}
+            variant="brand"
+            className="rounded-xl"
+            disabled={mutation.isPending}
+          >
             {mutation.isPending ? "Linking..." : "Link Repository"}
           </Button>
           {mutation.isError && (
