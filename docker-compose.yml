@@ -166,6 +166,8 @@ services:
   llm-proxy:
     build:
       context: ./llm-proxy
+    env_file:
+      - .env
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY not set}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}

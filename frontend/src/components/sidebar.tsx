@@ -1,12 +1,24 @@
 import { NavLink } from "react-router-dom";
-import { Brain, Inbox, KeyRound, Link2, Sparkles } from "lucide-react";
+import {
+  BarChart3,
+  Brain,
+  History,
+  Inbox,
+  KeyRound,
+  LayoutDashboard,
+  Link2,
+  Sparkles
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { to: "/app", label: "Requests", icon: Inbox, exact: true },
+  { to: "/app", label: "Overview", icon: LayoutDashboard, exact: true },
+  { to: "/app/activity-logs", label: "Activity logs", icon: History },
+  { to: "/app/usage", label: "Usage", icon: BarChart3 },
+  { to: "/app/requests", label: "Requests", icon: Inbox },
   { to: "/app/repositories", label: "Repositories", icon: Link2 },
   { to: "/app/api-keys", label: "API Keys", icon: KeyRound },
   { to: "/app/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain }
@@ -42,7 +54,7 @@ export function Sidebar() {
           AI DevOps workspace tuned for enterprise velocity.
         </p>
         <Button variant="default" size="sm" className="mt-4 w-full rounded-2xl" asChild>
-          <NavLink to="/app">Start a Request</NavLink>
+          <NavLink to="/app/requests">Start a Request</NavLink>
         </Button>
       </div>
 

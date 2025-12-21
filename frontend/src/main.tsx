@@ -8,6 +8,12 @@ import AppRouter from "@/app/router";
 import { AuthProvider } from "@/lib/auth";
 import "@/styles/globals.css";
 
+if (typeof document !== "undefined") {
+  const rootElement = document.documentElement;
+  rootElement.classList.add("dark");
+  rootElement.style.colorScheme = "dark";
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

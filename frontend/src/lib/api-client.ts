@@ -258,3 +258,18 @@ export async function fetchMergeRequestDetail(id: string) {
   );
   return response.data;
 }
+
+// Sandbox sessions ------------------------------------------------------------
+export interface SandboxSession {
+  id: string;
+  mode: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  last_activity_at?: string | null;
+}
+
+export async function fetchSandboxSessions() {
+  const response = await apiClient.get<SandboxSession[]>("/sandbox/sessions/");
+  return response.data;
+}

@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 
+import BrandSurface from "@/components/brand-surface";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 
@@ -16,6 +16,8 @@ export default function LoginPage() {
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const inputClassName =
+    "rounded-xl border-white/10 bg-black/30 text-zinc-100 ring-1 ring-white/5 placeholder:text-zinc-500 focus-visible:border-indigo-400/60 focus-visible:ring-indigo-400/60 focus-visible:ring-offset-0";
   const {
     register,
     handleSubmit,
@@ -40,40 +42,76 @@ export default function LoginPage() {
   });
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-center text-xl font-semibold">Sign in to AstraForge</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
+    <BrandSurface contentClassName="flex items-center justify-center px-6 py-12" glow="bold">
+      <div className="w-full max-w-xl space-y-6">
+        <Link to="/" className="group inline-flex items-center gap-3 text-sm text-zinc-300 hover:text-white">
+          <div
+            className="h-10 w-10 rounded-2xl home-ring-soft home-glow"
+            style={{
+              background:
+                "radial-gradient(circle at 30% 30%, rgba(99,102,241,1), rgba(168,85,247,1))"
+            }}
+          />
+          <div className="leading-tight">
+            <div className="text-sm font-semibold text-white">AstraForge</div>
+            <div className="text-xs text-zinc-400">Sandbox factory for DeepAgents</div>
+          </div>
+        </Link>
+
+        <div className="home-card home-ring-soft rounded-2xl border border-white/10 bg-black/30 p-8 shadow-2xl shadow-indigo-500/20 backdrop-blur">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
+                Welcome back
+              </p>
+              <h1 className="mt-2 text-2xl font-semibold text-white">Sign in to AstraForge</h1>
+              <p className="mt-2 text-sm text-zinc-300">
+                Access the console to run, audit, and replay DeepAgent sandboxes.
+              </p>
+            </div>
+            <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-zinc-300 ring-1 ring-white/10">
+              Secure by design
+            </span>
+          </div>
+
+          <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="username">
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400" htmlFor="username">
                 Username
               </label>
-              <Input id="username" autoComplete="username" {...register("username", { required: true })} />
+              <Input
+                id="username"
+                autoComplete="username"
+                className={inputClassName}
+                {...register("username", { required: true })}
+              />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="password">
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400" htmlFor="password">
                 Password
               </label>
               <Input
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                className={inputClassName}
                 {...register("password", { required: true })}
               />
             </div>
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+            <Button type="submit" variant="brand" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Signing in..." : "Sign in"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            Need an account? <Link to="/register">Register</Link>
+
+          <p className="mt-6 text-center text-sm text-zinc-400">
+            Need an account?{" "}
+            <Link to="/register" className="text-indigo-300 hover:text-white">
+              Register
+            </Link>
           </p>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </div>
+    </BrandSurface>
   );
 }

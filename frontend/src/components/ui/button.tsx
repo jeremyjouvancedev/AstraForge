@@ -21,6 +21,8 @@ const buttonVariants = cva(
           "bg-accent text-accent-foreground shadow-lg shadow-accent/30 hover:bg-accent/90",
         ghost:
           "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+        brand:
+          "home-btn-primary text-white ring-1 ring-white/10 shadow-lg shadow-indigo-500/25 hover:brightness-110 focus-visible:ring-indigo-300/60 focus-visible:ring-offset-0",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

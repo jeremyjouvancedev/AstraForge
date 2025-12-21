@@ -84,3 +84,66 @@
     --sidebar-ring: 173 48% 45%;
   }
 }
+
+/* Marketing helpers */
+.home-noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+}
+
+.home-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, black 45%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 45%, transparent 70%);
+}
+
+.home-ring-soft {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.home-glow {
+  filter: drop-shadow(0 0 24px rgba(99, 102, 241, 0.25));
+}
+
+.home-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.home-btn-primary {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 1), rgba(168, 85, 247, 1));
+}
+
+.home-btn-primary:hover {
+  filter: brightness(1.06);
+}
+
+.home-kbd {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.home-tag {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+@keyframes floaty {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.floaty {
+  animation: floaty 6s ease-in-out infinite;
+}

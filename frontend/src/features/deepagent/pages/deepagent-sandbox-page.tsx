@@ -22,6 +22,10 @@ export default function DeepAgentSandboxPage() {
   const [conversation, setConversation] = useState<DeepAgentConversation | null>(null);
   const [messages, setMessages] = useState<DeepAgentMessage[]>([]);
   const [input, setInput] = useState("");
+  const inputClassName =
+    "rounded-xl border-white/10 bg-black/40 text-zinc-100 ring-1 ring-white/5 placeholder:text-zinc-500 focus-visible:border-indigo-400/60 focus-visible:ring-indigo-400/60 focus-visible:ring-offset-0";
+  const panelClassName =
+    "home-card home-ring-soft rounded-3xl border border-white/10 bg-black/30 text-zinc-100 shadow-2xl shadow-indigo-500/20 backdrop-blur";
   const [sandboxImageUrl, setSandboxImageUrl] = useState<string | null>(null);
   const [preview, setPreview] = useState<
     | { kind: "none" }
@@ -477,30 +481,28 @@ export default function DeepAgentSandboxPage() {
   };
 
   return (
-    <div className="flex h-full w-full min-h-0 flex-col gap-4 p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted-foreground">
-            Deep Agent Sandbox
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-foreground">Sandbox Conversations</h1>
-          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            Talk to a deep agent on the left while previewing its sandbox environment on the right.
-          </p>
-        </div>
+    <div className="relative z-10 flex h-full w-full flex-col gap-6 px-4 py-6 sm:px-6 lg:px-10">
+      <header className="space-y-2 px-1">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
+          Deep Agent Sandbox
+        </p>
+        <h1 className="text-3xl font-semibold text-white">Sandbox Conversations</h1>
+        <p className="max-w-3xl text-sm text-zinc-300">
+          Talk to a deep agent on the left while previewing its sandbox environment on the right. We surface tool outputs, artifacts, and screenshots inline.
+        </p>
       </header>
 
-      <div className="grid flex-1 min-h-0 gap-4 lg:grid-cols-2">
-        <Card className="flex min-h-0 flex-1 flex-col border-border/70 bg-card/95">
-          <CardHeader className="border-b border-border/60">
-            <CardTitle className="text-sm font-semibold">Conversation</CardTitle>
+      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-2">
+        <Card className={`${panelClassName} flex min-h-0 flex-1 flex-col`}>
+          <CardHeader className="border-b border-white/10 pb-4">
+            <CardTitle className="text-sm font-semibold text-white">Conversation</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-1 min-h-0 flex-col gap-4 p-4">
-            <div className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-muted/40 p-3">
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+            <div className="flex-1 min-h-0 overflow-y-auto rounded-2xl border border-white/5 bg-gradient-to-b from-indigo-950/40 via-black/30 to-black/50 p-3 shadow-inner shadow-indigo-900/30">
               <ChatTimeline messages={messages} onLinkClick={handleFileLinkClick} />
             </div>
             <form
-              className="flex gap-2"
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
               onSubmit={(event) => {
                 event.preventDefault();
                 void handleSend();
@@ -511,23 +513,30 @@ export default function DeepAgentSandboxPage() {
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Ask the deep agent to inspect or modify files in the sandbox..."
                 disabled={!conversation || isStreaming}
+                className={inputClassName}
               />
-              <Button type="submit" disabled={!conversation || isStreaming || !input.trim()}>
+              <Button
+                type="submit"
+                variant="brand"
+                className="rounded-xl px-6"
+                disabled={!conversation || isStreaming || !input.trim()}
+              >
                 {isStreaming ? "Streaming..." : "Send"}
               </Button>
             </form>
           </CardContent>
         </Card>
 
-        <Card className="flex min-h-0 flex-1 flex-col border-border/70 bg-card/95">
-          <CardHeader className="flex items-center justify-between gap-2 border-b border-border/60">
-            <CardTitle className="text-sm font-semibold">
+        <Card className={`${panelClassName} flex min-h-0 flex-1 flex-col`}>
+          <CardHeader className="flex items-center justify-between gap-2 border-b border-white/10 pb-4">
+            <CardTitle className="text-sm font-semibold text-white">
               {preview.kind === "none" ? "Sandbox Preview" : `Preview: ${preview.name}`}
             </CardTitle>
             {(preview.kind === "image" || preview.kind === "text" || preview.kind === "html") && (
               <Button
                 size="sm"
-                variant="outline"
+                variant="ghost"
+                className="rounded-xl border border-white/10 bg-white/5 text-zinc-100 hover:bg-indigo-500/20"
                 onClick={() => {
                   const downloadUrl = preview.downloadUrl;
                   if (!downloadUrl) return;
@@ -539,21 +548,19 @@ export default function DeepAgentSandboxPage() {
             )}
           </CardHeader>
           <CardContent className="flex flex-1 flex-col p-4">
-            {sandboxHint && (
-              <p className="mb-3 text-xs text-muted-foreground">
-                {sandboxHint}
-              </p>
-            )}
-            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-dashed border-border/70 bg-muted/40">
+            {sandboxHint ? (
+              <p className="mb-3 text-xs text-zinc-300">{sandboxHint}</p>
+            ) : null}
+            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/10 bg-gradient-to-b from-indigo-950/50 via-black/50 to-black/60">
               {preview.kind === "image" && (
                 <img
                   src={preview.url}
                   alt={preview.name}
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-contain shadow-lg shadow-indigo-900/30"
                 />
               )}
               {preview.kind === "text" && (
-                <pre className="h-full w-full overflow-auto bg-background/90 p-3 text-xs text-foreground">
+                <pre className="h-full w-full overflow-auto rounded-xl bg-black/60 p-4 text-xs text-indigo-50">
                   {preview.content}
                 </pre>
               )}
@@ -561,7 +568,7 @@ export default function DeepAgentSandboxPage() {
                 <iframe
                   src={preview.url}
                   title={preview.name}
-                  className="h-full w-full border-0 bg-background"
+                  className="h-full w-full border-0 rounded-xl bg-black/60"
                   sandbox="allow-scripts"
                 />
               )}
@@ -570,12 +577,12 @@ export default function DeepAgentSandboxPage() {
                   <img
                     src={sandboxImageUrl}
                     alt="Sandbox preview"
-                    className="h-full w-full object-contain"
+                    className="h-full w-full object-contain opacity-90"
                   />
                 ) : (
-                  <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
-                    <span>Sandbox live view is not yet available.</span>
-                    <span className="text-[10px] uppercase tracking-[0.3em]">
+                  <div className="flex flex-col items-center gap-2 text-xs text-zinc-300">
+                    <span className="text-sm text-white">Sandbox live view is not yet available.</span>
+                    <span className="text-[10px] uppercase tracking-[0.3em] text-indigo-200/80">
                       Screenshot endpoint /screenshot will be used when implemented
                     </span>
                   </div>
