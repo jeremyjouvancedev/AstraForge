@@ -164,7 +164,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         proxy_url = self._ensure_proxy(identifier, mode, stream)
         workspace_path = self._workspace_path(identifier, mode)
         self._ensure_workspace_directory(identifier, mode, workspace_path, stream)
-        self._clone_repository(identifier, mode, project, stream, target_path=workspace_path)
+        workspace_path = self._clone_repository(identifier, mode, project, stream, target_path=workspace_path)
         self._create_feature_branch(
             identifier=identifier,
             mode=mode,
@@ -400,6 +400,46 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         )
         return proxy_url
 
+    def _workspace_has_repo(
+        self,
+        identifier: str,
+        mode: str,
+        path: str,
+        stream: Callable[[dict[str, Any]], None] | None = None,
+    ) -> bool:
+        command = self._wrap_exec(
+            identifier,
+            mode,
+            ["git", "-C", path, "rev-parse", "--is-inside-work-tree"],
+        )
+        result = self.runner.run(command, stream=stream, allow_failure=True)
+        return result.exit_code == 0
+
+    def _workspace_has_content(
+        self,
+        identifier: str,
+        mode: str,
+        path: str,
+        *,
+        ignore_cache: bool = False,
+        stream: Callable[[dict[str, Any]], None] | None = None,
+    ) -> bool:
+        path_quoted = shlex.quote(path)
+        script_parts = [f"ls -A {path_quoted} 2>/dev/null"]
+        if ignore_cache:
+            script_parts.append("grep -v '^\\.cache$'")
+        script_parts.append("head -1")
+        script = " | ".join(script_parts)
+        command = self._wrap_exec(identifier, mode, ["sh", "-c", script])
+        result = self.runner.run(command, stream=stream, allow_failure=True)
+        return bool((result.stdout or "").strip())
+
+    def _repository_dirname(self, repository: str) -> str:
+        repo_name = repository.rstrip("/").split("/")[-1] or "repo"
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[:-4]
+        return repo_name or "repo"
+
     def _clone_repository(
         self,
         identifier: str,
@@ -408,11 +448,12 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         stream: Callable[[dict[str, Any]], None],
         *,
         target_path: str,
-    ) -> None:
-        base_url = (project.get("base_url") or "https://gitlab.com").rstrip("/")
+    ) -> str:
         repository = (project.get("repository") or "").strip()
         provider = (project.get("provider") or "").lower()
         access_token = project.get("access_token") or project.get("token")
+        default_base = "https://github.com" if provider == "github" else "https://gitlab.com"
+        base_url = (project.get("base_url") or default_base).rstrip("/")
         if not access_token and project.get("id"):
             try:  # pragma: no cover - fallback for missing metadata
                 from astraforge.integrations.models import RepositoryLink
@@ -445,7 +486,60 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             repo_url = urlunparse(parsed._replace(netloc=authed_netloc))
             redacted_repo_url = urlunparse(parsed._replace(netloc=f"{username}:****@{parsed.netloc}"))
 
-        command = self._wrap_exec(identifier, mode, ["git", "clone", repo_url, target_path])
+        if self._workspace_has_repo(identifier, mode, target_path, stream=stream):
+            stream(
+                {
+                    "type": "status",
+                    "stage": "clone",
+                    "message": f"Workspace at {target_path} already contains a git repository; skipping clone",
+                }
+            )
+            return target_path
+
+        target_root = target_path.rstrip("/") or "/"
+        has_non_cache_content = self._workspace_has_content(
+            identifier, mode, target_root, ignore_cache=True, stream=stream
+        )
+        if not has_non_cache_content:
+            self.runner.run(
+                self._wrap_exec(identifier, mode, ["rm", "-rf", f"{target_root}/.cache"]),
+                stream=stream,
+                allow_failure=True,
+            )
+        has_any_content = self._workspace_has_content(
+            identifier, mode, target_root, ignore_cache=False, stream=stream
+        )
+
+        clone_path = target_root
+        if has_any_content:
+            clone_path = f"{target_root}/{self._repository_dirname(repository)}"
+            if self._workspace_has_repo(identifier, mode, clone_path, stream=stream):
+                stream(
+                    {
+                        "type": "status",
+                        "stage": "clone",
+                        "message": f"Reusing existing repository at {clone_path}",
+                    }
+                )
+                return clone_path
+            self.runner.run(
+                self._wrap_exec(identifier, mode, ["mkdir", "-p", clone_path]),
+                stream=stream,
+                allow_failure=False,
+            )
+            if self._workspace_has_content(identifier, mode, clone_path, stream=stream):
+                raise RuntimeError(
+                    f"Workspace paths {target_root} and {clone_path} already contain files; cannot clone repository safely"
+                )
+            stream(
+                {
+                    "type": "status",
+                    "stage": "clone",
+                    "message": f"Workspace not empty; cloning repository into {clone_path}",
+                }
+            )
+
+        command = self._wrap_exec(identifier, mode, ["git", "clone", repo_url, clone_path])
 
         def _masked_stream(event: dict[str, Any]) -> None:
             if access_token and isinstance(event, dict):
@@ -475,9 +569,10 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             {
                 "type": "status",
                 "stage": "clone",
-                "message": f"Repository clone initiated from {redacted_repo_url}",
+                "message": f"Repository clone initiated from {redacted_repo_url} into {clone_path}",
             }
         )
+        return clone_path
 
     def _create_feature_branch(
         self,
