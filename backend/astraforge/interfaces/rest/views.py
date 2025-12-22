@@ -87,8 +87,6 @@ def _serialize_access(access: UserAccess) -> dict[str, object]:
 
 def _serialize_user(user, *, access: UserAccess | None = None) -> dict[str, object]:
     access_obj = access or UserAccess.for_user(user)
-    from astraforge.accounts.models import WorkspaceMember
-
     memberships = (
         WorkspaceMember.objects.filter(user=user)
         .select_related("workspace")

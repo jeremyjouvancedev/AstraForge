@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useQueryClient } from "@tanstack/react-query";
-import { Activity, BarChart2, Cpu, KeyRound, Rocket, Server } from "lucide-react";
+import { Activity, BarChart2, Cpu, Rocket, Server } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

@@ -64,7 +64,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           accentColor: colorFromString(entry.uid)
         })) ?? [];
       setWorkspaces(mapped);
-    } catch (error) {
+    } catch {
       toast.error("Unable to load workspaces", {
         description: "Check your connection and try again."
       });
@@ -127,7 +127,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         role: created.role,
         accentColor: colorFromString(created.uid)
       };
-    } catch (error) {
+    } catch {
       toast.error("Unable to create workspace", {
         description: "You might not have permission to create workspaces."
       });
