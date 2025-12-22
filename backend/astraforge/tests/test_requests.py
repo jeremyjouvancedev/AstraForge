@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -12,6 +13,7 @@ from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import ExecutionOutcome, WorkspaceContext
 from astraforge.infrastructure.repositories.memory import InMemoryRequestRepository
 from astraforge.integrations.models import RepositoryLink
+from astraforge.quotas.services import get_quota_service
 
 pytestmark = pytest.mark.django_db
 
@@ -167,6 +169,44 @@ def test_create_request_rejects_unknown_project(api_client, user, request_payloa
     assert response.json() == {
         "project_id": ["Select a project linked to this workspace."]
     }
+
+
+@override_settings(
+    WORKSPACE_QUOTAS_ENABLED=True,
+    WORKSPACE_PLAN_LIMITS={
+        "trial": {
+            "requests_per_month": 1,
+            "sandbox_sessions_per_month": 5,
+            "sandbox_concurrent": 1,
+        }
+    },
+)
+def test_request_quota_blocks_after_limit(api_client, user, request_payload, monkeypatch):
+    workspace = Workspace.ensure_default_for_user(user)
+    RepositoryLink.objects.create(
+        user=user,
+        workspace=workspace,
+        provider=RepositoryLink.Provider.GITLAB,
+        repository="org/project",
+        access_token="token-123",
+    )
+    link = RepositoryLink.objects.get(workspace=workspace)
+
+    get_quota_service(refresh=True)
+
+    monkeypatch.setattr(
+        "astraforge.interfaces.rest.views.app_tasks.execute_request_task.delay",
+        lambda *args, **kwargs: None,
+    )
+
+    first = api_client.post(reverse("request-list"), request_payload(link.id), format="json")
+    assert first.status_code == 201
+
+    response = api_client.post(reverse("request-list"), request_payload(link.id), format="json")
+    payload = response.json()
+    assert response.status_code == 400
+    assert "tenant_id" in payload
+    assert "request quota" in payload["tenant_id"][0].lower()
 
 
 class _StubSpecGenerator:

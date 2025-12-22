@@ -139,6 +139,7 @@ export interface WorkspaceSummary {
   uid: string;
   name: string;
   role: string;
+  plan?: string;
 }
 
 export type RepositoryWorkspace = Pick<WorkspaceSummary, "uid" | "name">;
@@ -339,9 +340,45 @@ export interface SandboxSession {
   created_at?: string;
   updated_at?: string;
   last_activity_at?: string | null;
+  cpu_seconds?: number | null;
+  storage_bytes?: number | null;
 }
 
 export async function fetchSandboxSessions() {
   const response = await apiClient.get<SandboxSession[]>("/sandbox/sessions/");
+  return response.data;
+}
+
+export async function stopSandboxSession(sessionId: string) {
+  await apiClient.post(`/sandbox/sessions/${encodeURIComponent(sessionId)}/stop/`, {});
+}
+
+// Workspace usage -------------------------------------------------------------
+export interface WorkspacePlanLimits {
+  requests_per_month?: number | null;
+  sandbox_sessions_per_month?: number | null;
+  sandbox_concurrent?: number | null;
+}
+
+export interface WorkspaceUsageStats {
+  requests_per_month: number;
+  sandbox_sessions_per_month: number;
+  active_sandboxes: number;
+  sandbox_seconds: number;
+  artifacts_bytes: number;
+}
+
+export interface WorkspaceUsageSummary {
+  plan: string;
+  limits: WorkspacePlanLimits;
+  usage: WorkspaceUsageStats;
+  period_start: string;
+  catalog: Record<string, WorkspacePlanLimits>;
+}
+
+export async function fetchWorkspaceUsage(workspaceUid: string) {
+  const response = await apiClient.get<WorkspaceUsageSummary>(
+    `/workspaces/${encodeURIComponent(workspaceUid)}/usage/`
+  );
   return response.data;
 }

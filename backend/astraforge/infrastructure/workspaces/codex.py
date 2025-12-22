@@ -10,13 +10,18 @@ import shlex
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Tuple, TYPE_CHECKING
 from urllib.parse import quote, urlparse, urlunparse
 
 from astraforge.domain.models.request import Request
 from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import CommandResult, ExecutionOutcome, WorkspaceContext
 from astraforge.domain.providers.interfaces import Provisioner, WorkspaceOperator
+from astraforge.infrastructure.cpu_usage import build_cpu_probe_script, parse_cpu_usage_payload
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from astraforge.accounts.models import Workspace
+    from astraforge.quotas.services import WorkspaceQuotaService
 
 logger = logging.getLogger(__name__)
 
@@ -212,9 +217,24 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             }
         )
         result = self._exec(workspace, command, stream=stream, allow_failure=True)
+        runtime_workspace = self._workspace_for_request(request)
+        quota_service = self._quota_service()
         outcome = self._collect_results(request, workspace, stream)
         outcome.reports.setdefault("codex_exit_code", result.exit_code)
         outcome.reports.setdefault("codex_stdout", result.stdout[:4000])
+        cpu_seconds = self._sample_cpu_usage_seconds(workspace)
+        if cpu_seconds is not None:
+            runtime = max(0.0, cpu_seconds)
+            outcome.reports.setdefault("codex_cpu_seconds", runtime)
+            if runtime_workspace is not None and runtime > 0 and quota_service is not None:
+                try:
+                    quota_service.record_sandbox_runtime(runtime_workspace, runtime)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to record Codex runtime for workspace %s: %s",
+                        runtime_workspace.uid,
+                        exc,
+                    )
         return outcome
 
     def teardown(self, workspace: WorkspaceContext) -> None:
@@ -814,6 +834,124 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         if commit_hash:
             artifacts["commit"] = commit_hash
         return ExecutionOutcome(diff=diff_output, artifacts=artifacts)
+
+    def _sample_cpu_usage_seconds(self, workspace: WorkspaceContext) -> float | None:
+        if getattr(self.runner, "dry_run", False):
+            return None
+        identifier = str(workspace.metadata.get("container") or workspace.ref or "").strip()
+        if not identifier:
+            return None
+        mode = workspace.mode or ""
+        if "://" in identifier:
+            parsed_mode, parsed_identifier = self._parse_ref(identifier)
+            mode = parsed_mode
+            identifier = parsed_identifier
+        if not identifier:
+            return None
+        script = build_cpu_probe_script()
+        if mode == "docker":
+            command = ["docker", "exec", identifier, "sh", "-c", script]
+        elif mode in {"k8s", "kubernetes"}:
+            namespace, pod = self._split_k8s_identifier(identifier)
+            command = ["kubectl", "exec"]
+            if namespace:
+                command.extend(["-n", namespace])
+            command.extend([pod, "--", "sh", "-c", script])
+        else:
+            return None
+        result = self.runner.run(command, allow_failure=True)
+        if result.exit_code != 0:
+            logger.warning(
+                "CPU probe command failed for workspace %s (%s): exit_code=%s",
+                workspace.ref,
+                mode,
+                result.exit_code,
+            )
+            return None
+        stdout = result.stdout or ""
+        if not stdout.strip():
+            logger.warning(
+                "CPU probe returned no output for workspace %s (%s)",
+                workspace.ref,
+                mode,
+            )
+            return None
+        seconds = parse_cpu_usage_payload(stdout)
+        if seconds is None:
+            reason = self._diagnose_cpu_payload(stdout)
+            logger.info(
+                "Unable to parse CPU usage payload for workspace %s (%s); %s. payload=%s",
+                workspace.ref,
+                mode,
+                reason,
+                stdout.replace("\n", " ")[:200],
+            )
+            logger.debug(
+                "Raw CPU payload for workspace %s (%s):\n%s",
+                workspace.ref,
+                mode,
+                stdout.rstrip(),
+            )
+            return None
+        logger.debug(
+            "Sampled Codex CPU usage for workspace %s (%s): %.4f seconds",
+            workspace.ref,
+            mode,
+            seconds,
+        )
+        return seconds
+
+    @staticmethod
+    def _diagnose_cpu_payload(payload: str) -> str:
+        if not payload:
+            return "payload empty"
+        lines = [line.rstrip() for line in payload.splitlines() if line.strip()]
+        if not lines:
+            return "payload only whitespace"
+        header = lines[0]
+        if not (header.startswith("__PATH:") and header.endswith("__")):
+            return f"missing __PATH header sentinel (header='{header}')"
+        path_hint = header[len("__PATH:") : -2].strip()
+        body = "\n".join(lines[1:]).strip()
+        if not path_hint:
+            return "header missing cgroup path hint"
+        if not body:
+            return f"cgroup file {path_hint} returned no content"
+        if path_hint.endswith("cpu.stat"):
+            if not any(line.startswith(("usage_usec", "usage_us")) for line in body.splitlines()):
+                return f"cgroup cpu.stat content missing usage counters ({path_hint})"
+        else:
+            first_line = body.splitlines()[0]
+            try:
+                float(first_line)
+            except ValueError:
+                return f"cgroup file {path_hint} did not return numeric usage (got '{first_line[:40]}')"
+        return f"unrecognized format from {path_hint}"
+
+    def _workspace_for_request(self, request: Request) -> "Workspace | None":
+        tenant_id = getattr(request, "tenant_id", "")
+        workspace_meta = request.metadata.get("workspace") if isinstance(request.metadata, dict) else {}
+        if not tenant_id and isinstance(workspace_meta, dict):
+            tenant_id = workspace_meta.get("uid", "")
+        tenant_id = str(tenant_id).strip() if tenant_id else ""
+        if not tenant_id:
+            return None
+        try:
+            from astraforge.accounts.models import Workspace  # lazily import to avoid Django dependency in tests
+        except ModuleNotFoundError:  # pragma: no cover - unit tests without Django
+            return None
+
+        try:
+            return Workspace.objects.get(uid=tenant_id)
+        except Workspace.DoesNotExist:
+            return None
+
+    def _quota_service(self) -> "WorkspaceQuotaService | None":
+        try:
+            from astraforge.quotas.services import get_quota_service
+        except ModuleNotFoundError:  # pragma: no cover - unit tests without Django
+            return None
+        return get_quota_service()
 
     def _commit_and_push(
         self,

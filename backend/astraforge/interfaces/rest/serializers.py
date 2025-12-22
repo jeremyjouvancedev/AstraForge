@@ -9,6 +9,7 @@ from rest_framework import serializers
 from astraforge.accounts.models import ApiKey, Workspace, WorkspaceRole
 from astraforge.integrations.models import RepositoryLink
 from astraforge.domain.models.request import Request, RequestPayload
+from astraforge.quotas.services import QuotaExceeded, get_quota_service
 
 
 class RequestSerializer(serializers.Serializer):
@@ -42,6 +43,14 @@ class RequestSerializer(serializers.Serializer):
         except RepositoryLink.DoesNotExist as exc:
             raise serializers.ValidationError(
                 {"project_id": ["Select a project linked to this workspace."]}
+            ) from exc
+
+        quota_service = get_quota_service()
+        try:
+            quota_service.register_request_submission(workspace)
+        except QuotaExceeded as exc:
+            raise serializers.ValidationError(
+                {"tenant_id": [str(exc)]}
             ) from exc
 
         payload = RequestPayload(
@@ -188,6 +197,7 @@ class WorkspaceSerializer(serializers.Serializer):
     uid = serializers.SlugField(read_only=True)
     name = serializers.CharField()
     role = serializers.ChoiceField(choices=WorkspaceRole.choices, required=False)
+    plan = serializers.CharField(read_only=True)
 
     def create(self, validated_data):
         request = self.context.get("request")
@@ -204,6 +214,7 @@ class WorkspaceSerializer(serializers.Serializer):
             "uid": instance.uid,
             "name": instance.name,
             "role": role or WorkspaceRole.MEMBER,
+            "plan": instance.plan,
         }
 
 

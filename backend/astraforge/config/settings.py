@@ -6,6 +6,7 @@ are suitable for local development and unit tests only.
 
 from __future__ import annotations
 
+import json
 import os
 from importlib import import_module
 from pathlib import Path
@@ -43,6 +44,9 @@ env = environ.Env(
     EMAIL_HOST_PASSWORD=(str, ""),
     DEFAULT_FROM_EMAIL=(str, "AstraForge <noreply@astraforge.dev>"),
     EARLY_ACCESS_NOTIFICATION_EMAIL=(str, ""),
+    SELF_HOSTED=(bool, False),
+    WORKSPACE_QUOTAS_ENABLED=(bool, True),
+    WORKSPACE_QUOTAS=(str, ""),
 )
 
 environ.Env.read_env(
@@ -69,6 +73,64 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EARLY_ACCESS_NOTIFICATION_EMAIL = env("EARLY_ACCESS_NOTIFICATION_EMAIL")
+SELF_HOSTED = env.bool("SELF_HOSTED", default=False)
+WORKSPACE_QUOTAS_ENABLED = env.bool(
+    "WORKSPACE_QUOTAS_ENABLED",
+    default=not SELF_HOSTED,
+)
+
+_DEFAULT_WORKSPACE_PLAN_LIMITS: dict[str, dict[str, int | None]] = {
+    "trial": {
+        "requests_per_month": 50,
+        "sandbox_sessions_per_month": 20,
+        "sandbox_concurrent": 1,
+    },
+    "pro": {
+        "requests_per_month": 500,
+        "sandbox_sessions_per_month": 200,
+        "sandbox_concurrent": 3,
+    },
+    "enterprise": {
+        "requests_per_month": 2000,
+        "sandbox_sessions_per_month": 1000,
+        "sandbox_concurrent": 10,
+    },
+    "self_hosted": {
+        "requests_per_month": None,
+        "sandbox_sessions_per_month": None,
+        "sandbox_concurrent": None,
+    },
+}
+_WORKSPACE_PLAN_LIMITS_RAW = env("WORKSPACE_QUOTAS", default="").strip()
+if _WORKSPACE_PLAN_LIMITS_RAW:
+    try:
+        _WORKSPACE_PLAN_LIMITS_OVERRIDE = json.loads(_WORKSPACE_PLAN_LIMITS_RAW)
+    except json.JSONDecodeError as exc:  # pragma: no cover - invalid operator input
+        raise ImproperlyConfigured("WORKSPACE_QUOTAS must be valid JSON") from exc
+else:
+    _WORKSPACE_PLAN_LIMITS_OVERRIDE = {}
+
+
+def _merge_plan_limits(
+    defaults: dict[str, dict[str, int | None]],
+    overrides: dict[str, dict[str, object]],
+) -> dict[str, dict[str, int | None]]:
+    merged: dict[str, dict[str, int | None]] = {
+        key: dict(value) for key, value in defaults.items()
+    }
+    for plan, values in overrides.items():
+        if not isinstance(values, dict):
+            continue
+        plan_key = str(plan)
+        plan_limits = merged.setdefault(plan_key, {})
+        for limit_key, limit_value in values.items():
+            plan_limits[limit_key] = limit_value  # type: ignore[assignment]
+    return merged
+
+
+WORKSPACE_PLAN_LIMITS = _merge_plan_limits(
+    _DEFAULT_WORKSPACE_PLAN_LIMITS, _WORKSPACE_PLAN_LIMITS_OVERRIDE
+)
 
 if EMAIL_USE_TLS and EMAIL_USE_SSL:
     raise ImproperlyConfigured(
@@ -90,6 +152,7 @@ INSTALLED_APPS = [
     "astraforge.requests",
     "astraforge.interfaces.rest",
     "astraforge.sandbox",
+    "astraforge.quotas",
 ]
 
 MIDDLEWARE = [

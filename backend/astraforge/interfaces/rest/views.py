@@ -40,6 +40,8 @@ from astraforge.interfaces.rest import serializers
 from astraforge.interfaces.rest.renderers import EventStreamRenderer
 from astraforge.infrastructure.ai.deepagent_runtime import get_deep_agent
 from astraforge.infrastructure.ai.serializers import jsonable_chunk, encode_sse
+from astraforge.quotas.models import WorkspaceQuotaLedger
+from astraforge.quotas.services import QuotaExceeded, get_quota_service
 from astraforge.requests.models import RequestRecord
 from astraforge.sandbox.models import SandboxSession
 from django.http import StreamingHttpResponse
@@ -218,6 +220,11 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             if RequestRecord.objects.filter(id=request_id).exists():
                 raise PermissionDenied("Request not found")
             workspace = Workspace.resolve_for_user(request.user, preferred_uid=None)
+            quota_service = get_quota_service()
+            try:
+                quota_service.register_request_submission(workspace)
+            except QuotaExceeded as exc:
+                raise PermissionDenied(str(exc)) from exc
             payload = RequestPayload(
                 title=message_content.strip() or "User message",
                 description=message_content,
@@ -306,6 +313,34 @@ class WorkspaceViewSet(
         output = self.get_serializer(instance).data
         headers = self.get_success_headers(output)
         return Response(output, status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(detail=True, methods=["get"], url_path="usage")
+    def usage(self, request, uid=None):
+        workspace = self.get_object()
+        quota_service = get_quota_service()
+        ledger = WorkspaceQuotaLedger.for_workspace(workspace)
+        limits = quota_service.workspace_limits(workspace)
+        active_sandboxes = SandboxSession.objects.filter(
+            workspace=workspace,
+            status__in=[
+                SandboxSession.Status.READY,
+                SandboxSession.Status.STARTING,
+            ],
+        ).count()
+        payload = {
+            "plan": workspace.plan,
+            "limits": limits,
+            "usage": {
+                "requests_per_month": ledger.request_count,
+                "sandbox_sessions_per_month": ledger.sandbox_sessions,
+                "active_sandboxes": active_sandboxes,
+                "sandbox_seconds": ledger.sandbox_seconds,
+                "artifacts_bytes": ledger.artifacts_bytes,
+            },
+            "period_start": ledger.period_start.isoformat(),
+            "catalog": quota_service.plan_catalog(),
+        }
+        return Response(payload)
 
 
 class RunLogStreamView(APIView):

@@ -184,6 +184,18 @@ export default function RequestRunPage() {
 
   const selectedRun = useMemo(() => combinedRuns.find((run) => run.id === selectedRunId) ?? null, [combinedRuns, selectedRunId]);
 
+  const codexCpuSeconds = useMemo(() => {
+    const reports = selectedRun?.reports;
+    if (!reports || typeof reports !== "object") return null;
+    const raw = (reports as Record<string, unknown>)["codex_cpu_seconds"];
+    if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
+    if (typeof raw === "string") {
+      const parsed = Number(raw);
+      if (!Number.isNaN(parsed)) return Math.max(0, parsed);
+    }
+    return null;
+  }, [selectedRun?.reports]);
+
   const selectedRunEvents = useMemo(() => {
     const baseline = selectedRun?.events?.filter((e): e is RunLogEvent => Boolean(e)) ?? [];
     const liveEvents = events.filter((e) => selectedRunId && e.run_id === selectedRunId);
@@ -273,6 +285,20 @@ export default function RequestRunPage() {
     const r = s % 60;
     return r === 0 ? `${m}m` : `${m}m ${r}s`;
   };
+  const formatCpuRuntime = (seconds: number | null) => {
+    if (seconds === null || seconds <= 0) return null;
+    if (seconds < 1) return "<1s";
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    const minutes = seconds / 60;
+    if (minutes < 60) {
+      const rounded = minutes >= 10 ? Math.round(minutes) : Number(minutes.toFixed(1));
+      return `${rounded}m`;
+    }
+    const hours = minutes / 60;
+    const roundedHours = hours >= 10 ? Math.round(hours) : Number(hours.toFixed(1));
+    return `${roundedHours}h`;
+  };
+  const codexCpuLabel = formatCpuRuntime(codexCpuSeconds);
   const diffStats = summarizeDiff(selectedRun?.diff);
   const diffFiles = useMemo(() => deriveDiffFiles(selectedRun?.diff), [selectedRun?.diff]);
   const limitedDiffFiles = diffFiles.slice(0, 5);
@@ -371,6 +397,11 @@ export default function RequestRunPage() {
                 <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-foreground">
                   Duration {formatDuration(durationSeconds)}
                 </span>
+                {codexCpuLabel ? (
+                  <span className="rounded-full border border-primary/40 bg-primary/5 px-2 py-0.5 text-[11px] text-primary">
+                    CPU time {codexCpuLabel}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>

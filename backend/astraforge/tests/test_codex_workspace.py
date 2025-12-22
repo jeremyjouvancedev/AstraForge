@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 import subprocess
 
-from astraforge.domain.models.workspace import CommandResult, WorkspaceContext
+from astraforge.domain.models.spec import DevelopmentSpec
+from astraforge.domain.models.workspace import CommandResult, ExecutionOutcome, WorkspaceContext
 from astraforge.infrastructure.workspaces.codex import CodexWorkspaceOperator
 
 
@@ -38,6 +39,26 @@ class _StubRunner:
         self.commands.append(rendered)
         self.last_allow_failure = allow_failure
         return self._result
+
+
+class _CPUStubRunner:
+    def __init__(self, stdout: str) -> None:
+        self.stdout = stdout
+        self.commands: list[list[str]] = []
+        self.dry_run = False
+
+    def run(
+        self,
+        command,
+        *,
+        cwd=None,
+        env=None,
+        stream=None,
+        allow_failure=False,
+    ) -> CommandResult:
+        rendered = list(command)
+        self.commands.append(rendered)
+        return CommandResult(exit_code=0, stdout=self.stdout, stderr="")
 
 
 def test_collect_results_skips_diff_when_workspace_not_git_repo():
@@ -264,3 +285,127 @@ def test_wrap_exec_includes_namespace_for_k8s():
 
     assert command[:4] == ["kubectl", "exec", "-n", "astraforge-local"]
     assert command[4:] == ["workspace-123", "--", "git", "status"]
+
+
+def test_sample_cpu_usage_seconds_from_docker():
+    payload = "__PATH:/sys/fs/cgroup/cpu.stat__\nusage_usec 1250000\nuser_usec 1000000\nsystem_usec 250000\n"
+    runner = _CPUStubRunner(payload)
+    operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner(), runner=runner)
+    workspace = WorkspaceContext(
+        ref="docker://codex-123",
+        mode="docker",
+        repository="example/repo",
+        branch="main",
+        path="/workspace",
+        metadata={"container": "codex-123"},
+    )
+
+    seconds = operator._sample_cpu_usage_seconds(workspace)
+
+    assert seconds == 1.25
+    assert runner.commands
+    assert runner.commands[-1][:4] == ["docker", "exec", "codex-123", "sh"]
+
+
+def test_sample_cpu_usage_seconds_from_k8s():
+    payload = "__PATH:/sys/fs/cgroup/cpuacct/cpuacct.usage__\n2000000000\n"
+    runner = _CPUStubRunner(payload)
+    operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner(), runner=runner)
+    workspace = WorkspaceContext(
+        ref="k8s://astraforge/workspace-123",
+        mode="k8s",
+        repository="example/repo",
+        branch="main",
+        path="/workspace",
+    )
+
+    seconds = operator._sample_cpu_usage_seconds(workspace)
+
+    assert seconds == 2.0
+    assert runner.commands
+    assert runner.commands[-1][:5] == ["kubectl", "exec", "-n", "astraforge", "workspace-123"]
+
+
+def test_run_codex_includes_cpu_seconds_in_reports(monkeypatch):
+    operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
+    request = type("RequestStub", (), {"id": "req-123", "metadata": {}})()
+    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
+    workspace = WorkspaceContext(
+        ref="docker://codex-123",
+        mode="docker",
+        repository="example/repo",
+        branch="main",
+        path="/workspace",
+        metadata={"container": "codex-123"},
+    )
+
+    monkeypatch.setattr(
+        operator,
+        "_codex_command",
+        lambda *args, **kwargs: ["codex", "exec"],
+    )
+    monkeypatch.setattr(
+        operator,
+        "_exec",
+        lambda *args, **kwargs: CommandResult(exit_code=0, stdout="ok", stderr=""),
+    )
+    expected_outcome = ExecutionOutcome(diff="diff", artifacts={}, reports={})
+    monkeypatch.setattr(
+        operator,
+        "_collect_results",
+        lambda *args, **kwargs: expected_outcome,
+    )
+    monkeypatch.setattr(
+        operator,
+        "_sample_cpu_usage_seconds",
+        lambda *args, **kwargs: 7.5,
+    )
+
+    outcome = operator.run_codex(request, spec, workspace, stream=lambda event: None)
+
+    assert outcome.reports["codex_cpu_seconds"] == 7.5
+    assert "codex_exit_code" in outcome.reports
+    assert "codex_stdout" in outcome.reports
+
+
+def test_run_codex_records_runtime_in_quota_service(monkeypatch):
+    operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
+    request = type("RequestStub", (), {"id": "req-123", "metadata": {}, "tenant_id": "workspace-uid"})()
+    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
+    workspace = WorkspaceContext(
+        ref="docker://codex-123",
+        mode="docker",
+        repository="example/repo",
+        branch="main",
+        path="/workspace",
+        metadata={"container": "codex-123"},
+    )
+
+    monkeypatch.setattr(operator, "_codex_command", lambda *args, **kwargs: ["codex", "exec"])
+    monkeypatch.setattr(
+        operator,
+        "_exec",
+        lambda *args, **kwargs: CommandResult(exit_code=0, stdout="ok", stderr=""),
+    )
+    monkeypatch.setattr(
+        operator,
+        "_collect_results",
+        lambda *args, **kwargs: ExecutionOutcome(diff="", artifacts={}, reports={}),
+    )
+    monkeypatch.setattr(operator, "_sample_cpu_usage_seconds", lambda *args, **kwargs: 4.2)
+
+    workspace_model = type("WorkspaceStub", (), {"uid": "workspace-uid"})()
+    monkeypatch.setattr(operator, "_workspace_for_request", lambda *_: workspace_model)
+
+    recorded: dict[str, tuple[object, float]] = {}
+
+    class _Quota:
+        def record_sandbox_runtime(self, ws, seconds):
+            recorded["call"] = (ws, seconds)
+
+    monkeypatch.setattr(operator, "_quota_service", lambda: _Quota())
+
+    operator.run_codex(request, spec, workspace, stream=lambda event: None)
+
+    assert recorded["call"][0] is workspace_model
+    assert recorded["call"][1] == 4.2
