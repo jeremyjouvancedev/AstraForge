@@ -15,9 +15,17 @@ from typing import Optional, Sequence
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
+from django.utils import timezone
+from kubernetes.stream import stream as k8s_stream
 
+from astraforge.infrastructure.cpu_usage import (
+    CPU_CGROUP_PATHS,
+    build_cpu_probe_script,
+    parse_cpu_usage_payload,
+)
 from astraforge.infrastructure.provisioners import k8s as k8s_provisioner
 from astraforge.infrastructure.workspaces.codex import CommandRunner
+from astraforge.quotas.services import get_quota_service
 from astraforge.sandbox.models import SandboxArtifact, SandboxSession, SandboxSnapshot
 
 
@@ -60,6 +68,8 @@ class SandboxRuntime:
 
 
 class SandboxOrchestrator:
+    _CPU_CGROUP_PATHS = CPU_CGROUP_PATHS
+
     def __init__(self, runner: CommandRunner | None = None):
         self.runner = runner or CommandRunner(dry_run=not _commands_enabled())
         self._log = logging.getLogger(__name__)
@@ -249,6 +259,9 @@ base64 "$TMPFILE"
                 exclude_paths=exclude_paths,
                 archive_path=archive_path,
             )
+            if session.workspace and size_bytes:
+                get_quota_service().record_storage_usage(session.workspace, size_bytes)
+                self._increment_session_storage(session, size_bytes)
             try:
                 self._upload_snapshot_to_s3(session, snapshot, archive_path)
             except SandboxProvisionError as exc:
@@ -374,6 +387,9 @@ base64 "$TMPFILE"
             storage_path=storage_path,
             download_url=download_url,
         )
+        if session.workspace and size_bytes:
+            get_quota_service().record_storage_usage(session.workspace, size_bytes)
+            self._increment_session_storage(session, size_bytes)
         session.mark_activity()
         return artifact
 
@@ -386,6 +402,10 @@ base64 "$TMPFILE"
     def terminate(self, session: SandboxSession, *, reason: str | None = None):
         if session.status == SandboxSession.Status.TERMINATED:
             return
+
+        measured_cpu_seconds: float | None = None
+        if session.workspace:
+            measured_cpu_seconds = self._sample_cpu_usage_seconds(session)
 
         if reason:
             metadata = dict(session.metadata or {})
@@ -408,11 +428,22 @@ base64 "$TMPFILE"
             provisioner = self._k8s()
             provisioner.cleanup(session.ref)
 
+        started = session.created_at or timezone.now()
+        ended = session.last_activity_at or timezone.now()
+        fallback_duration = max(0.0, (ended - started).total_seconds())
+        duration = (
+            measured_cpu_seconds
+            if measured_cpu_seconds is not None and measured_cpu_seconds > 0
+            else fallback_duration
+        )
         session.status = SandboxSession.Status.TERMINATED
-        fields = ["status", "updated_at"]
+        session.cpu_seconds = max(0.0, duration)
+        fields = ["status", "cpu_seconds", "updated_at"]
         if reason:
             fields.append("metadata")
         session.save(update_fields=fields)
+        if session.workspace:
+            get_quota_service().record_sandbox_runtime(session.workspace, duration)
 
     # internal helpers -------------------------------------------------
 
@@ -649,6 +680,90 @@ base64 "$TMPFILE"
             # Do not block snapshot/restore flows if metadata save fails.
             self._log.warning(
                 "Failed to record latest snapshot metadata",
+                extra={"session_id": str(session.id), "error": str(exc)},
+            )
+
+    # cpu metering ---------------------------------------------------
+
+    def _sample_cpu_usage_seconds(self, session: SandboxSession) -> float | None:
+        if getattr(self.runner, "dry_run", False):
+            return None
+        if not session.ref:
+            return None
+        mode, identifier = self._split_ref(session.ref)
+        identifier = identifier.strip()
+        if not identifier:
+            return None
+        payload: str | None = None
+        try:
+            if mode == SandboxSession.Mode.DOCKER:
+                payload = self._collect_docker_cpu_payload(identifier)
+            elif mode in {SandboxSession.Mode.KUBERNETES, "kubernetes"}:
+                payload = self._collect_k8s_cpu_payload(identifier)
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning(
+                "Failed to sample CPU usage for sandbox %s (%s): %s",
+                session.id,
+                mode,
+                exc,
+            )
+            return None
+        if not payload:
+            return None
+        return self._parse_cpu_usage_payload(payload)
+
+    def _collect_docker_cpu_payload(self, identifier: str) -> str | None:
+        if not identifier:
+            return None
+        script = self._cpu_probe_script()
+        result = self.runner.run(
+            ["docker", "exec", identifier, "sh", "-c", script],
+            allow_failure=True,
+        )
+        if result.exit_code == 0 and result.stdout:
+            return result.stdout
+        return None
+
+    def _collect_k8s_cpu_payload(self, identifier: str) -> str | None:
+        namespace, pod = self._split_k8s_identifier(identifier)
+        provisioner = self._k8s()
+        api = provisioner._ensure_api()
+        script = self._cpu_probe_script()
+        try:
+            output = k8s_stream(
+                api.connect_get_namespaced_pod_exec,
+                name=pod,
+                namespace=namespace or provisioner.namespace,
+                command=["/bin/sh", "-c", script],
+                stderr=False,
+                stdin=False,
+                stdout=True,
+                tty=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning("Failed to read CPU stats for pod %s: %s", identifier, exc)
+            return None
+        return output
+
+    def _cpu_probe_script(self) -> str:
+        return build_cpu_probe_script(self._CPU_CGROUP_PATHS)
+
+    @staticmethod
+    def _parse_cpu_usage_payload(payload: str | None) -> float | None:
+        return parse_cpu_usage_payload(payload)
+
+    def _increment_session_storage(self, session: SandboxSession, bytes_delta: int) -> None:
+        if not bytes_delta:
+            return
+        try:
+            session.storage_bytes = max(
+                0,
+                int((session.storage_bytes or 0)) + int(bytes_delta),
+            )
+            session.save(update_fields=["storage_bytes", "updated_at"])
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning(
+                "Failed to update sandbox storage consumption",
                 extra={"session_id": str(session.id), "error": str(exc)},
             )
 

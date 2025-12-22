@@ -7,6 +7,8 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from astraforge.accounts.models import Workspace
+
 
 class SandboxSession(models.Model):
     class Mode(models.TextChoices):
@@ -24,6 +26,13 @@ class SandboxSession(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="sandbox_sessions",
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="workspace_sessions",
+        null=True,
+        blank=True,
     )
     mode = models.CharField(max_length=12, choices=Mode.choices)
     image = models.CharField(max_length=255)
@@ -51,6 +60,8 @@ class SandboxSession(models.Model):
     artifact_base_url = models.CharField(max_length=255, blank=True)
     error_message = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
+    cpu_seconds = models.FloatField(default=0)
+    storage_bytes = models.BigIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

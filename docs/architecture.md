@@ -138,6 +138,16 @@ switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`) is frictionle
 - Repository links are anchored to workspaces: the create/list endpoints require a workspace UID the caller belongs to, and request submissions validate the selected project lives in the same workspace as the request's `tenant_id`.
 - Marketing waitlist forms submit to `/api/marketing/early-access/`, which sends a themed confirmation email to the requester and forwards the details to the operator inbox configured via `EARLY_ACCESS_NOTIFICATION_EMAIL`.
 
+## Workspace Quotas & Self-Hosted Overrides
+
+- Every workspace now carries a `plan` (trial/pro/enterprise/self_hosted) plus optional JSON overrides so specific tenants can lift or relax limits without touching global settings.
+- `WorkspaceQuotaLedger` records monthly usage for each workspace (requests submitted, sandbox sessions, and runtime seconds) and is used to enforce plan limits transactionally, preventing bypass attempts by hopping across tenants.
+- Sandbox runtime seconds are sampled directly from Docker/Kubernetes cgroup CPU counters when a session terminates (falling back to wall-clock duration only if the stats are unavailable), so usage-based billing now reflects actual CPU consumption rather than rough lifetime estimates.
+- Codex CLI workspaces reuse the same cgroup probe to log `codex_cpu_seconds` in each request run report and push those seconds through `get_quota_service().record_sandbox_runtime`, giving operators visibility into Codex compute usage even though those containers never produce storage snapshots.
+- Quotas default to SaaS-friendly values (`WORKSPACE_PLAN_LIMITS`) but can be overridden with `WORKSPACE_QUOTAS` (JSON) or completely disabled via `WORKSPACE_QUOTAS_ENABLED=false`. When `SELF_HOSTED=true`, enforcement automatically disables unless explicitly re-enabled.
+- Sandbox sessions are now associated with workspaces at creation time, so concurrent-session caps and monthly sandbox allowances apply even if a user belongs to multiple tenants.
+- Self-hosted operators can keep the code paths but mark workspaces as `self_hosted` or set `quota_overrides={"enforce": false}` when they want unlimited usage while retaining the reporting surfacing in the UI.
+
 ## Sandbox Control Plane
 
 - **Sandbox orchestrator API** exposes `/api/sandbox/sessions/` to external agents so they can spin up isolated desktops on Docker (fast local dev) or Kubernetes (hardened multi-tenant) while keeping UUID-backed session identifiers.

@@ -14,13 +14,16 @@ import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMergeRequests } from "@/features/mr/hooks/use-merge-requests";
 import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRuns } from "@/features/runs/hooks/use-runs";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
+import { useWorkspaceUsage } from "@/features/workspaces/hooks/use-workspace-usage";
 import { cn } from "@/lib/utils";
+import type { WorkspaceUsageSummary, SandboxSession } from "@/lib/api-client";
 
 type ActivityEvent = {
   id: string;
@@ -30,13 +33,34 @@ type ActivityEvent = {
   timestamp: string;
   href?: string;
   icon: LucideIcon;
+  consumption?: EventConsumption;
 };
+
+type EventConsumption =
+  | {
+      kind: "request";
+      ordinal?: number;
+    }
+  | {
+    kind: "sandbox";
+    ordinal?: number;
+    cpuSeconds?: number | null;
+    storageBytes?: number | null;
+  };
 
 function formatTimestamp(value?: string | null) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString();
+}
+
+function formatOrdinal(value?: number) {
+  if (!value || value <= 0) return null;
+  const suffixes = ["th", "st", "nd", "rd"];
+  const mod100 = value % 100;
+  const suffix = suffixes[(value % 10 <= 3 && mod100 < 11) || mod100 > 13 ? value % 10 : 0] || "th";
+  return `${value}${suffix}`;
 }
 
 function getTone(type: ActivityEvent["type"]) {
@@ -53,6 +77,124 @@ function getTone(type: ActivityEvent["type"]) {
   }
 }
 
+function EventConsumptionDetails({
+  consumption,
+  workspaceUsage
+}: {
+  consumption: EventConsumption;
+  workspaceUsage: WorkspaceUsageSummary;
+}) {
+  const limits = workspaceUsage.limits;
+  if (consumption.kind === "request") {
+    const limitValue = limits.requests_per_month ?? null;
+    const hasLimit = typeof limitValue === "number" && limitValue > 0;
+    const ordinalLabel = formatOrdinal(consumption.ordinal);
+    const progressValue =
+      hasLimit && limitValue
+        ? Math.min(((consumption.ordinal ?? 1) / limitValue) * 100, 100)
+        : 0;
+    return (
+      <div className="space-y-2 text-xs text-zinc-300">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px] font-semibold">
+            <span className="text-zinc-200">Request quota</span>
+            {hasLimit ? (
+              <span className="text-zinc-400">
+                {ordinalLabel ?? "1 request"} of {numberFormatter.format(limitValue ?? 0)}
+              </span>
+            ) : (
+              <span className="text-zinc-400">Plan unlimited</span>
+            )}
+          </div>
+          {hasLimit ? (
+            <Progress value={progressValue} className="h-1.5 rounded-full bg-white/10" />
+          ) : (
+            <div className="h-1.5 rounded-full border border-dashed border-white/15" />
+          )}
+        </div>
+        <p className="text-[11px] text-zinc-400">
+          {ordinalLabel
+            ? `This was your ${ordinalLabel} request this billing cycle.`
+            : "Counts as one request on your plan."}
+        </p>
+      </div>
+    );
+  }
+
+  const limitValue = limits.sandbox_sessions_per_month ?? null;
+  const hasLimit = typeof limitValue === "number" && limitValue > 0;
+  const ordinalLabel = formatOrdinal(consumption.ordinal);
+  const progressValue =
+    hasLimit && limitValue
+      ? Math.min(((consumption.ordinal ?? 1) / limitValue) * 100, 100)
+      : 0;
+  const runtimeLabel = formatDuration(consumption.cpuSeconds);
+  const storageLabel = formatBytes(consumption.storageBytes);
+
+  return (
+    <div className="space-y-2 text-xs text-zinc-300">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] font-semibold">
+          <span className="text-zinc-200">Sandbox sessions</span>
+          {hasLimit ? (
+            <span className="text-zinc-400">
+              {ordinalLabel ?? "1 sandbox"} of {numberFormatter.format(limitValue ?? 0)}
+            </span>
+          ) : (
+            <span className="text-zinc-400">Plan unlimited</span>
+          )}
+        </div>
+        {hasLimit ? (
+          <Progress value={progressValue} className="h-1.5 rounded-full bg-white/10" />
+        ) : (
+          <div className="h-1.5 rounded-full border border-dashed border-white/15" />
+        )}
+      </div>
+      <div className="space-y-1 text-[11px] text-zinc-400">
+        <p>
+          {ordinalLabel
+            ? `This was your ${ordinalLabel} sandbox session this cycle.`
+            : "Counts as one sandbox session on your plan."}
+        </p>
+        <div className="flex flex-col gap-1 text-zinc-300">
+          {runtimeLabel ? <span>Runtime: {runtimeLabel}</span> : null}
+          {storageLabel ? <span>Storage written: {storageLabel}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatDuration(seconds?: number | null) {
+  if (!seconds || seconds <= 0) return null;
+  if (seconds < 60) return "<1 min";
+  const minutes = seconds / 60;
+  if (minutes < 60) return `${Math.max(1, Math.round(minutes))} min`;
+  const hours = minutes / 60;
+  if (hours < 24) {
+    const rounded = hours >= 10 ? Math.round(hours) : hours.toFixed(1);
+    return `${rounded} hr`;
+  }
+  const days = hours / 24;
+  const rounded = days >= 10 ? Math.round(days) : days.toFixed(1);
+  return `${rounded} d`;
+}
+
+function formatBytes(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return null;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  const rounded = value >= 10 || index === 0 ? Math.round(value) : Number(value.toFixed(1));
+  return `${rounded} ${units[index]}`;
+}
+
+const numberFormatter = new Intl.NumberFormat("en-US");
+
 export default function ActivityLogsPage() {
   const queryClient = useQueryClient();
   const [selectedEvent, setSelectedEvent] = useState<ActivityEvent | null>(null);
@@ -62,6 +204,48 @@ export default function ActivityLogsPage() {
   const { data: runs, isLoading: runsLoading } = useRuns();
   const { data: mergeRequests, isLoading: mergeRequestsLoading } = useMergeRequests();
   const { data: sandboxSessions, isLoading: sandboxSessionsLoading } = useSandboxSessions();
+  const {
+    data: workspaceUsage,
+    isLoading: workspaceUsageLoading,
+    isError: workspaceUsageError
+  } = useWorkspaceUsage(workspaceUid);
+
+  const requestOrdinals = useMemo(() => {
+    const map = new Map<string, number>();
+    const list = (requests ?? [])
+      .filter((request) => request.created_at)
+      .sort(
+        (a, b) =>
+          new Date(a.created_at ?? "").getTime() - new Date(b.created_at ?? "").getTime()
+      );
+    list.forEach((request, index) => {
+      map.set(request.id, index + 1);
+    });
+    return map;
+  }, [requests]);
+
+  const sandboxOrdinals = useMemo(() => {
+    const map = new Map<string, number>();
+    const list = (sandboxSessions ?? [])
+      .filter((session) => session.created_at || session.updated_at)
+      .sort(
+        (a, b) =>
+          new Date(a.created_at ?? a.updated_at ?? "").getTime() -
+          new Date(b.created_at ?? b.updated_at ?? "").getTime()
+      );
+    list.forEach((session, index) => {
+      map.set(session.id, index + 1);
+    });
+    return map;
+  }, [sandboxSessions]);
+
+  const sandboxDetailMap = useMemo(() => {
+    const map = new Map<string, SandboxSession>();
+    (sandboxSessions ?? []).forEach((session) => {
+      map.set(session.id, session);
+    });
+    return map;
+  }, [sandboxSessions]);
 
   const scopedRequestIds = useMemo(
     () => new Set((requests ?? []).map((request) => request.id)),
@@ -90,7 +274,11 @@ export default function ActivityLogsPage() {
           : "Request captured in AstraForge.",
         timestamp: request.created_at,
         href: `/app/requests/${request.id}/run`,
-        icon: Inbox
+        icon: Inbox,
+        consumption: {
+          kind: "request",
+          ordinal: requestOrdinals.get(request.id) ?? undefined
+        }
       });
     });
 
@@ -129,13 +317,20 @@ export default function ActivityLogsPage() {
     (sandboxSessions ?? []).forEach((session) => {
       const timestamp = session.updated_at || session.created_at;
       if (!timestamp) return;
+      const detail = sandboxDetailMap.get(session.id);
       items.push({
         id: `sandbox-${session.id}`,
         type: "Sandbox",
         title: `Sandbox ${session.status}`,
         description: `Mode: ${session.mode}`,
         timestamp,
-        icon: Server
+        icon: Server,
+        consumption: {
+          kind: "sandbox",
+          ordinal: sandboxOrdinals.get(session.id) ?? undefined,
+          cpuSeconds: detail?.cpu_seconds ?? null,
+          storageBytes: detail?.storage_bytes ?? null
+        }
       });
     });
 
@@ -145,10 +340,22 @@ export default function ActivityLogsPage() {
         return !Number.isNaN(date.getTime());
       })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [requests, sandboxSessions, scopedMergeRequests, scopedRuns]);
+  }, [
+    requests,
+    requestOrdinals,
+    sandboxOrdinals,
+    sandboxSessions,
+    sandboxDetailMap,
+    scopedMergeRequests,
+    scopedRuns
+  ]);
 
   const loading =
-    requestsLoading || runsLoading || mergeRequestsLoading || sandboxSessionsLoading;
+    requestsLoading ||
+    runsLoading ||
+    mergeRequestsLoading ||
+    sandboxSessionsLoading ||
+    workspaceUsageLoading;
 
   useEffect(() => {
     if (events.length === 0) {
@@ -178,6 +385,9 @@ export default function ActivityLogsPage() {
     queryClient.invalidateQueries({ queryKey: ["runs"] });
     queryClient.invalidateQueries({ queryKey: ["merge-requests"] });
     queryClient.invalidateQueries({ queryKey: ["sandbox-sessions"] });
+    if (workspaceUid) {
+      queryClient.invalidateQueries({ queryKey: ["workspace-usage", workspaceUid] });
+    }
   };
 
   return (
@@ -354,6 +564,28 @@ export default function ActivityLogsPage() {
                     <div className="space-y-1">
                       <p className="text-sm uppercase tracking-[0.2em] text-zinc-400">Details</p>
                       <p className="text-sm text-zinc-200">{selectedEvent.description}</p>
+                    </div>
+                    <div className="space-y-2 pt-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-400">
+                        Consumption
+                      </p>
+                      {workspaceUsageLoading ? (
+                        <div className="space-y-1">
+                          <Skeleton className="h-2 w-full rounded-full" />
+                          <Skeleton className="h-2 w-3/4 rounded-full" />
+                        </div>
+                      ) : workspaceUsageError ? (
+                        <p className="text-xs text-zinc-400">
+                          Unable to load consumption data right now.
+                        </p>
+                      ) : selectedEvent.consumption ? (
+                        <EventConsumptionDetails
+                          consumption={selectedEvent.consumption}
+                          workspaceUsage={workspaceUsage}
+                        />
+                      ) : (
+                        <p className="text-xs text-zinc-400">No quota impact for this event.</p>
+                      )}
                     </div>
                     {selectedEvent.href ? (
                       <Button asChild size="sm" className="rounded-xl">

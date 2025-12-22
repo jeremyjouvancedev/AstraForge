@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,9 @@ import {
   useCreateConversation,
   useSendDeepAgentMessage
 } from "@/features/deepagent/hooks/use-deepagent";
+import { toast } from "@/components/ui/sonner";
+import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
+import { useStopSandboxSession } from "@/features/sandbox/hooks/use-stop-sandbox-session";
 
 export default function DeepAgentSandboxPage() {
   const [conversation, setConversation] = useState<DeepAgentConversation | null>(null);
@@ -53,6 +57,17 @@ export default function DeepAgentSandboxPage() {
       }
     >()
   );
+  const [provisionError, setProvisionError] = useState<string | null>(null);
+  const { data: sandboxSessions, isLoading: sandboxSessionsLoading } = useSandboxSessions();
+  const stopSandbox = useStopSandboxSession();
+  const activeSessions = useMemo(
+    () =>
+      (sandboxSessions ?? []).filter((session) => {
+        const status = (session.status || "").toLowerCase();
+        return status === "ready" || status === "starting";
+      }),
+    [sandboxSessions]
+  );
 
   const rewriteSandboxLinks = (content: string): string => {
     if (!conversation) return content;
@@ -84,15 +99,80 @@ export default function DeepAgentSandboxPage() {
   const createConversation = useCreateConversation();
   const sendMessageMutation = useSendDeepAgentMessage(conversation?.conversation_id ?? "");
 
-  useEffect(() => {
-    if (!conversation && !createConversation.isPending && !createConversation.isSuccess) {
+  const triggerConversation = useCallback(
+    (options?: { silent?: boolean }) => {
       createConversation.mutate(undefined, {
         onSuccess: (conv) => {
+          setProvisionError(null);
           setConversation(conv);
+        },
+        onError: (error) => {
+          setProvisionError(error.message);
+          if (!options?.silent) {
+            toast.error("Sandbox unavailable", {
+              description: error.message
+            });
+          }
         }
       });
+    },
+    [createConversation]
+  );
+
+  const handleRetrySandbox = useCallback(() => {
+    createConversation.reset();
+    triggerConversation();
+  }, [createConversation, triggerConversation]);
+
+  useEffect(() => {
+    if (
+      !conversation &&
+      !createConversation.isPending &&
+      !createConversation.isSuccess &&
+      !createConversation.isError
+    ) {
+      triggerConversation({ silent: true });
     }
-  }, [conversation, createConversation]);
+  }, [
+    conversation,
+    createConversation.isError,
+    createConversation.isPending,
+    createConversation.isSuccess,
+    triggerConversation
+  ]);
+
+  const handleStopSession = useCallback(
+    (sessionId: string, options?: { resetConversation?: boolean }) => {
+      stopSandbox.mutate(sessionId, {
+        onSuccess: () => {
+          toast.success("Sandbox stopping", {
+            description: "The sandbox is terminating now. You can start a fresh session shortly."
+          });
+          if (options?.resetConversation) {
+            setConversation(null);
+            setMessages([]);
+            setPreview({ kind: "none" });
+            setSandboxImageUrl(null);
+            createConversation.reset();
+            triggerConversation({ silent: true });
+          } else {
+            triggerConversation({ silent: true });
+          }
+        },
+        onError: (error) => {
+          const description =
+            error instanceof Error ? error.message : "The sandbox could not be stopped.";
+          toast.error("Unable to stop sandbox", { description });
+        }
+      });
+    },
+    [createConversation, stopSandbox, triggerConversation]
+  );
+
+  const handleStopCurrentSandbox = useCallback(() => {
+    if (!conversation || stopSandbox.isPending) return;
+    handleStopSession(conversation.sandbox_session_id, { resetConversation: true });
+  }, [conversation, handleStopSession, stopSandbox.isPending]);
 
   const formatToolMessageContent = (
     name: string,
@@ -492,10 +572,86 @@ export default function DeepAgentSandboxPage() {
         </p>
       </header>
 
+      {provisionError ? (
+        <div className="rounded-3xl border border-amber-400/30 bg-amber-500/10 p-4 text-amber-50 shadow-lg shadow-amber-900/20 backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-1 items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 flex-none text-amber-200" />
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-200/80">
+                  Sandbox unavailable
+                </p>
+                <p className="text-sm text-amber-50/90">{provisionError}</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="rounded-xl border-amber-200/40 text-amber-50 hover:border-amber-100 hover:text-amber-100"
+              onClick={handleRetrySandbox}
+              disabled={createConversation.isPending}
+            >
+              {createConversation.isPending ? "Retrying..." : "Try again"}
+            </Button>
+          </div>
+          <div className="mt-4 rounded-2xl border border-amber-200/20 bg-black/20 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-200/80">
+              Active sandboxes
+            </p>
+            {sandboxSessionsLoading ? (
+              <p className="mt-2 text-xs text-amber-100/70">Loading sessions…</p>
+            ) : activeSessions.length > 0 ? (
+              <div className="mt-2 space-y-2">
+                {activeSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-100/10 bg-white/5 px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium text-white">
+                        {session.mode.toUpperCase()} · {session.status}
+                      </p>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-amber-100/70">
+                        Created {session.created_at ? new Date(session.created_at).toLocaleString() : "recently"}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="rounded-xl border border-amber-200/20 text-amber-100 hover:bg-amber-500/10"
+                      onClick={() => handleStopSession(session.id)}
+                      disabled={stopSandbox.isPending}
+                    >
+                      {stopSandbox.isPending ? "Stopping..." : "Stop"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-amber-100/70">
+                No other running sandboxes were detected. If the issue persists, try refreshing the page.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-2">
         <Card className={`${panelClassName} flex min-h-0 flex-1 flex-col`}>
           <CardHeader className="border-b border-white/10 pb-4">
-            <CardTitle className="text-sm font-semibold text-white">Conversation</CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-sm font-semibold text-white">Conversation</CardTitle>
+              {conversation ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl border-white/20 text-white hover:border-red-300/60 hover:text-red-50"
+                  onClick={handleStopCurrentSandbox}
+                  disabled={stopSandbox.isPending}
+                >
+                  {stopSandbox.isPending ? "Stopping..." : "Stop sandbox"}
+                </Button>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
             <div className="flex-1 min-h-0 overflow-y-auto rounded-2xl border border-white/5 bg-gradient-to-b from-indigo-950/40 via-black/30 to-black/50 p-3 shadow-inner shadow-indigo-900/30">

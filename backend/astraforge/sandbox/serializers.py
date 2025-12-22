@@ -7,6 +7,8 @@ from typing import Any
 
 from rest_framework import serializers
 
+from astraforge.accounts.models import Workspace
+from astraforge.quotas.services import QuotaExceeded, get_quota_service
 from astraforge.sandbox.models import SandboxArtifact, SandboxSession, SandboxSnapshot
 
 
@@ -24,6 +26,7 @@ class SandboxSessionCreateSerializer(serializers.Serializer):
     restore_snapshot_id = serializers.UUIDField(required=False, allow_null=True)
     idle_timeout_sec = serializers.IntegerField(default=300, min_value=60)
     max_lifetime_sec = serializers.IntegerField(default=3600, min_value=300)
+    workspace_uid = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
         idle = attrs.get("idle_timeout_sec")
@@ -35,7 +38,22 @@ class SandboxSessionCreateSerializer(serializers.Serializer):
     def create(self, validated_data):  # pragma: no cover - used by viewset
         user = self.context["request"].user
         session_id = validated_data.pop("id", None)
-        return SandboxSession.objects.create(user=user, id=session_id, **validated_data)
+        workspace_uid = validated_data.pop("workspace_uid", None)
+        try:
+            workspace = Workspace.resolve_for_user(user, preferred_uid=workspace_uid)
+        except PermissionError as exc:
+            raise serializers.ValidationError({"workspace_uid": [str(exc)]}) from exc
+        quota_service = get_quota_service()
+        try:
+            quota_service.register_sandbox_session(workspace)
+        except QuotaExceeded as exc:
+            raise serializers.ValidationError({"workspace_uid": [str(exc)]}) from exc
+        return SandboxSession.objects.create(
+            user=user,
+            workspace=workspace,
+            id=session_id,
+            **validated_data,
+        )
 
 
 class SandboxSnapshotSerializer(serializers.ModelSerializer):
@@ -72,6 +90,8 @@ class SandboxArtifactSerializer(serializers.ModelSerializer):
 class SandboxSessionSerializer(serializers.ModelSerializer):
     snapshot_ids = serializers.SerializerMethodField()
     artifacts_count = serializers.SerializerMethodField()
+    workspace_uid = serializers.SerializerMethodField()
+    workspace_name = serializers.SerializerMethodField()
 
     class Meta:
         model = SandboxSession
@@ -88,6 +108,8 @@ class SandboxSessionSerializer(serializers.ModelSerializer):
             "control_endpoint",
             "workspace_path",
             "artifact_base_url",
+            "workspace_uid",
+            "workspace_name",
             "idle_timeout_sec",
             "max_lifetime_sec",
             "last_activity_at",
@@ -95,6 +117,8 @@ class SandboxSessionSerializer(serializers.ModelSerializer):
             "expires_at",
             "error_message",
             "metadata",
+            "cpu_seconds",
+            "storage_bytes",
             "snapshot_ids",
             "artifacts_count",
             "created_at",
@@ -107,11 +131,15 @@ class SandboxSessionSerializer(serializers.ModelSerializer):
             "control_endpoint",
             "workspace_path",
             "artifact_base_url",
+            "workspace_uid",
+            "workspace_name",
             "last_activity_at",
             "last_heartbeat_at",
             "expires_at",
             "error_message",
             "metadata",
+            "cpu_seconds",
+            "storage_bytes",
             "snapshot_ids",
             "artifacts_count",
             "created_at",
@@ -123,6 +151,12 @@ class SandboxSessionSerializer(serializers.ModelSerializer):
 
     def get_artifacts_count(self, obj: SandboxSession) -> int:
         return obj.artifacts.count()
+
+    def get_workspace_uid(self, obj: SandboxSession) -> str | None:
+        return obj.workspace.uid if obj.workspace else None
+
+    def get_workspace_name(self, obj: SandboxSession) -> str | None:
+        return obj.workspace.name if obj.workspace else None
 
 
 class SandboxExecSerializer(serializers.Serializer):

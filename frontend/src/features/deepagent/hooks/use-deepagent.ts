@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ensureCsrfToken } from "@/lib/api-client";
+import { extractApiErrorMessage } from "@/lib/api-error";
 
 const API_BASE = "/api";
 
@@ -53,7 +54,14 @@ export function useCreateConversation() {
         body: JSON.stringify({})
       });
       if (!response.ok) {
-        throw new Error("Failed to create deep agent conversation");
+        let message = "Failed to create deep agent conversation";
+        try {
+          const payload = await response.json();
+          message = extractApiErrorMessage(payload) ?? message;
+        } catch {
+          // keep default message
+        }
+        throw new Error(message);
       }
       return (await response.json()) as DeepAgentConversation;
     }

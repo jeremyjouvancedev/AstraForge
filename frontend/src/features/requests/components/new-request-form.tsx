@@ -1,19 +1,22 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import type { AxiosError } from "axios";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/sonner";
 import {
   createRequest,
   CreateRequestInput,
   CreateRequestResponse,
   RepositoryLink
 } from "@/lib/api-client";
+import { extractApiErrorMessage } from "@/lib/api-error";
 import { ArrowUp, GitBranch, Layers, Monitor } from "lucide-react";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
 
@@ -37,6 +40,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
     defaultValues: { projectId: defaultProjectId, prompt: "" },
     resolver: zodResolver(schema)
   });
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (projects.length > 0) {
@@ -46,13 +50,29 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
     }
   }, [projects, form]);
 
-  const mutation = useMutation<CreateRequestResponse, Error, CreateRequestInput>({
+  const mutation = useMutation<CreateRequestResponse, AxiosError, CreateRequestInput>({
     mutationFn: (input: CreateRequestInput) => createRequest(input),
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["requests"] });
+      if (activeWorkspace?.uid) {
+        queryClient.invalidateQueries({
+          queryKey: ["workspace-usage", activeWorkspace.uid]
+        });
+      }
+      setSubmissionError(null);
       const resetProjectId = projects[0]?.id ?? "";
       form.reset({ projectId: resetProjectId, prompt: "" });
       navigate(`/app/requests/${response.id}/run`);
+    },
+    onError: (error) => {
+      const detail =
+        extractApiErrorMessage(error.response?.data) ??
+        error.message ??
+        "Unable to create the request.";
+      setSubmissionError(detail);
+      toast.error("Request blocked", {
+        description: detail
+      });
     }
   });
 
@@ -61,6 +81,9 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
     const normalized = rawPrompt.trim();
     if (!normalized) {
       return;
+    }
+    if (submissionError) {
+      setSubmissionError(null);
     }
 
     mutation.mutate({
@@ -95,37 +118,42 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
             </p>
           )}
           <div className="flex flex-col gap-4 rounded-b-[2.5rem] border-t border-border/60 bg-card/40 px-6 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
-                <Monitor size={16} />
+            <div className="flex w-full flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+                  <Monitor size={16} />
+                </div>
+                <div className="relative">
+                  <select
+                    aria-label="Project"
+                    className="rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60"
+                    {...form.register("projectId")}
+                    disabled={mutation.isPending}
+                  >
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.provider === "gitlab" ? "GitLab" : "GitHub"} · {project.repository}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
+                  <GitBranch size={16} />
+                </div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
+                  <Layers size={16} />
+                </div>
               </div>
-              <div className="relative">
-                <select
-                  aria-label="Project"
-                  className="rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60"
-                  {...form.register("projectId")}
-                  disabled={mutation.isPending}
-                >
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.provider === "gitlab" ? "GitLab" : "GitHub"} · {project.repository}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
-                <GitBranch size={16} />
-              </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
-                <Layers size={16} />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {form.formState.errors.projectId && (
+              {form.formState.errors.projectId ? (
                 <p className="text-sm text-destructive">
                   {form.formState.errors.projectId.message}
                 </p>
-              )}
+              ) : null}
+            </div>
+            <div className="flex flex-col items-end gap-2 text-right">
+              {submissionError ? (
+                <p className="text-sm text-destructive">{submissionError}</p>
+              ) : null}
               <Button type="submit" disabled={mutation.isPending} className="h-11 w-11 p-0">
                 <ArrowUp size={16} />
               </Button>

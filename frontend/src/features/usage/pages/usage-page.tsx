@@ -11,12 +11,45 @@ import {
   ChartTooltip,
   ChartTooltipContent
 } from "@/components/ui/chart";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiKeys } from "@/features/api-keys/hooks/use-api-keys";
 import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRuns } from "@/features/runs/hooks/use-runs";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
+import { useWorkspaceUsage } from "@/features/workspaces/hooks/use-workspace-usage";
+import { formatPlanLabel } from "@/lib/plan-label";
+
+function formatDuration(seconds?: number | null) {
+  if (!seconds || seconds <= 0) return "0 min";
+  if (seconds < 60) return "<1 min";
+  const minutes = seconds / 60;
+  if (minutes < 60) return `${Math.max(1, Math.round(minutes))} min`;
+  const hours = minutes / 60;
+  if (hours < 24) {
+    const rounded = hours >= 10 ? Math.round(hours) : hours.toFixed(1);
+    return `${rounded} hr`;
+  }
+  const days = hours / 24;
+  const rounded = days >= 10 ? Math.round(days) : days.toFixed(1);
+  return `${rounded} d`;
+}
+
+function formatBytes(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  const rounded = value >= 10 || index === 0 ? Math.round(value) : Number(value.toFixed(1));
+  return `${rounded} ${units[index]}`;
+}
+
+const numberFormatter = new Intl.NumberFormat("en-US");
 
 type MetricCardProps = {
   label: string;
@@ -69,10 +102,16 @@ export default function UsagePage() {
   const queryClient = useQueryClient();
   const { activeWorkspace } = useWorkspace();
   const workspaceUid = activeWorkspace?.uid;
+  const workspacePlanLabel = formatPlanLabel(activeWorkspace?.plan);
   const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
   const { data: runs, isLoading: runsLoading } = useRuns();
   const { data: sandboxSessions, isLoading: sandboxSessionsLoading } = useSandboxSessions();
   const { data: apiKeys, isLoading: apiKeysLoading } = useApiKeys();
+  const {
+    data: workspaceUsage,
+    isLoading: workspaceUsageLoading,
+    isError: workspaceUsageError
+  } = useWorkspaceUsage(workspaceUid);
 
   const scopedRequestIds = useMemo(
     () => new Set((requests ?? []).map((request) => request.id)),
@@ -218,14 +257,65 @@ export default function UsagePage() {
     }
   };
 
+  const consumptionMetrics =
+    workspaceUsage
+      ? [
+          {
+            key: "requests",
+            label: "Requests",
+            helper: "per month",
+            used: workspaceUsage.usage.requests_per_month ?? 0,
+            limit: workspaceUsage.limits.requests_per_month ?? null
+          },
+          {
+            key: "sandbox_sessions",
+            label: "Sandbox sessions",
+            helper: "per month",
+            used: workspaceUsage.usage.sandbox_sessions_per_month ?? 0,
+            limit: workspaceUsage.limits.sandbox_sessions_per_month ?? null
+          },
+          {
+            key: "active_sandboxes",
+            label: "Active sandboxes",
+            helper: "concurrent",
+            used: workspaceUsage.usage.active_sandboxes ?? 0,
+            limit: workspaceUsage.limits.sandbox_concurrent ?? null
+          }
+        ]
+      : [];
+
+  const meterSummaries = workspaceUsage
+    ? [
+        {
+          key: "runtime",
+          label: "Automation runtime",
+          value: formatDuration(workspaceUsage.usage.sandbox_seconds),
+          helper: "Sandbox CPU time this cycle"
+        },
+        {
+          key: "storage",
+          label: "Storage footprint",
+          value: formatBytes(workspaceUsage.usage.artifacts_bytes),
+          helper: "Snapshots & artifacts retained"
+        }
+      ]
+    : [];
+
   const loading =
-    requestsLoading || runsLoading || sandboxSessionsLoading || apiKeysLoading;
+    requestsLoading ||
+    runsLoading ||
+    sandboxSessionsLoading ||
+    apiKeysLoading ||
+    workspaceUsageLoading;
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["requests"] });
     queryClient.invalidateQueries({ queryKey: ["runs"] });
     queryClient.invalidateQueries({ queryKey: ["sandbox-sessions"] });
     queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+    if (workspaceUid) {
+      queryClient.invalidateQueries({ queryKey: ["workspace-usage", workspaceUid] });
+    }
   };
 
   return (
@@ -240,15 +330,27 @@ export default function UsagePage() {
             <p className="max-w-2xl text-sm text-zinc-300">
               Monitor how teams are leaning on AstraForge across requests, automation runs, sandboxes, and API access.
             </p>
+            {activeWorkspace ? (
+              <p className="text-xs font-medium uppercase tracking-[0.3em] text-zinc-400">
+                Workspace · {activeWorkspace.name}
+              </p>
+            ) : null}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl border-white/20 text-white hover:border-indigo-300/60 hover:text-indigo-100"
-            onClick={handleRefresh}
-          >
-            Refresh data
-          </Button>
+          <div className="flex items-center gap-3">
+            {workspacePlanLabel ? (
+              <Badge className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white">
+                Plan · {workspacePlanLabel}
+              </Badge>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl border-white/20 text-white hover:border-indigo-300/60 hover:text-indigo-100"
+              onClick={handleRefresh}
+            >
+              Refresh data
+            </Button>
+          </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Badge className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white">
@@ -275,6 +377,80 @@ export default function UsagePage() {
             </span>
             <span className="text-base font-semibold">{apiKeyStats.total}</span>
           </Badge>
+        </div>
+      </section>
+
+      <section className="home-card home-ring-soft rounded-3xl border border-white/10 bg-black/30 p-6 text-zinc-100 shadow-2xl shadow-indigo-500/15 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-100/70">
+              Consumption
+            </p>
+            <h2 className="text-xl font-semibold text-white">Monthly limits & meters</h2>
+            {workspaceUsage?.period_start ? (
+              <p className="text-xs text-zinc-400">
+                Cycle since{" "}
+                {new Date(workspaceUsage.period_start).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric"
+                })}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-4 space-y-3">
+          {workspaceUsageLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-2 w-full rounded-full" />
+              <Skeleton className="h-2 w-5/6 rounded-full" />
+              <Skeleton className="h-2 w-3/4 rounded-full" />
+            </div>
+          ) : workspaceUsageError ? (
+            <p className="text-sm text-zinc-300">Unable to load workspace limits right now.</p>
+          ) : !workspaceUsage ? (
+            <p className="text-sm text-zinc-300">Select a workspace to review consumption.</p>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {consumptionMetrics.map((metric) => {
+                  const hasLimit = typeof metric.limit === "number" && metric.limit > 0;
+                  const remaining = hasLimit ? Math.max((metric.limit ?? 0) - metric.used, 0) : null;
+                  const pct = hasLimit && metric.limit ? Math.min((metric.used / metric.limit) * 100, 100) : 0;
+                  return (
+                    <div key={metric.key} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm font-semibold">
+                        <div className="text-zinc-100">{metric.label}</div>
+                        <div className="text-zinc-300 text-xs">
+                          {hasLimit
+                            ? `${numberFormatter.format(remaining ?? 0)} remaining / ${numberFormatter.format(metric.limit ?? 0)}`
+                            : `${numberFormatter.format(metric.used)} used`}
+                        </div>
+                      </div>
+                      {hasLimit ? (
+                        <Progress value={pct} className="h-1.5 rounded-full bg-white/10" />
+                      ) : (
+                        <div className="h-1.5 rounded-full border border-dashed border-white/20" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {meterSummaries.map((meter) => (
+                  <div
+                    key={meter.key}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-200"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-400">
+                      {meter.label}
+                    </p>
+                    <p className="text-lg font-semibold text-white">{meter.value}</p>
+                    <p className="text-xs text-zinc-400">{meter.helper}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </section>
 

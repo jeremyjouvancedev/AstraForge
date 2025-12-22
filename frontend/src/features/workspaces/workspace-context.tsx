@@ -8,6 +8,7 @@ export type Workspace = {
   uid: string;
   name: string;
   role?: string;
+  plan?: string;
   accentColor?: string;
 };
 
@@ -61,6 +62,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           uid: entry.uid,
           name: entry.name || entry.uid,
           role: entry.role,
+          plan: entry.plan,
           accentColor: colorFromString(entry.uid)
         })) ?? [];
       setWorkspaces(mapped);
@@ -125,6 +127,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         uid: created.uid,
         name: created.name,
         role: created.role,
+        plan: created.plan,
         accentColor: colorFromString(created.uid)
       };
     } catch {

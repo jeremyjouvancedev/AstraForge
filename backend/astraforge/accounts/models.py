@@ -133,6 +133,13 @@ class WorkspaceRole(models.TextChoices):
     MEMBER = "member", "Member"
 
 
+class WorkspacePlan(models.TextChoices):
+    TRIAL = "trial", "Trial"
+    PRO = "pro", "Pro"
+    ENTERPRISE = "enterprise", "Enterprise"
+    SELF_HOSTED = "self_hosted", "Self-hosted"
+
+
 class Workspace(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     uid = models.SlugField(max_length=64, unique=True)
@@ -146,6 +153,12 @@ class Workspace(models.Model):
     )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    plan = models.CharField(
+        max_length=32,
+        choices=WorkspacePlan.choices,
+        default=WorkspacePlan.TRIAL,
+    )
+    quota_overrides = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["name"]
