@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Celery tasks for sandbox lifecycle management."""
+
+from __future__ import annotations
 
 from celery import shared_task
 

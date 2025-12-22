@@ -11,6 +11,7 @@ from importlib import import_module
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FRONTEND_DIST = BASE_DIR / "frontend_dist"
@@ -31,6 +32,17 @@ env = environ.Env(
     LOG_LEVEL=(str, "INFO"),
     REQUEST_REPOSITORY=(str, "database"),
     CSRF_TRUSTED_ORIGINS=(list[str], ["http://localhost:5174", "http://127.0.0.1:5174"]),
+    AUTH_REQUIRE_APPROVAL=(bool, True),
+    AUTH_ALLOW_ALL_USERS=(bool, False),
+    EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
+    EMAIL_HOST=(str, ""),
+    EMAIL_PORT=(int, 587),
+    EMAIL_USE_TLS=(bool, True),
+    EMAIL_USE_SSL=(bool, False),
+    EMAIL_HOST_USER=(str, ""),
+    EMAIL_HOST_PASSWORD=(str, ""),
+    DEFAULT_FROM_EMAIL=(str, "AstraForge <noreply@astraforge.dev>"),
+    EARLY_ACCESS_NOTIFICATION_EMAIL=(str, ""),
 )
 
 environ.Env.read_env(
@@ -44,6 +56,24 @@ CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
     default=["http://localhost:5174", "http://127.0.0.1:5174"],
 )
+AUTH_REQUIRE_APPROVAL = env.bool("AUTH_REQUIRE_APPROVAL", default=True)
+AUTH_ALLOW_ALL_USERS = env.bool("AUTH_ALLOW_ALL_USERS", default=False)
+AUTH_WAITLIST_ENABLED = AUTH_REQUIRE_APPROVAL and not AUTH_ALLOW_ALL_USERS
+
+EMAIL_BACKEND = env("EMAIL_BACKEND")
+EMAIL_HOST = env("EMAIL_HOST")
+EMAIL_PORT = env.int("EMAIL_PORT")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS")
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL")
+EMAIL_HOST_USER = env("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
+EARLY_ACCESS_NOTIFICATION_EMAIL = env("EARLY_ACCESS_NOTIFICATION_EMAIL")
+
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        "EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be enabled."
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",

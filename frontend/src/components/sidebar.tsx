@@ -7,12 +7,14 @@ import {
   KeyRound,
   LayoutDashboard,
   Link2,
-  Sparkles
+  Sparkles,
+  LogOut
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 
 const navItems = [
   { to: "/app", label: "Overview", icon: LayoutDashboard, exact: true },
@@ -28,38 +30,25 @@ export function Sidebar() {
   const { logout } = useAuth();
 
   return (
-    <aside className="relative hidden h-full w-72 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar-background/95 pb-6 text-sidebar-foreground shadow-2xl shadow-primary/5 lg:flex">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-70"
-        style={{
-          background:
-            "radial-gradient(circle at top, rgba(61,110,255,0.25), transparent 55%)",
-        }}
-      />
-
-      <div className="relative border-b border-sidebar-border/70 px-6 pb-6 pt-8">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sidebar-primary/20 text-sidebar-primary">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-lg font-semibold">AstraForge</p>
-            <p className="text-[10px] uppercase tracking-[0.4em] text-sidebar-foreground/70">
-              Platform
-            </p>
-          </div>
+    <aside className="relative hidden h-full w-64 flex-col overflow-y-auto overflow-x-hidden border-r border-sidebar-border/70 bg-sidebar-background/90 pb-4 text-sidebar-foreground shadow-xl shadow-primary/10 lg:flex">
+      <div className="relative flex items-center gap-3 px-4 pb-4 pt-5">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sidebar-primary/15 text-sidebar-primary ring-1 ring-sidebar-border/80">
+          <Sparkles className="h-5 w-5" />
         </div>
-        <p className="mt-4 text-sm text-sidebar-foreground/80">
-          AI DevOps workspace tuned for enterprise velocity.
-        </p>
-        <Button variant="default" size="sm" className="mt-4 w-full rounded-2xl" asChild>
-          <NavLink to="/app/requests">Start a Request</NavLink>
-        </Button>
+        <div className="leading-tight">
+          <p className="text-sm font-semibold">AstraForge</p>
+          <p className="text-[11px] uppercase tracking-[0.35em] text-sidebar-foreground/60">
+            Platform
+          </p>
+        </div>
       </div>
 
-      <nav className="relative mt-6 flex flex-1 flex-col gap-1 px-4">
-        <p className="px-2 text-xs font-semibold uppercase tracking-[0.3em] text-sidebar-foreground/60">
+      <div className="relative px-3 pb-4">
+        <WorkspaceSwitcher />
+      </div>
+
+      <nav className="relative mt-2 flex flex-1 flex-col gap-1 px-3">
+        <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-sidebar-foreground/60">
           Navigate
         </p>
         {navItems.map((item) => {
@@ -71,10 +60,10 @@ export function Sidebar() {
               end={item.exact}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-medium transition",
+                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-inner shadow-sidebar-border/40"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
                 )
               }
             >
@@ -85,24 +74,24 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="relative mt-8 px-6">
-        <div className="rounded-2xl border border-sidebar-border/80 bg-sidebar-accent/40 p-4 text-sm text-sidebar-foreground/80">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-sidebar-foreground/70">
-            Session
-          </p>
-          <p className="mt-2 text-sidebar-foreground">
-            Signed in via AstraForge Auth. Sign out to switch accounts.
-          </p>
+      <div className="relative mt-6 px-3">
+        <div className="flex items-center justify-between rounded-xl border border-sidebar-border/80 bg-sidebar-background/70 px-3 py-2 text-sm text-sidebar-foreground/80">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.3em] text-sidebar-foreground/60">
+              Session
+            </p>
+            <p className="text-sm font-medium text-sidebar-foreground">Signed in</p>
+          </div>
           <Button
             variant="ghost"
-            size="sm"
-            className="mt-3 w-full justify-center rounded-xl border border-transparent px-3 text-sidebar-foreground hover:border-sidebar-border/80 hover:bg-sidebar-background/40"
+            size="icon"
+            className="h-8 w-8 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent/60"
             onClick={async () => {
               await logout();
               window.location.href = "/login";
             }}
           >
-            Sign out
+            <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </div>

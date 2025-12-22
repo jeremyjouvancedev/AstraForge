@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { isAxiosError } from "axios";
+import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 
 import BrandSurface from "@/components/brand-surface";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
@@ -13,9 +16,10 @@ type LoginFormValues = {
 };
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, authSettings } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [accessNotice, setAccessNotice] = useState<string | null>(null);
   const inputClassName =
     "rounded-xl border-white/10 bg-black/30 text-zinc-100 ring-1 ring-white/5 placeholder:text-zinc-500 focus-visible:border-indigo-400/60 focus-visible:ring-indigo-400/60 focus-visible:ring-offset-0";
   const {
@@ -26,6 +30,11 @@ export default function LoginPage() {
     defaultValues: { username: "", password: "" }
   });
 
+  const waitlistActive = useMemo(
+    () => Boolean(authSettings?.waitlist_enabled && !authSettings?.allow_all_users),
+    [authSettings]
+  );
+
   if (isAuthenticated) {
     return <Navigate to="/app" replace />;
   }
@@ -33,10 +42,31 @@ export default function LoginPage() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       setError(null);
+      setAccessNotice(null);
       await login(values);
+      toast.success("Welcome back");
       navigate("/app", { replace: true });
     } catch (err) {
-      setError("Invalid username or password");
+      if (isAxiosError(err)) {
+        const accessStatus = err.response?.data?.access?.status;
+        if (accessStatus === "pending") {
+          setAccessNotice(
+            "Your account is on the waitlist. We will notify you once an administrator approves access."
+          );
+          toast.info("You're already on the waitlist. Watch your inbox for approval.");
+          return;
+        }
+        if (accessStatus === "blocked") {
+          setAccessNotice("This account is blocked. Contact an administrator for support.");
+          toast.error("This account is blocked. Reach out to an administrator.");
+          return;
+        }
+        const detail = err.response?.data?.detail;
+        setError(detail || "Invalid username or password");
+      } else {
+        setError("Invalid username or password");
+      }
+      toast.error("Unable to sign in");
       console.error(err);
     }
   });
@@ -74,6 +104,16 @@ export default function LoginPage() {
             </span>
           </div>
 
+          {waitlistActive ? (
+            <Alert className="mt-4 border-indigo-400/40 bg-indigo-400/10 text-indigo-50">
+              <AlertTitle className="font-semibold text-indigo-100">Access is gated</AlertTitle>
+              <AlertDescription className="text-indigo-50/90">
+                AstraForge sign-in currently requires approval. Join the waitlist and we&apos;ll
+                notify you as soon as your account is enabled.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400" htmlFor="username">
@@ -99,6 +139,7 @@ export default function LoginPage() {
               />
             </div>
             {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+            {accessNotice ? <p className="text-sm text-amber-200">{accessNotice}</p> : null}
             <Button type="submit" variant="brand" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Signing in..." : "Sign in"}
             </Button>
@@ -107,7 +148,7 @@ export default function LoginPage() {
           <p className="mt-6 text-center text-sm text-zinc-400">
             Need an account?{" "}
             <Link to="/register" className="text-indigo-300 hover:text-white">
-              Register
+              Join the waitlist
             </Link>
           </p>
         </div>

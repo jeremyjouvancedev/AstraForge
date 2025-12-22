@@ -15,6 +15,7 @@ import {
   RepositoryLink
 } from "@/lib/api-client";
 import { ArrowUp, GitBranch, Layers, Monitor } from "lucide-react";
+import { useWorkspace } from "@/features/workspaces/workspace-context";
 
 const schema = z.object({
   projectId: z.string().uuid({ message: "Selectionnez un projet" }),
@@ -28,6 +29,7 @@ interface NewRequestFormProps {
 }
 
 export function NewRequestForm({ projects }: NewRequestFormProps) {
+  const { activeWorkspace } = useWorkspace();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const defaultProjectId = projects[0]?.id ?? "";
@@ -39,6 +41,8 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
   useEffect(() => {
     if (projects.length > 0) {
       form.setValue("projectId", projects[0].id);
+    } else {
+      form.setValue("projectId", "");
     }
   }, [projects, form]);
 
@@ -62,6 +66,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
     mutation.mutate({
       prompt: rawPrompt,
       projectId: values.projectId,
+      tenantId: activeWorkspace?.uid
     });
   });
 

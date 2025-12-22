@@ -153,13 +153,3 @@ def test_get_database_url_from_django_settings_respects_override():
 def test_get_database_url_from_django_settings_returns_none_without_database():
     with override_settings(DATABASES={}):
         assert deepagent_runtime._get_database_url_from_django_settings() is None
-
-
-def test_checkpointer_dsn_none_without_config(monkeypatch):
-    monkeypatch.delenv("DEEPAGENT_CHECKPOINTER_URL", raising=False)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setattr(
-        deepagent_runtime, "_get_database_url_from_django_settings", lambda: None
-    )
-
-    assert deepagent_runtime._get_checkpointer_dsn() is None

@@ -19,6 +19,7 @@ import { useMergeRequests } from "@/features/mr/hooks/use-merge-requests";
 import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRuns } from "@/features/runs/hooks/use-runs";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
+import { useWorkspace } from "@/features/workspaces/workspace-context";
 import { cn } from "@/lib/utils";
 
 type ActivityEvent = {
@@ -55,10 +56,25 @@ function getTone(type: ActivityEvent["type"]) {
 export default function ActivityLogsPage() {
   const queryClient = useQueryClient();
   const [selectedEvent, setSelectedEvent] = useState<ActivityEvent | null>(null);
-  const { data: requests, isLoading: requestsLoading } = useRequests();
+  const { activeWorkspace } = useWorkspace();
+  const workspaceUid = activeWorkspace?.uid;
+  const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
   const { data: runs, isLoading: runsLoading } = useRuns();
   const { data: mergeRequests, isLoading: mergeRequestsLoading } = useMergeRequests();
   const { data: sandboxSessions, isLoading: sandboxSessionsLoading } = useSandboxSessions();
+
+  const scopedRequestIds = useMemo(
+    () => new Set((requests ?? []).map((request) => request.id)),
+    [requests]
+  );
+  const scopedRuns = useMemo(
+    () => (runs ?? []).filter((run) => scopedRequestIds.has(run.request_id)),
+    [runs, scopedRequestIds]
+  );
+  const scopedMergeRequests = useMemo(
+    () => (mergeRequests ?? []).filter((mr) => scopedRequestIds.has(mr.request_id)),
+    [mergeRequests, scopedRequestIds]
+  );
 
   const events = useMemo(() => {
     const items: ActivityEvent[] = [];
@@ -78,7 +94,7 @@ export default function ActivityLogsPage() {
       });
     });
 
-    (runs ?? []).forEach((run) => {
+    (scopedRuns ?? []).forEach((run) => {
       const timestamp = run.started_at || run.finished_at;
       if (!timestamp) return;
       const status = run.status ? run.status.toLowerCase() : "queued";
@@ -95,7 +111,7 @@ export default function ActivityLogsPage() {
       });
     });
 
-    (mergeRequests ?? []).forEach((mr) => {
+    (scopedMergeRequests ?? []).forEach((mr) => {
       if (!mr.created_at) return;
       items.push({
         id: `merge-${mr.id}`,
@@ -129,7 +145,7 @@ export default function ActivityLogsPage() {
         return !Number.isNaN(date.getTime());
       })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [mergeRequests, requests, runs, sandboxSessions]);
+  }, [requests, sandboxSessions, scopedMergeRequests, scopedRuns]);
 
   const loading =
     requestsLoading || runsLoading || mergeRequestsLoading || sandboxSessionsLoading;
@@ -152,8 +168,8 @@ export default function ActivityLogsPage() {
   const summary = {
     total: events.length,
     requests: requests?.length ?? 0,
-    runs: runs?.length ?? 0,
-    merges: mergeRequests?.length ?? 0,
+    runs: scopedRuns?.length ?? 0,
+    merges: scopedMergeRequests?.length ?? 0,
     sandboxes: sandboxSessions?.length ?? 0
   };
 

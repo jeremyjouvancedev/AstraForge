@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchRequests } from "@/lib/api-client";
 
-export function useRequests() {
+export function useRequests(tenantId?: string) {
+  const targetTenant = tenantId || "all";
+
   return useQuery({
-    queryKey: ["requests"],
-    queryFn: fetchRequests
+    queryKey: ["requests", targetTenant],
+    queryFn: async () => fetchRequests({ tenantId })
   });
 }

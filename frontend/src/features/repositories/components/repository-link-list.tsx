@@ -8,14 +8,17 @@ import { deleteRepositoryLink, RepositoryLink } from "@/lib/api-client";
 interface RepositoryLinkListProps {
   links?: RepositoryLink[];
   isLoading: boolean;
+  workspaceUid?: string;
 }
 
-export function RepositoryLinkList({ links, isLoading }: RepositoryLinkListProps) {
+export function RepositoryLinkList({ links, isLoading, workspaceUid }: RepositoryLinkListProps) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: deleteRepositoryLink,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["repository-links"] });
+      queryClient.invalidateQueries({
+        queryKey: ["repository-links", workspaceUid || "none"]
+      });
     }
   });
 
@@ -51,7 +54,7 @@ export function RepositoryLinkList({ links, isLoading }: RepositoryLinkListProps
                     {link.provider === "gitlab" ? "GitLab" : "GitHub"} • {link.repository}
                   </div>
                   <div className="text-xs text-zinc-400">
-                    Base URL: {link.base_url ? link.base_url : "default"} • Token: {link.token_preview}
+                    Base URL: {link.base_url ? link.base_url : "default"}
                   </div>
                 </div>
                 <Button

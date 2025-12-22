@@ -6,16 +6,20 @@ AstraForge is an AI-assisted DevOps orchestrator that translates natural languag
 flowchart TD
     subgraph Client_UX["Client UX"]
         FE["Frontend SPA"]
+        WorkspaceSwitcher["Workspace Switcher<br/>Tenant scope + local persistence"]
     end
     subgraph External_Clients["External Clients"]
         PySDK["Python DeepAgent SDK"]
     end
     subgraph Backend_API["Backend API"]
         API["DRF API"]
+        AccessCtrl["Access Control & Waitlist"]
         SandboxAPI["Sandbox Orchestrator"]
         Beat["Celery Beat Scheduler"]
         Worker["Celery Worker"]
         Registry["Provider Registry"]
+        WorkspaceStore["Workspace Registry<br/>UID + Memberships"]
+        RepoLinks["Repository Links<br/>Workspace scoped"]
     end
     subgraph Storage
         PG["Postgres"]
@@ -43,10 +47,16 @@ flowchart TD
     end
     PublicNet["Public Internet"]
 
+    WorkspaceSwitcher --> FE
     FE -->|HTTP + SSE| API
+    API --> AccessCtrl
+    API --> WorkspaceStore
+    API --> RepoLinks
     PySDK -->|HTTPS + X-Api-Key| API
     API -->|SSE| FE
     API --> PG
+    RepoLinks --> PG
+    AccessCtrl --> PG
     API --> RedisStore
     Worker --> PG
     Worker --> RedisStore
@@ -72,10 +82,12 @@ flowchart TD
     Registry --> Provisioner
     Provisioner -->|docker/k8s run| Workspace
     Provisioner -. build fallback .-> CLIImage
-    Workspace -->|codex exec --skip-git-repo-check -o .codex/final_message.txt| Proxy
-    Proxy --> LLMProxy
-    Workspace -->|git clone/diff| Repo
+Workspace -->|codex exec --skip-git-repo-check -o .codex/final_message.txt| Proxy
+Proxy --> LLMProxy
+Workspace -->|git clone/diff| Repo
 ```
+
+A workspace switcher in the client persists the active tenant locally and tags new requests with its `tenant_id`, so dashboards and request tables stay scoped per customer environment even before server-side filtering is introduced.
 
 ## Monorepo Layout
 
@@ -116,6 +128,15 @@ between `docker-compose.yml` for socket-enabled Docker workspaces and
 `infra/k8s/local` for mirrored Kubernetes clusters (documented in
 `docs/kubernetes-local.md`). Both paths keep the same environment variables so
 switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`) is frictionless.
+
+## Access Control & Waitlist
+
+- Auth defaults to a waitlisted flow: new registrations create `UserAccess` records with `status=pending` and cannot log in until approved.
+- Set `AUTH_ALLOW_ALL_USERS=true` to temporarily bypass the waitlist (blocked accounts remain blocked), or `AUTH_REQUIRE_APPROVAL=false` to disable gating at boot.
+- Approvals live in the database (and Django admin) alongside `identity_provider`, keeping the same contract when social providers are added later.
+- A multi-tenant workspace model now lives in the backend: each workspace owns a stable `uid`, human-friendly name, and a roster of members with roles (`owner`, `admin`, `member`). Users automatically receive a personal workspace on account creation; API requests, chat threads, and dashboards are scoped to workspaces the caller belongs to, and attempts to use foreign workspace UIDs are rejected.
+- Repository links are anchored to workspaces: the create/list endpoints require a workspace UID the caller belongs to, and request submissions validate the selected project lives in the same workspace as the request's `tenant_id`.
+- Marketing waitlist forms submit to `/api/marketing/early-access/`, which sends a themed confirmation email to the requester and forwards the details to the operator inbox configured via `EARLY_ACCESS_NOTIFICATION_EMAIL`.
 
 ## Sandbox Control Plane
 

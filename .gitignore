@@ -214,3 +214,4 @@ frontend/coverage/
 shared/openapi/schema.yaml
 
 frontend/.pnpm-store/*
+node_modules/*

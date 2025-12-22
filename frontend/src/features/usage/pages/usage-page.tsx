@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useQueryClient } from "@tanstack/react-query";
-import { Activity, BarChart2, Cpu, KeyRound, Rocket, Server } from "lucide-react";
+import { Activity, BarChart2, Cpu, Rocket, Server } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { useApiKeys } from "@/features/api-keys/hooks/use-api-keys";
 import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRuns } from "@/features/runs/hooks/use-runs";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
+import { useWorkspace } from "@/features/workspaces/workspace-context";
 
 type MetricCardProps = {
   label: string;
@@ -66,10 +67,21 @@ function normalizeDate(value?: string | null) {
 
 export default function UsagePage() {
   const queryClient = useQueryClient();
-  const { data: requests, isLoading: requestsLoading } = useRequests();
+  const { activeWorkspace } = useWorkspace();
+  const workspaceUid = activeWorkspace?.uid;
+  const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
   const { data: runs, isLoading: runsLoading } = useRuns();
   const { data: sandboxSessions, isLoading: sandboxSessionsLoading } = useSandboxSessions();
   const { data: apiKeys, isLoading: apiKeysLoading } = useApiKeys();
+
+  const scopedRequestIds = useMemo(
+    () => new Set((requests ?? []).map((request) => request.id)),
+    [requests]
+  );
+  const scopedRuns = useMemo(
+    () => (runs ?? []).filter((run) => scopedRequestIds.has(run.request_id)),
+    [runs, scopedRequestIds]
+  );
 
   const requestStats = useMemo(() => {
     const list = requests ?? [];
@@ -84,7 +96,7 @@ export default function UsagePage() {
   }, [requests]);
 
   const runStats = useMemo(() => {
-    const list = runs ?? [];
+    const list = scopedRuns ?? [];
     const success = list.filter((run) => {
       const state = (run.status || "").toLowerCase();
       return state.includes("success") || state.includes("done") || state.includes("complete");
@@ -99,7 +111,7 @@ export default function UsagePage() {
       successRate: list.length > 0 ? Math.round((success / list.length) * 100) : 0,
       averageDiff
     };
-  }, [runs]);
+  }, [scopedRuns]);
 
   const sandboxStats = useMemo(() => {
     const list = sandboxSessions ?? [];
@@ -145,7 +157,7 @@ export default function UsagePage() {
       buckets[key].requests += 1;
     });
 
-    (runs ?? []).forEach((run) => {
+    (scopedRuns ?? []).forEach((run) => {
       const date = normalizeDate(run.started_at || run.finished_at);
       if (!date) return;
       const key = date.toISOString().slice(0, 10);
@@ -159,7 +171,7 @@ export default function UsagePage() {
       requests: buckets[key].requests,
       runs: buckets[key].runs
     }));
-  }, [requests, runs]);
+  }, [requests, scopedRuns]);
 
   const chartConfig = {
     requests: {

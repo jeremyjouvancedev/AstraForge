@@ -209,7 +209,6 @@ base64 "$TMPFILE"
         include_paths = include_paths or [session.workspace_path]
         exclude_paths = exclude_paths or []
         snapshot_id = uuid.uuid4()
-        base_workspace = (session.workspace_path or "/workspace").rstrip("/") or "/workspace"
         archive_dir = self._snapshot_dir(session)
         archive_path = f"{archive_dir}/{snapshot_id}.tar.gz"
         include = " ".join(shlex.quote(path) for path in include_paths)

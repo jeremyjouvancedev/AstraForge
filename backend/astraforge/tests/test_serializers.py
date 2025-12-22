@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework.test import APIRequestFactory
 
+from astraforge.accounts.models import Workspace
 from astraforge.integrations.models import RepositoryLink
 from astraforge.interfaces.rest.serializers import RequestSerializer
 
@@ -17,8 +18,10 @@ def test_request_serializer_roundtrip():
         email="owner@example.com",
         password="pass12345",
     )
+    workspace = Workspace.ensure_default_for_user(user)
     repo_link = RepositoryLink.objects.create(
         user=user,
+        workspace=workspace,
         provider=RepositoryLink.Provider.GITHUB,
         repository="org/project",
         access_token="token-123",
@@ -36,10 +39,13 @@ def test_request_serializer_roundtrip():
     assert serializer.is_valid(), serializer.errors
     request_obj = serializer.save()
     rendered = serializer.to_representation(request_obj)
+    assert request_obj.tenant_id == workspace.uid
+    assert rendered["tenant_id"] == workspace.uid
     assert rendered["payload"]["title"] == "Add retry logic"
     assert rendered["payload"]["description"] == payload["prompt"]
     assert rendered["metadata"]["prompt"] == payload["prompt"]
     assert rendered["project"]["id"] == str(repo_link.id)
+    assert rendered["metadata"]["workspace"]["uid"] == workspace.uid
     assert rendered["state"] == request_obj.state.value
     assert "access_token" not in rendered["project"]
 

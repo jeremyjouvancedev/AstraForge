@@ -6,14 +6,14 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
-from astraforge.accounts.models import ApiKey
+from astraforge.accounts.models import ApiKey, Workspace, WorkspaceRole
 from astraforge.integrations.models import RepositoryLink
 from astraforge.domain.models.request import Request, RequestPayload
 
 
 class RequestSerializer(serializers.Serializer):
     id = serializers.UUIDField(required=False)
-    tenant_id = serializers.CharField(default="tenant-default")
+    tenant_id = serializers.CharField(required=False, allow_blank=True, default="")
     source = serializers.CharField(default="direct_user")
     sender = serializers.EmailField(required=False, allow_blank=True)
     project_id = serializers.UUIDField()
@@ -29,13 +29,21 @@ class RequestSerializer(serializers.Serializer):
             )
         user_id = str(request_obj.user.id)
         try:
+            workspace = Workspace.resolve_for_user(
+                request_obj.user,
+                preferred_uid=validated_data.pop("tenant_id", None),
+            )
+        except PermissionError as exc:
+            raise serializers.ValidationError({"tenant_id": [str(exc)]}) from exc
+        try:
             repository_link = RepositoryLink.objects.get(
-                id=project_id, user=request_obj.user
+                id=project_id, workspace=workspace
             )
         except RepositoryLink.DoesNotExist as exc:
             raise serializers.ValidationError(
-                {"project_id": ["Select a project linked to your account."]}
+                {"project_id": ["Select a project linked to this workspace."]}
             ) from exc
+
         payload = RequestPayload(
             title=self._derive_title(raw_prompt),
             description=raw_prompt,
@@ -49,6 +57,7 @@ class RequestSerializer(serializers.Serializer):
             request_id = str(uuid.uuid4())
         validated_data["id"] = request_id
         validated_data.setdefault("sender", "")
+        validated_data["tenant_id"] = workspace.uid
         metadata = {
             "project": {
                 "id": str(repository_link.id),
@@ -56,7 +65,8 @@ class RequestSerializer(serializers.Serializer):
                 "repository": repository_link.repository,
                 "base_url": repository_link.effective_base_url(),
                 "access_token": repository_link.access_token,
-            }
+            },
+            "workspace": {"uid": workspace.uid, "name": workspace.name},
         }
         metadata["prompt"] = raw_prompt
         metadata["chat_messages"] = [
@@ -174,6 +184,29 @@ class RequestSerializer(serializers.Serializer):
         return updated
 
 
+class WorkspaceSerializer(serializers.Serializer):
+    uid = serializers.SlugField(read_only=True)
+    name = serializers.CharField()
+    role = serializers.ChoiceField(choices=WorkspaceRole.choices, required=False)
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return Workspace.create_for_user(name=validated_data["name"], user=user)
+
+    def to_representation(self, instance: Workspace):
+        role = (
+            instance.members.filter(user=getattr(self.context.get("request"), "user", None))
+            .values_list("role", flat=True)
+            .first()
+        )
+        return {
+            "uid": instance.uid,
+            "name": instance.name,
+            "role": role or WorkspaceRole.MEMBER,
+        }
+
+
 class ChatSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     message = serializers.CharField(trim_whitespace=False)
@@ -256,6 +289,17 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 
+class EarlyAccessRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    team_role = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    project_summary = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="What the requester is building and why they need AstraForge.",
+    )
+
+
 class ApiKeySerializer(serializers.ModelSerializer):
     key = serializers.CharField(
         read_only=True, help_text="Plaintext API key. Shown only once."
@@ -273,7 +317,8 @@ class ApiKeyCreateSerializer(serializers.Serializer):
 
 class RepositoryLinkSerializer(serializers.ModelSerializer):
     access_token = serializers.CharField(write_only=True, trim_whitespace=False)
-    token_preview = serializers.SerializerMethodField(read_only=True)
+    workspace_uid = serializers.SlugField(write_only=True)
+    workspace = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = RepositoryLink
@@ -283,13 +328,14 @@ class RepositoryLinkSerializer(serializers.ModelSerializer):
             "repository",
             "base_url",
             "access_token",
-            "token_preview",
+            "workspace",
+            "workspace_uid",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
-            "token_preview",
+            "workspace",
             "created_at",
             "updated_at",
         ]
@@ -305,14 +351,50 @@ class RepositoryLinkSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"base_url": "Only GitLab links support custom base URLs."}
             )
+        workspace_uid_raw = attrs.get("workspace_uid") or (
+            self.initial_data.get("workspace_uid")
+            if isinstance(self.initial_data, dict)
+            else None
+        )
+        workspace_uid = str(workspace_uid_raw or "").strip()
+        request = self.context.get("request")
+        if request is None or request.user.is_anonymous:
+            raise serializers.ValidationError(
+                {"workspace_uid": "Authentication required to link a repository."}
+            )
+        allowed = Workspace.allowed_uids_for_user(request.user)
+        if workspace_uid in {"", "tenant-default"}:
+            workspace_uid = next(iter(allowed), "")
+        if not workspace_uid:
+            raise serializers.ValidationError(
+                {"workspace_uid": "Workspace is required."}
+            )
+        if workspace_uid not in allowed:
+            raise serializers.ValidationError(
+                {"workspace_uid": "You do not have access to this workspace."}
+            )
+        attrs["workspace_uid"] = workspace_uid
         return attrs
 
     def create(self, validated_data):
         request = self.context.get("request")
-        return RepositoryLink.objects.create(user=request.user, **validated_data)
+        workspace_uid = validated_data.pop("workspace_uid")
+        try:
+            workspace = Workspace.objects.get(uid=workspace_uid)
+        except Workspace.DoesNotExist as exc:  # pragma: no cover - defensive
+            raise serializers.ValidationError(
+                {"workspace_uid": "Workspace not found."}
+            ) from exc
+        return RepositoryLink.objects.create(
+            user=request.user,
+            workspace=workspace,
+            **validated_data,
+        )
 
-    def get_token_preview(self, obj: RepositoryLink) -> str:
-        return obj.token_preview()
+    def get_workspace(self, obj: RepositoryLink) -> dict[str, str] | None:
+        if not obj.workspace_id:
+            return None
+        return {"uid": obj.workspace.uid, "name": obj.workspace.name}
 
 
 class RunSummarySerializer(serializers.Serializer):

@@ -14,6 +14,7 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { createRepositoryLink } from "@/lib/api-client";
+import { useWorkspace } from "@/features/workspaces/workspace-context";
 
 const schema = z
   .object({
@@ -53,6 +54,8 @@ export type RepositoryLinkFormValues = z.infer<typeof schema>;
 
 export function RepositoryLinkForm() {
   const queryClient = useQueryClient();
+  const { activeWorkspace } = useWorkspace();
+  const workspaceUid = activeWorkspace?.uid;
   const inputClassName =
     "rounded-xl border-white/10 bg-black/30 text-zinc-100 ring-1 ring-white/5 placeholder:text-zinc-500 focus-visible:border-indigo-400/60 focus-visible:ring-indigo-400/60 focus-visible:ring-offset-0";
   const form = useForm<RepositoryLinkFormValues>({
@@ -71,17 +74,22 @@ export function RepositoryLinkForm() {
   };
 
   const mutation = useMutation({
-    mutationFn: (values: RepositoryLinkFormValues) =>
-      createRepositoryLink({
+    mutationFn: (values: RepositoryLinkFormValues) => {
+      if (!workspaceUid) {
+        throw new Error("Select a workspace before linking a repository.");
+      }
+      return createRepositoryLink({
         provider: values.provider,
         repository: values.repository,
         access_token: values.access_token,
+        workspace_uid: workspaceUid,
         ...(values.provider === "gitlab" && values.base_url
           ? { base_url: values.base_url }
           : {})
-      }),
+      });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["repository-links"] });
+      queryClient.invalidateQueries({ queryKey: ["repository-links", workspaceUid] });
       form.reset({
         provider: form.getValues("provider"),
         repository: "",
@@ -91,7 +99,10 @@ export function RepositoryLinkForm() {
     }
   });
 
-  const onSubmit = form.handleSubmit((values) => mutation.mutate(values));
+  const onSubmit = form.handleSubmit((values) => {
+    if (!workspaceUid) return;
+    mutation.mutate(values);
+  });
 
   return (
     <Card className="home-card home-ring-soft border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur">
@@ -185,10 +196,15 @@ export function RepositoryLinkForm() {
             onClick={onSubmit}
             variant="brand"
             className="rounded-xl"
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || !workspaceUid}
           >
             {mutation.isPending ? "Linking..." : "Link Repository"}
           </Button>
+          {!workspaceUid && (
+            <p className="text-sm text-zinc-300">
+              Choose a workspace before linking a repository.
+            </p>
+          )}
           {mutation.isError && (
             <p className="text-sm text-destructive">
               Failed to link the repository. Please try again.

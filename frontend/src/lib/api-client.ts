@@ -40,6 +40,7 @@ export interface RequestProject {
 export interface CreateRequestResponse {
   id: string;
   state: string;
+  tenant_id?: string;
   payload: ApiRequestPayload;
   project: RequestProject;
   created_at?: string;
@@ -66,8 +67,10 @@ export async function createRequest(input: CreateRequestInput) {
   return response.data;
 }
 
-export async function fetchRequests() {
-  const response = await apiClient.get<CreateRequestResponse[]>("/requests/");
+export async function fetchRequests(filters?: { tenantId?: string }) {
+  const response = await apiClient.get<CreateRequestResponse[]>("/requests/", {
+    params: filters?.tenantId ? { tenant_id: filters.tenantId } : undefined
+  });
   return response.data;
 }
 
@@ -107,6 +110,47 @@ export async function executeRequest(payload: {
 export interface AuthUser {
   username: string;
   email: string;
+  access: UserAccessInfo;
+  auth?: AuthSettings;
+  workspaces?: WorkspaceSummary[];
+  default_workspace?: string | null;
+}
+
+export type AccessStatus = "pending" | "approved" | "blocked";
+
+export interface UserAccessInfo {
+  status: AccessStatus;
+  identity_provider: string;
+  approved_at?: string | null;
+  updated_at: string;
+  waitlist_enforced?: boolean;
+  waitlist_notified_at?: string | null;
+  waitlist_email_sent?: boolean;
+}
+
+export interface AuthSettings {
+  require_approval: boolean;
+  allow_all_users: boolean;
+  waitlist_enabled: boolean;
+  supported_providers: string[];
+}
+
+export interface WorkspaceSummary {
+  uid: string;
+  name: string;
+  role: string;
+}
+
+export type RepositoryWorkspace = Pick<WorkspaceSummary, "uid" | "name">;
+
+export async function fetchWorkspaces() {
+  const response = await apiClient.get<WorkspaceSummary[]>("/workspaces/");
+  return response.data;
+}
+
+export async function createWorkspace(payload: { name: string }) {
+  const response = await apiClient.post<WorkspaceSummary>("/workspaces/", payload);
+  return response.data;
 }
 
 export async function ensureCsrfToken() {
@@ -135,6 +179,28 @@ export async function fetchCurrentUser() {
   return response.data;
 }
 
+export async function fetchAuthSettings() {
+  const response = await apiClient.get<AuthSettings>("/auth/settings/");
+  return response.data;
+}
+
+export async function submitEarlyAccessRequest(payload: {
+  email: string;
+  teamRole?: string;
+  projectSummary?: string;
+}) {
+  const response = await apiClient.post<{
+    detail: string;
+    user_email_sent: boolean;
+    owner_email_sent: boolean;
+  }>("/marketing/early-access/", {
+    email: payload.email,
+    team_role: payload.teamRole ?? "",
+    project_summary: payload.projectSummary ?? ""
+  });
+  return response.data;
+}
+
 export type RepositoryProvider = "gitlab" | "github";
 
 export interface RepositoryLink {
@@ -142,7 +208,7 @@ export interface RepositoryLink {
   provider: RepositoryProvider;
   repository: string;
   base_url?: string | null;
-  token_preview: string;
+  workspace: RepositoryWorkspace;
   created_at: string;
   updated_at: string;
 }
@@ -152,10 +218,14 @@ export interface CreateRepositoryLinkPayload {
   repository: string;
   access_token: string;
   base_url?: string;
+  workspace_uid: string;
 }
 
-export async function fetchRepositoryLinks() {
-  const response = await apiClient.get<RepositoryLink[]>("/repository-links/");
+export async function fetchRepositoryLinks(workspaceUid?: string) {
+  if (!workspaceUid) return [];
+  const response = await apiClient.get<RepositoryLink[]>("/repository-links/", {
+    params: { workspace_uid: workspaceUid }
+  });
   return response.data;
 }
 
