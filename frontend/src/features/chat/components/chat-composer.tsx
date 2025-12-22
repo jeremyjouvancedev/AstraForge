@@ -55,7 +55,7 @@ export function ChatComposer({
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition hover:text-foreground"
-          title="Ajouter un contexte"
+          title="Add context"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -64,7 +64,7 @@ export function ChatComposer({
         rows={1}
         value={message}
         onChange={(event) => updateMessage(event.target.value)}
-        placeholder={placeholder ?? "Demander des modifications ou poser une question..."}
+        placeholder={placeholder ?? "Request changes or ask a question..."}
         disabled={disabled}
         className="max-h-28 min-h-0 flex-1 resize-none border-none bg-transparent px-0 py-0 text-sm shadow-none focus-visible:ring-0"
       />
@@ -72,7 +72,7 @@ export function ChatComposer({
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
-          title="Micro"
+          title="Mic"
         >
           <Mic className="h-4 w-4" />
         </button>

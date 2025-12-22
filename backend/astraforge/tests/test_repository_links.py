@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from astraforge.accounts.models import Workspace
 from astraforge.integrations.models import RepositoryLink
 
 pytestmark = pytest.mark.django_db
@@ -16,35 +17,43 @@ def user():
 
 
 @pytest.fixture
+def workspace(user):
+    return Workspace.ensure_default_for_user(user)
+
+
+@pytest.fixture
 def api_client(user):
     client = APIClient()
     client.force_authenticate(user=user)
     return client
 
 
-def test_create_gitlab_link_defaults_to_public_url(api_client, user):
+def test_create_gitlab_link_defaults_to_public_url(api_client, user, workspace):
     payload = {
         "provider": "gitlab",
         "repository": "org/project",
         "access_token": "fake-token-3456",
+        "workspace_uid": workspace.uid,
     }
     response = api_client.post(
         reverse("repository-link-list"), payload, format="json"
     )
     assert response.status_code == 201
-    link = RepositoryLink.objects.get(user=user)
+    link = RepositoryLink.objects.get(workspace=workspace)
     assert link.base_url == RepositoryLink.DEFAULT_GITLAB_URL
     data = response.json()
-    assert data["token_preview"].endswith("3456")
+    assert "token_preview" not in data
     assert "access_token" not in data
+    assert data["workspace"]["uid"] == workspace.uid
 
 
-def test_create_github_link_rejects_custom_base_url(api_client):
+def test_create_github_link_rejects_custom_base_url(api_client, workspace):
     payload = {
         "provider": "github",
         "repository": "org/app",
         "access_token": "fake-token-4567",
         "base_url": "https://custom.example.com",
+        "workspace_uid": workspace.uid,
     }
     response = api_client.post(
         reverse("repository-link-list"), payload, format="json"
@@ -53,9 +62,10 @@ def test_create_github_link_rejects_custom_base_url(api_client):
     assert "base_url" in response.json()
 
 
-def test_list_links_returns_masked_tokens(api_client, user):
+def test_list_links_returns_masked_tokens(api_client, user, workspace):
     RepositoryLink.objects.create(
         user=user,
+        workspace=workspace,
         provider=RepositoryLink.Provider.GITHUB,
         repository="org/app",
         access_token="fake-token-ABCD",
@@ -64,8 +74,9 @@ def test_list_links_returns_masked_tokens(api_client, user):
     assert response.status_code == 200
     payload = response.json()
     assert len(payload) == 1
-    assert payload[0]["token_preview"].endswith("ABCD")
+    assert "token_preview" not in payload[0]
     assert "access_token" not in payload[0]
+    assert payload[0]["workspace"]["uid"] == workspace.uid
 
 
 def test_link_endpoints_require_auth():

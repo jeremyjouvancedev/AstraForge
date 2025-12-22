@@ -4,7 +4,6 @@ import {
   Activity,
   BadgeCheck,
   BarChart2,
-  KeyRound,
   Layers,
   PlayCircle,
   Server
@@ -20,12 +19,12 @@ import {
   ChartTooltipContent
 } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useApiKeys } from "@/features/api-keys/hooks/use-api-keys";
 import { useMergeRequests } from "@/features/mr/hooks/use-merge-requests";
 import { useRepositoryLinks } from "@/features/repositories/hooks/use-repository-links";
 import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRuns } from "@/features/runs/hooks/use-runs";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
+import { useWorkspace } from "@/features/workspaces/workspace-context";
 
 type MetricCardProps = {
   label: string;
@@ -37,13 +36,6 @@ type MetricCardProps = {
 
 function toLower(value: string | undefined | null) {
   return (value || "").toLowerCase();
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "—";
-  return parsed.toLocaleString();
 }
 
 function MetricCard({ label, value, helper, icon: Icon, loading }: MetricCardProps) {
@@ -75,21 +67,36 @@ function MetricCard({ label, value, helper, icon: Icon, loading }: MetricCardPro
 }
 
 export default function AppOverviewPage() {
-  const { data: requests, isLoading: requestsLoading } = useRequests();
+  const { activeWorkspace, loading: workspaceLoading } = useWorkspace();
+  const workspaceUid = activeWorkspace?.uid;
+  const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
   const { data: runs, isLoading: runsLoading } = useRuns();
   const {
     data: mergeRequests,
     isLoading: mergeRequestsLoading
   } = useMergeRequests();
-  const { data: apiKeys, isLoading: apiKeysLoading } = useApiKeys();
   const {
     data: repositoryLinks,
     isLoading: repositoryLinksLoading
-  } = useRepositoryLinks();
+  } = useRepositoryLinks(workspaceUid);
+  const repoLinksLoading = workspaceLoading || repositoryLinksLoading || !workspaceUid;
   const {
     data: sandboxSessions,
     isLoading: sandboxSessionsLoading
   } = useSandboxSessions();
+
+  const scopedRequestIds = useMemo(
+    () => new Set((requests ?? []).map((request) => request.id)),
+    [requests]
+  );
+  const scopedRuns = useMemo(
+    () => (runs ?? []).filter((run) => scopedRequestIds.has(run.request_id)),
+    [runs, scopedRequestIds]
+  );
+  const scopedMergeRequests = useMemo(
+    () => (mergeRequests ?? []).filter((mr) => scopedRequestIds.has(mr.request_id)),
+    [mergeRequests, scopedRequestIds]
+  );
 
   const requestStats = useMemo(() => {
     const list = requests ?? [];
@@ -114,7 +121,7 @@ export default function AppOverviewPage() {
   }, [requests]);
 
   const runStats = useMemo(() => {
-    const list = runs ?? [];
+    const list = scopedRuns ?? [];
     const successful = list.filter((run) => {
       const status = toLower(run.status);
       return (
@@ -124,16 +131,16 @@ export default function AppOverviewPage() {
       );
     }).length;
     return { total: list.length, successful };
-  }, [runs]);
+  }, [scopedRuns]);
 
   const mergeStats = useMemo(() => {
-    const list = mergeRequests ?? [];
+    const list = scopedMergeRequests ?? [];
     const open = list.filter((mr) => {
       const status = toLower(mr.status);
       return status.includes("open") || status.includes("draft");
     }).length;
     return { total: list.length, open };
-  }, [mergeRequests]);
+  }, [scopedMergeRequests]);
 
   const sandboxStats = useMemo(() => {
     const list = sandboxSessions ?? [];
@@ -192,16 +199,6 @@ export default function AppOverviewPage() {
     }
   };
 
-  const apiKeyStats = useMemo(() => {
-    const list = apiKeys ?? [];
-    const sorted = list
-      .slice()
-      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-    const active = list.filter((key) => key.is_active).length;
-    const latest = sorted[0];
-    return { total: list.length, active, latest };
-  }, [apiKeys]);
-
   const repoCount = repositoryLinks?.length ?? 0;
   const highlightedRequests = useMemo(() => {
     const list = requests ?? [];
@@ -215,8 +212,7 @@ export default function AppOverviewPage() {
     requestsLoading ||
     runsLoading ||
     mergeRequestsLoading ||
-    apiKeysLoading ||
-    repositoryLinksLoading ||
+    repoLinksLoading ||
     sandboxSessionsLoading;
 
   return (
@@ -235,12 +231,6 @@ export default function AppOverviewPage() {
               <Link to="/app/requests">
                 <PlayCircle className="mr-2 h-4 w-4" />
                 Start a request
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="rounded-xl border-white/20 text-white hover:border-indigo-300/60 hover:text-indigo-100">
-              <Link to="/app/api-keys">
-                <KeyRound className="mr-2 h-4 w-4" />
-                Manage API keys
               </Link>
             </Button>
           </div>
@@ -267,12 +257,6 @@ export default function AppOverviewPage() {
                 <span className="text-xs text-zinc-300">Runs recorded</span>
                 <span className="text-sm font-semibold text-white">
                   {runStats.total}
-                </span>
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-xs text-zinc-300">Active API keys</span>
-                <span className="text-sm font-semibold text-white">
-                  {apiKeyStats.active}
                 </span>
               </li>
             </ul>
@@ -320,27 +304,14 @@ export default function AppOverviewPage() {
           label="Linked repositories"
           value={repositoryLinks?.length ?? 0}
           helper={
-            repositoryLinksLoading
+            repoLinksLoading
               ? undefined
               : repoCount > 0
                 ? "Ready for delivery"
                 : "Add a repository to deliver work"
           }
           icon={BadgeCheck}
-          loading={repositoryLinksLoading}
-        />
-        <MetricCard
-          label="Active API keys"
-          value={apiKeyStats.active}
-          helper={
-            apiKeysLoading
-              ? undefined
-              : apiKeyStats.total === 0
-                ? "Create a key to unlock external access"
-                : `${apiKeyStats.total} total keys`
-          }
-          icon={KeyRound}
-          loading={apiKeysLoading}
+          loading={repoLinksLoading}
         />
         <MetricCard
           label="Latest request"
@@ -359,64 +330,93 @@ export default function AppOverviewPage() {
         <Card className="home-card home-ring-soft border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur">
           <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div className="space-y-1">
-              <CardTitle className="text-lg font-semibold text-white">API key access</CardTitle>
+              <CardTitle className="text-lg font-semibold text-white">Sandbox activity</CardTitle>
               <p className="text-sm text-zinc-300">
-                Keep your integrations healthy. Rotate or create keys without leaving the overview.
+                Track how many sandboxes you have provisioned this week and watch for failures.
               </p>
             </div>
-            <Badge variant="outline" className="rounded-full border-white/20 bg-white/5 px-3 py-1 text-xs text-indigo-100">
-              {apiKeyStats.active} active
-            </Badge>
+            <div className="flex flex-col items-end gap-2 text-xs text-zinc-200">
+              <Badge className="rounded-full bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-300/40">
+                Ready {sandboxStats.ready}
+              </Badge>
+              <Badge className="rounded-full bg-white/10 text-white ring-1 ring-white/20">
+                Total {sandboxStats.total}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {apiKeysLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-4 w-28" />
-              </div>
-            ) : apiKeyStats.total === 0 ? (
-              <div className="rounded-2xl border border-dashed border-indigo-400/50 bg-indigo-500/5 p-4 text-sm text-indigo-50">
-                <p className="font-semibold text-white">No API keys yet</p>
-                <p className="mt-1 text-indigo-100/80">
-                  Generate a key to connect CI pipelines, notebooks, or other apps.
-                </p>
+            {sandboxSessionsLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : sandboxStats.total === 0 ? (
+              <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-5 text-sm text-zinc-300">
+                No sandboxes yet. Start a deep agent conversation or create a sandbox to see activity.
               </div>
             ) : (
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="flex items-center justify-between text-sm text-zinc-200">
-                  <span>Most recent key</span>
-                  <span className="font-semibold text-white">
-                    {apiKeyStats.latest?.name || "Unnamed key"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm text-zinc-200">
-                  <span>Created</span>
-                  <span className="text-white">{formatDate(apiKeyStats.latest?.created_at)}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm text-zinc-200">
-                  <span>Last used</span>
-                  <span className="text-white">
-                    {apiKeyStats.latest?.last_used_at ? formatDate(apiKeyStats.latest?.last_used_at) : "Never"}
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400">
-                  Keys are only shown once at creation. Rotate if you suspect exposure.
-                </p>
-              </div>
+              <ChartContainer
+                config={sandboxChartConfig}
+                className="w-full rounded-2xl border border-white/10 bg-gradient-to-b from-indigo-950/60 to-black/60 p-4"
+              >
+                <AreaChart data={sandboxChartData}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value) => value.replace(/\s+/g, " ")}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    width={30}
+                  />
+                  <ChartTooltip
+                    cursor={{ stroke: "rgba(255,255,255,0.2)" }}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Area
+                    dataKey="count"
+                    type="monotone"
+                    fill="var(--color-sandboxes)"
+                    stroke="var(--color-sandboxes)"
+                    strokeWidth={2}
+                    fillOpacity={0.2}
+                    dot={{ r: 3, strokeWidth: 0 }}
+                    activeDot={{ r: 5, strokeWidth: 0 }}
+                  />
+                </AreaChart>
+              </ChartContainer>
             )}
-            <div className="flex flex-wrap gap-3">
-              <Button asChild variant="brand" className="rounded-xl">
-                <Link to="/app/api-keys">
-                  <KeyRound className="mr-2 h-4 w-4" />
-                  Manage keys
-                </Link>
-              </Button>
-              <Button asChild variant="ghost" className="rounded-xl border border-white/10 bg-white/5 text-indigo-50 hover:border-indigo-300/40 hover:bg-white/10">
-                <Link to="/app/api-keys">
-                  Create new key
-                </Link>
-              </Button>
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-300">
+              <Badge className="rounded-full bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-300/40">
+                Ready {sandboxStats.ready}
+              </Badge>
+              <Badge className="rounded-full bg-amber-500/15 text-amber-100 ring-1 ring-amber-300/40">
+                Starting {sandboxStats.starting}
+              </Badge>
+              <Badge className="rounded-full bg-rose-500/15 text-rose-100 ring-1 ring-rose-300/40">
+                Failed {sandboxStats.failed}
+              </Badge>
+              <Badge className="rounded-full bg-white/10 text-white ring-1 ring-white/20">
+                Total {sandboxStats.total}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-300">
+              {Object.entries(sandboxStats.modes).map(([mode, count]) => (
+                <span
+                  key={mode}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1"
+                >
+                  <Server className="h-3.5 w-3.5 text-indigo-200" />
+                  <span className="uppercase tracking-[0.15em] text-indigo-100/80">{mode}</span>
+                  <span className="font-semibold text-white">{count}</span>
+                </span>
+              ))}
+              {Object.keys(sandboxStats.modes).length === 0 && !sandboxSessionsLoading && (
+                <span className="text-sm text-zinc-400">No sandbox modes recorded yet.</span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -491,91 +491,6 @@ export default function AppOverviewPage() {
           </CardContent>
         </Card>
 
-        <Card className="home-card home-ring-soft border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur lg:col-span-2">
-          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-4">
-            <div className="space-y-1">
-              <CardTitle className="text-lg font-semibold text-white">Sandbox activity</CardTitle>
-              <p className="text-sm text-zinc-300">
-                Track how many sandboxes you have provisioned this week and watch for failures.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge className="rounded-full bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-300/40">
-                Ready {sandboxStats.ready}
-              </Badge>
-              <Badge className="rounded-full bg-amber-500/15 text-amber-100 ring-1 ring-amber-300/40">
-                Starting {sandboxStats.starting}
-              </Badge>
-              <Badge className="rounded-full bg-rose-500/15 text-rose-100 ring-1 ring-rose-300/40">
-                Failed {sandboxStats.failed}
-              </Badge>
-              <Badge className="rounded-full bg-white/10 text-white ring-1 ring-white/20">
-                Total {sandboxStats.total}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {sandboxSessionsLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : sandboxStats.total === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-5 text-sm text-zinc-300">
-                No sandboxes yet. Start a deep agent conversation or create a sandbox to see activity.
-              </div>
-            ) : (
-              <ChartContainer
-                config={sandboxChartConfig}
-                className="w-full rounded-2xl border border-white/10 bg-gradient-to-b from-indigo-950/60 to-black/60 p-4"
-              >
-                <AreaChart data={sandboxChartData}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis
-                    dataKey="label"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    tickFormatter={(value) => value.replace(/\s+/g, " ")}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    width={30}
-                  />
-                  <ChartTooltip
-                    cursor={{ stroke: "rgba(255,255,255,0.2)" }}
-                    content={<ChartTooltipContent hideLabel />}
-                  />
-                  <Area
-                    dataKey="count"
-                    type="monotone"
-                    fill="var(--color-sandboxes)"
-                    stroke="var(--color-sandboxes)"
-                    strokeWidth={2}
-                    fillOpacity={0.2}
-                    dot={{ r: 3, strokeWidth: 0 }}
-                    activeDot={{ r: 5, strokeWidth: 0 }}
-                  />
-                </AreaChart>
-              </ChartContainer>
-            )}
-            <div className="flex flex-wrap gap-2 text-xs text-zinc-300">
-              {Object.entries(sandboxStats.modes).map(([mode, count]) => (
-                <span
-                  key={mode}
-                  className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1"
-                >
-                  <Server className="h-3.5 w-3.5 text-indigo-200" />
-                  <span className="uppercase tracking-[0.15em] text-indigo-100/80">{mode}</span>
-                  <span className="font-semibold text-white">{count}</span>
-                </span>
-              ))}
-              {Object.keys(sandboxStats.modes).length === 0 && !sandboxSessionsLoading && (
-                <span className="text-sm text-zinc-400">No sandbox modes recorded yet.</span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

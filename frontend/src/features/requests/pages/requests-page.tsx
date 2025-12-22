@@ -8,22 +8,26 @@ import { NewRequestForm } from "@/features/requests/components/new-request-form"
 import { RequestsTable } from "@/features/requests/components/requests-table";
 import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRepositoryLinks } from "@/features/repositories/hooks/use-repository-links";
+import { useWorkspace } from "@/features/workspaces/workspace-context";
 
 export default function RequestsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data: requests, isLoading: requestsLoading } = useRequests();
+  const { activeWorkspace, loading: workspaceLoading } = useWorkspace();
+  const workspaceUid = activeWorkspace?.uid;
+  const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
   const {
     data: repositoryLinks,
     isLoading: linksLoading,
     isError: linksError
-  } = useRepositoryLinks();
+  } = useRepositoryLinks(workspaceUid);
+  const repoLinksLoading = workspaceLoading || linksLoading || !workspaceUid;
 
-  const hasProjects = (repositoryLinks?.length ?? 0) > 0;
+  const hasProjects = !!workspaceUid && (repositoryLinks?.length ?? 0) > 0;
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["requests"] });
-    queryClient.invalidateQueries({ queryKey: ["repository-links"] });
+    queryClient.invalidateQueries({ queryKey: ["repository-links", workspaceUid || "none"] });
   };
 
   const handleRequestSelect = (requestId: string) => {
@@ -55,7 +59,7 @@ export default function RequestsPage() {
         </div>
       </section>
 
-      {linksLoading ? (
+      {repoLinksLoading ? (
         <Card className="home-card home-ring-soft rounded-2xl border border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur">
           <CardHeader>
             <CardTitle>Checking project access...</CardTitle>

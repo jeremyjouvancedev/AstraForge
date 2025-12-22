@@ -212,9 +212,32 @@ export default function RequestRunPage() {
   const metadata = (data?.metadata ?? null) as Record<string, unknown> | null;
   const workspaceMeta = metadata && typeof metadata["workspace"] === "object" ? (metadata["workspace"] as Record<string, unknown>) : undefined;
   const repositorySlug = data?.project?.repository ?? "Unlinked repository";
+  const repositorySlugForUrl = typeof data?.project?.repository === "string" ? data.project.repository : null;
+  const repoProvider = data?.project?.provider;
+  const projectBaseUrl = typeof data?.project?.base_url === "string" ? data.project.base_url : null;
   const baseBranch = workspaceMeta && typeof workspaceMeta["base_branch"] === "string" ? (workspaceMeta["base_branch"] as string) : undefined;
   const selectedArtifacts = selectedRun?.artifacts && typeof selectedRun.artifacts === "object" ? (selectedRun.artifacts as Record<string, unknown>) : undefined;
   const featureBranch = selectedArtifacts && typeof selectedArtifacts["branch"] === "string" ? (selectedArtifacts["branch"] as string) : undefined;
+  const mrMetadata = metadata && typeof metadata["mr"] === "object" && metadata["mr"] !== null ? (metadata["mr"] as Record<string, unknown>) : null;
+  const mergeRequestUrl = typeof mrMetadata?.["ref"] === "string" ? (mrMetadata["ref"] as string) : undefined;
+  const mrSourceBranch = typeof mrMetadata?.["source_branch"] === "string" ? (mrMetadata["source_branch"] as string) : undefined;
+  const branchName = featureBranch ?? mrSourceBranch;
+  const repositoryBaseUrl = useMemo(() => {
+    if (!repositorySlugForUrl || !repoProvider) return null;
+    if (repoProvider === "github") {
+      return `https://github.com/${repositorySlugForUrl}`;
+    }
+    const base = (projectBaseUrl ?? "https://gitlab.com").replace(/\/+$/, "");
+    return `${base}/${repositorySlugForUrl}`;
+  }, [projectBaseUrl, repoProvider, repositorySlugForUrl]);
+  const branchUrl = useMemo(() => {
+    if (!repositoryBaseUrl || !branchName) return null;
+    const encodedBranch = encodeURIComponent(branchName);
+    const branchPath = repoProvider === "gitlab" ? `/-/tree/${encodedBranch}` : `/tree/${encodedBranch}`;
+    return `${repositoryBaseUrl}${branchPath}`;
+  }, [branchName, repoProvider, repositoryBaseUrl]);
+  const externalViewUrl = mergeRequestUrl ?? branchUrl ?? null;
+  const viewButtonLabel = repoProvider === "gitlab" ? "View on GitLab" : repoProvider === "github" ? "View on GitHub" : "View repository";
   const liveAssistantMessage = useMemo(() => {
     for (let i = selectedRunEvents.length - 1; i >= 0; i -= 1) {
       const event = selectedRunEvents[i];
@@ -242,9 +265,9 @@ export default function RequestRunPage() {
   const startedAtDate = selectedRun?.started_at ? new Date(selectedRun.started_at) : null;
   const finishedAtDate = selectedRun?.finished_at ? new Date(selectedRun.finished_at) : null;
   const durationSeconds = startedAtDate && finishedAtDate ? Math.max(0, Math.round((finishedAtDate.getTime() - startedAtDate.getTime()) / 1000)) : null;
-  const formatTimestamp = (d: Date | null) => (d ? d.toLocaleString() : "Non demarre");
+  const formatTimestamp = (d: Date | null) => (d ? d.toLocaleString() : "Not started");
   const formatDuration = (s: number | null) => {
-    if (s === null) return finishedAtDate ? "Moins d'une seconde" : "En cours";
+    if (s === null) return finishedAtDate ? "Less than a second" : "In progress";
     if (s < 60) return `${s}s`;
     const m = Math.floor(s / 60);
     const r = s % 60;
@@ -322,10 +345,10 @@ export default function RequestRunPage() {
               className="h-9 rounded-full px-3 text-sm"
               onClick={() => navigate(-1)}
             >
-              <ArrowLeft className="mr-2 h-4 w-4" /> Retour
+              <ArrowLeft className="mr-2 h-4 w-4" /> Back
             </Button>
             <div className="min-w-0 space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Demande</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Request</p>
               <h1 className="truncate text-2xl font-semibold text-foreground">{requestTitle}</h1>
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                 <span className="flex min-w-0 items-center gap-1 text-foreground">
@@ -334,8 +357,8 @@ export default function RequestRunPage() {
                 </span>
                 <span className="flex min-w-0 items-center gap-1 text-foreground">
                   <GitBranch className="h-4 w-4 opacity-70" />
-                  <span className="truncate" title={featureBranch ?? baseBranch ?? "Branch inconnue"}>
-                    {featureBranch ?? baseBranch ?? "Branch inconnue"}
+                  <span className="truncate" title={featureBranch ?? baseBranch ?? "Unknown branch"}>
+                    {featureBranch ?? baseBranch ?? "Unknown branch"}
                   </span>
                 </span>
                 {selectedRunId ? (
@@ -343,18 +366,28 @@ export default function RequestRunPage() {
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <span>Début {formatTimestamp(startedAtDate)}</span>
-                <span>{selectedRun?.finished_at ? `Fin ${formatTimestamp(finishedAtDate)}` : "Toujours en cours"}</span>
+                <span>Started {formatTimestamp(startedAtDate)}</span>
+                <span>{selectedRun?.finished_at ? `Finished ${formatTimestamp(finishedAtDate)}` : "Still running"}</span>
                 <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-foreground">
-                  Durée {formatDuration(durationSeconds)}
+                  Duration {formatDuration(durationSeconds)}
                 </span>
               </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" className="rounded-full px-4">Archiver</Button>
-            <Button size="sm" variant="outline" className="rounded-full px-4">Partager</Button>
-            <Button size="sm" className="rounded-full px-4">Voir l'extraction</Button>
+            <Button size="sm" variant="outline" className="rounded-full px-4">Archive</Button>
+            <Button size="sm" variant="outline" className="rounded-full px-4">Share</Button>
+            {externalViewUrl ? (
+              <Button size="sm" className="rounded-full px-4" asChild>
+                <a href={externalViewUrl} target="_blank" rel="noreferrer noopener">
+                  {viewButtonLabel}
+                </a>
+              </Button>
+            ) : (
+              <Button size="sm" className="rounded-full px-4" disabled>
+                {viewButtonLabel}
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -391,7 +424,7 @@ export default function RequestRunPage() {
             >
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-6 py-4">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted-foreground">Vue detaillee</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted-foreground">Detailed view</p>
                   <h2 className="truncate text-lg font-semibold text-foreground">{limitedDiffFiles[0]?.path ?? "Output preview"}</h2>
                   <p className="text-xs text-muted-foreground">
                     +{limitedDiffFiles[0]?.additions ?? diffStats.additions} / -{limitedDiffFiles[0]?.deletions ?? diffStats.deletions}
@@ -408,14 +441,14 @@ export default function RequestRunPage() {
                     value="log"
                     className="rounded-full px-3 py-1 text-xs transition data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
                   >
-                    Journaux
+                    Logs
                   </TabsTrigger>
                 </TabsList>
               </div>
 
               {combinedRuns.length > 1 ? (
                 <div className="flex w-full flex-col gap-2 border-b border-border/60 bg-card/80 px-6 pb-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Autres executions</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">Other runs</p>
                   <RunHistoryRail />
                 </div>
               ) : null}

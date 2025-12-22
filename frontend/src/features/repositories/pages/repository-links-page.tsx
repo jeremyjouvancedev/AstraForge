@@ -1,9 +1,13 @@
 import { RepositoryLinkForm } from "@/features/repositories/components/repository-link-form";
 import { RepositoryLinkList } from "@/features/repositories/components/repository-link-list";
 import { useRepositoryLinks } from "@/features/repositories/hooks/use-repository-links";
+import { useWorkspace } from "@/features/workspaces/workspace-context";
 
 export default function RepositoryLinksPage() {
-  const { data, isLoading } = useRepositoryLinks();
+  const { activeWorkspace, loading: workspaceLoading } = useWorkspace();
+  const workspaceUid = activeWorkspace?.uid;
+  const { data, isLoading } = useRepositoryLinks(workspaceUid);
+  const loadingState = workspaceLoading || isLoading || !workspaceUid;
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6 text-zinc-100">
@@ -18,7 +22,11 @@ export default function RepositoryLinksPage() {
         </p>
       </header>
       <RepositoryLinkForm />
-      <RepositoryLinkList links={data} isLoading={isLoading} />
+      <RepositoryLinkList
+        links={data}
+        isLoading={loadingState}
+        workspaceUid={workspaceUid}
+      />
     </div>
   );
 }

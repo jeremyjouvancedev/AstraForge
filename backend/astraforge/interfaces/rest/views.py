@@ -6,6 +6,9 @@ import hashlib
 import json
 import re
 
+import logging
+
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 
 from django.utils import timezone
@@ -19,7 +22,19 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from astraforge.accounts.models import ApiKey
+from astraforge.accounts.models import (
+    ApiKey,
+    AccessStatus,
+    IDENTITY_PROVIDER_PASSWORD,
+    UserAccess,
+    Workspace,
+    WorkspaceMember,
+)
+from astraforge.accounts.emails import (
+    send_waitlist_email,
+    send_early_access_confirmation,
+    send_early_access_owner_alert,
+)
 from astraforge.application import tasks as app_tasks
 from astraforge.application.use_cases import ApplyPlan, GeneratePlan, SubmitRequest
 from astraforge.bootstrap import container, repository
@@ -34,6 +49,71 @@ from astraforge.sandbox.models import SandboxSession
 from django.http import StreamingHttpResponse
 from langchain_core.messages import message_to_dict
 
+logger = logging.getLogger(__name__)
+
+SUPPORTED_IDENTITY_PROVIDERS = ["password"]
+
+
+def _auth_settings() -> dict[str, object]:
+    require_approval = getattr(settings, "AUTH_REQUIRE_APPROVAL", False)
+    allow_all_users = getattr(settings, "AUTH_ALLOW_ALL_USERS", False)
+    waitlist_enabled = bool(
+        getattr(
+            settings,
+            "AUTH_WAITLIST_ENABLED",
+            require_approval and not allow_all_users,
+        )
+    )
+    if allow_all_users or not require_approval:
+        waitlist_enabled = False
+    return {
+        "require_approval": require_approval,
+        "allow_all_users": allow_all_users,
+        "waitlist_enabled": waitlist_enabled,
+        "supported_providers": SUPPORTED_IDENTITY_PROVIDERS,
+    }
+
+
+def _identity_provider_from_request(request) -> str:
+    try:
+        raw_provider = request.data.get("identity_provider", "")
+    except Exception:
+        raw_provider = ""
+    provider = str(raw_provider or "").strip() or IDENTITY_PROVIDER_PASSWORD
+    return provider
+
+
+def _serialize_access(access: UserAccess) -> dict[str, object]:
+    payload = access.to_dict()
+    payload["waitlist_enforced"] = _auth_settings()["waitlist_enabled"]
+    return payload
+
+
+def _serialize_user(user, *, access: UserAccess | None = None) -> dict[str, object]:
+    access_obj = access or UserAccess.for_user(user)
+    from astraforge.accounts.models import WorkspaceMember
+
+    memberships = (
+        WorkspaceMember.objects.filter(user=user)
+        .select_related("workspace")
+        .order_by("joined_at")
+    )
+    workspaces = [
+        {
+            "uid": member.workspace.uid,
+            "name": member.workspace.name,
+            "role": member.role,
+        }
+        for member in memberships
+    ]
+    return {
+        "username": user.username,
+        "email": user.email,
+        "access": _serialize_access(access_obj),
+        "workspaces": workspaces,
+        "default_workspace": workspaces[0]["uid"] if workspaces else None,
+    }
+
 
 class RequestViewSet(
     mixins.CreateModelMixin,
@@ -46,8 +126,15 @@ class RequestViewSet(
     lookup_field = "id"
 
     def create(self, request, *args, **kwargs):
-        if not RepositoryLink.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Link a project before submitting requests.")
+        allowed_workspaces = Workspace.allowed_uids_for_user(request.user)
+        if not allowed_workspaces:
+            raise PermissionDenied("Join a workspace before submitting requests.")
+        if not RepositoryLink.objects.filter(
+            workspace__uid__in=allowed_workspaces
+        ).exists():
+            raise PermissionDenied(
+                "Link a project in one of your workspaces before submitting requests."
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request_obj = serializer.save()
@@ -70,7 +157,20 @@ class RequestViewSet(
         )
 
     def list(self, request, *args, **kwargs):
+        allowed_uids = Workspace.allowed_uids_for_user(request.user)
+        tenant_id = request.query_params.get("tenant_id")
+        if tenant_id and tenant_id not in allowed_uids:
+            raise PermissionDenied("You do not have access to this workspace.")
         items = repository.list(user_id=str(request.user.id))
+        if allowed_uids:
+            items = [
+                item
+                for item in items
+                if item.tenant_id in allowed_uids
+                and (not tenant_id or item.tenant_id == tenant_id)
+            ]
+        else:
+            items = []
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
 
@@ -79,10 +179,13 @@ class RequestViewSet(
         serializer = serializers.ExecuteRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request_id = str(id)
+        allowed_uids = Workspace.allowed_uids_for_user(request.user)
         try:
-            repository.get(request_id, user_id=str(request.user.id))
+            request_obj = repository.get(request_id, user_id=str(request.user.id))
         except KeyError as exc:
             raise NotFound(f"Request {request_id} not found") from exc
+        if request_obj.tenant_id not in allowed_uids:
+            raise PermissionDenied("You do not have access to this workspace.")
         app_tasks.execute_request_task.delay(
             request_id,
             serializer.validated_data.get("spec"),
@@ -94,9 +197,13 @@ class RequestViewSet(
 
         request_id = self.kwargs[self.lookup_field]
         try:
-            return repository.get(str(request_id), user_id=str(self.request.user.id))
+            obj = repository.get(str(request_id), user_id=str(self.request.user.id))
         except KeyError as exc:  # pragma: no cover - fallback
             raise Http404(f"Request {request_id} not found") from exc
+        allowed_uids = Workspace.allowed_uids_for_user(self.request.user)
+        if obj.tenant_id not in allowed_uids:
+            raise PermissionDenied("You do not have access to this workspace.")
+        return obj
 
 
 class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
@@ -114,6 +221,7 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
         except KeyError:
             if RequestRecord.objects.filter(id=request_id).exists():
                 raise PermissionDenied("Request not found")
+            workspace = Workspace.resolve_for_user(request.user, preferred_uid=None)
             payload = RequestPayload(
                 title=message_content.strip() or "User message",
                 description=message_content,
@@ -123,13 +231,17 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             request_obj = Request(
                 id=request_id,
                 user_id=str(request.user.id),
-                tenant_id="tenant-default",
+                tenant_id=workspace.uid,
                 source="direct_user",
                 sender="",
                 payload=payload,
                 metadata={},
             )
             repository.save(request_obj)
+        else:
+            allowed_uids = Workspace.allowed_uids_for_user(request.user)
+            if request_obj.tenant_id not in allowed_uids:
+                raise PermissionDenied("You do not have access to this workspace.")
         messages = list(request_obj.metadata.get("chat_messages", []))
         messages.append(
             {
@@ -179,6 +291,25 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
         request_id = str(pk)
         app_tasks.submit_merge_request_task.delay(request_id)
         return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
+
+
+class WorkspaceViewSet(
+    mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet
+):
+    permission_classes = [IsAuthenticated]
+    serializer_class = serializers.WorkspaceSerializer
+    lookup_field = "uid"
+
+    def get_queryset(self):
+        return Workspace.objects.filter(members__user=self.request.user).distinct()
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+        output = self.get_serializer(instance).data
+        headers = self.get_success_headers(output)
+        return Response(output, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class RunLogStreamView(APIView):
@@ -908,9 +1039,16 @@ class RepositoryLinkViewSet(
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return RepositoryLink.objects.filter(user=self.request.user).order_by(
-            "created_at"
-        )
+        allowed_uids = Workspace.allowed_uids_for_user(self.request.user)
+        if not allowed_uids:
+            return RepositoryLink.objects.none()
+        workspace_uid = self.request.query_params.get("workspace_uid")
+        if workspace_uid and workspace_uid not in allowed_uids:
+            raise PermissionDenied("You do not have access to this workspace.")
+        queryset = RepositoryLink.objects.filter(workspace__uid__in=allowed_uids)
+        if workspace_uid:
+            queryset = queryset.filter(workspace__uid=workspace_uid)
+        return queryset.select_related("workspace").order_by("created_at")
 
     def perform_create(self, serializer):
         serializer.save()
@@ -924,6 +1062,13 @@ class CsrfTokenView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class AuthSettingsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(_auth_settings(), status=status.HTTP_200_OK)
+
+
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class RegisterView(APIView):
     permission_classes = [AllowAny]
@@ -931,11 +1076,99 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = serializers.RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        identity_provider = _identity_provider_from_request(request)
         user = serializer.save()
-        login(request, user)
+        access = UserAccess.for_user(user, identity_provider=identity_provider)
+        auth_config = _auth_settings()
+        waitlist_enforced = bool(auth_config.get("waitlist_enabled"))
+        allow_all_users = bool(auth_config.get("allow_all_users"))
+
+        if allow_all_users or not waitlist_enforced:
+            if not access.is_approved:
+                access.approve()
+            login(request, user)
+            status_code = status.HTTP_201_CREATED
+        else:
+            status_code = status.HTTP_202_ACCEPTED
+
+        waitlist_email_sent = False
+        if (
+            waitlist_enforced
+            and not access.waitlist_notified_at
+            and user.email
+            and access.status == AccessStatus.PENDING
+        ):
+            try:
+                send_waitlist_email(recipient=user.email, username=user.username)
+                access.mark_waitlist_notified()
+                waitlist_email_sent = True
+            except Exception:  # pragma: no cover - mail failures should not break signup
+                waitlist_email_sent = False
+
+        payload = _serialize_user(user, access=access)
+        payload["auth"] = auth_config
+        payload["access"]["waitlist_email_sent"] = waitlist_email_sent
+        return Response(payload, status=status_code)
+
+
+class EarlyAccessRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = serializers.EarlyAccessRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        user_email_sent = False
+        owner_email_sent = False
+        try:
+            send_early_access_confirmation(
+                recipient=payload["email"],
+                team_role=payload.get("team_role"),
+                project_summary=payload.get("project_summary"),
+            )
+            user_email_sent = True
+        except Exception:  # pragma: no cover - mail failures shouldn't block form
+            user_email_sent = False
+            logger.exception(
+                "Failed to send early access confirmation email",
+                extra={"email": payload.get("email")},
+            )
+        owner_recipient = getattr(settings, "EARLY_ACCESS_NOTIFICATION_EMAIL", "")
+        if owner_recipient and user_email_sent:
+            try:
+                send_early_access_owner_alert(
+                    recipient=owner_recipient,
+                    requester_email=payload["email"],
+                    team_role=payload.get("team_role"),
+                    project_summary=payload.get("project_summary"),
+                )
+                owner_email_sent = True
+            except Exception:  # pragma: no cover - mail failures shouldn't block form
+                owner_email_sent = False
+                logger.exception(
+                    "Failed to notify owner about early access request",
+                    extra={
+                        "owner_email": owner_recipient,
+                        "requester_email": payload.get("email"),
+                    },
+                )
+        detail_message = (
+            "Thanks for requesting early access. We'll reach out soon."
+            if user_email_sent
+            else "We couldn't send the confirmation email. Please try again later."
+        )
+        status_code = (
+            status.HTTP_201_CREATED
+            if user_email_sent
+            else status.HTTP_502_BAD_GATEWAY
+        )
         return Response(
-            {"username": user.username, "email": user.email},
-            status=status.HTTP_201_CREATED,
+            {
+                "detail": detail_message,
+                "user_email_sent": user_email_sent,
+                "owner_email_sent": owner_email_sent,
+            },
+            status=status_code,
         )
 
 
@@ -946,6 +1179,7 @@ class LoginView(APIView):
     def post(self, request):
         serializer = serializers.LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        identity_provider = _identity_provider_from_request(request)
         user = authenticate(
             request,
             username=serializer.validated_data["username"],
@@ -955,10 +1189,38 @@ class LoginView(APIView):
             return Response(
                 {"detail": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED
             )
+        access = UserAccess.for_user(user, identity_provider=identity_provider)
+        auth_config = _auth_settings()
+        waitlist_enforced = bool(auth_config.get("waitlist_enabled"))
+        allow_all_users = bool(auth_config.get("allow_all_users"))
+
+        if access.status == AccessStatus.BLOCKED:
+            return Response(
+                {
+                    "detail": "Account is blocked. Contact an administrator.",
+                    "access": _serialize_access(access),
+                    "auth": auth_config,
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if waitlist_enforced and not access.is_approved:
+            return Response(
+                {
+                    "detail": "Your account is waiting for approval.",
+                    "access": _serialize_access(access),
+                    "auth": auth_config,
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if (allow_all_users or not waitlist_enforced) and not access.is_approved:
+            access.approve()
+
         login(request, user)
-        return Response(
-            {"username": user.username, "email": user.email}, status=status.HTTP_200_OK
-        )
+        payload = _serialize_user(user, access=access)
+        payload["auth"] = auth_config
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class LogoutView(APIView):
@@ -974,4 +1236,6 @@ class CurrentUserView(APIView):
 
     def get(self, request):
         user = request.user
-        return Response({"username": user.username, "email": user.email})
+        payload = _serialize_user(user)
+        payload["auth"] = _auth_settings()
+        return Response(payload)

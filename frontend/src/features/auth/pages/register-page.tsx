@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 
 import BrandSurface from "@/components/brand-surface";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
@@ -14,9 +16,10 @@ type RegisterFormValues = {
 };
 
 export default function RegisterPage() {
-  const { register: registerUser, isAuthenticated } = useAuth();
+  const { register: registerUser, isAuthenticated, authSettings } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const inputClassName =
     "rounded-xl border-white/10 bg-black/30 text-zinc-100 ring-1 ring-white/5 placeholder:text-zinc-500 focus-visible:border-indigo-400/60 focus-visible:ring-indigo-400/60 focus-visible:ring-offset-0";
   const {
@@ -27,6 +30,11 @@ export default function RegisterPage() {
     defaultValues: { username: "", email: "", password: "" }
   });
 
+  const waitlistActive = useMemo(
+    () => Boolean(authSettings?.waitlist_enabled && !authSettings?.allow_all_users),
+    [authSettings]
+  );
+
   if (isAuthenticated) {
     return <Navigate to="/app" replace />;
   }
@@ -34,10 +42,26 @@ export default function RegisterPage() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       setError(null);
-      await registerUser(values);
+      setSuccess(null);
+      const result = await registerUser(values);
+      if (result.access?.status !== "approved" || waitlistActive) {
+        setSuccess(
+          "You're on the waitlist. We'll let you know as soon as an administrator approves access—keep an eye on your inbox (and spam folder) for the confirmation email."
+        );
+        if (result.access?.waitlist_email_sent) {
+          toast.success("You're on the waitlist! Check your email (including spam) for confirmation.");
+        } else {
+          toast.info(
+            "You're already on the waitlist. We'll notify you when you're approved—keep an eye on your inbox and spam folder."
+          );
+        }
+        return;
+      }
+      toast.success("Account created. Redirecting...");
       navigate("/app", { replace: true });
     } catch (err) {
       setError("Unable to register with provided details");
+      toast.error("Unable to join the waitlist");
       console.error(err);
     }
   });
@@ -63,17 +87,29 @@ export default function RegisterPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
-                Create access
+                Request access
               </p>
-              <h1 className="mt-2 text-2xl font-semibold text-white">Join AstraForge</h1>
+              <h1 className="mt-2 text-2xl font-semibold text-white">Join the AstraForge waitlist</h1>
               <p className="mt-2 text-sm text-zinc-300">
-                Provision secure sandboxes, replay runs, and ship with confidence.
+                Provision secure sandboxes, replay runs, and ship with confidence. We&apos;ll unlock
+                your account once the team approves it.
               </p>
             </div>
             <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-zinc-300 ring-1 ring-white/10">
               DeepAgent ready
             </span>
           </div>
+
+          {waitlistActive ? (
+            <Alert className="mt-4 border-indigo-400/40 bg-indigo-400/10 text-indigo-50">
+              <AlertTitle className="font-semibold text-indigo-100">Waitlist enabled</AlertTitle>
+              <AlertDescription className="text-indigo-50/90">
+                New sign-ups require approval. Use your best contact email so we can fast-track your
+                invite. Password sign-in is supported today; social logins join the same queue when
+                they arrive.
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <div className="space-y-2">
@@ -113,8 +149,9 @@ export default function RegisterPage() {
               />
             </div>
             {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+            {success ? <p className="text-sm text-emerald-200">{success}</p> : null}
             <Button type="submit" variant="brand" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? "Creating account..." : "Create account"}
+              {isSubmitting ? "Submitting..." : waitlistActive ? "Join the waitlist" : "Create account"}
             </Button>
           </form>
 

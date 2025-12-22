@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from astraforge.accounts.models import Workspace
 from astraforge.application.use_cases import ExecuteRequest, ProcessRequest
 from astraforge.domain.models.request import Request, RequestPayload, RequestState
 from astraforge.domain.models.spec import DevelopmentSpec
@@ -51,12 +52,13 @@ def test_create_request_requires_project(api_client, request_payload):
 
     assert response.status_code == 403
     assert response.json() == {
-        "detail": "Link a project before submitting requests."
+        "detail": "Link a project in one of your workspaces before submitting requests."
     }
 
 
 def test_create_request_succeeds_with_project(api_client, user, request_payload, monkeypatch):
     captured: dict[str, object] = {}
+    workspace = Workspace.ensure_default_for_user(user)
 
     class _RunLogStub:
         def __init__(self):
@@ -81,11 +83,12 @@ def test_create_request_succeeds_with_project(api_client, user, request_payload,
 
     RepositoryLink.objects.create(
         user=user,
+        workspace=workspace,
         provider=RepositoryLink.Provider.GITLAB,
         repository="org/project",
         access_token="token-123",
     )
-    link = RepositoryLink.objects.get(user=user)
+    link = RepositoryLink.objects.get(workspace=workspace)
 
     body = request_payload(link.id)
     response = api_client.post(
@@ -108,13 +111,15 @@ def test_create_request_succeeds_with_project(api_client, user, request_payload,
 
 
 def test_create_request_preserves_description_whitespace(api_client, user, request_payload, monkeypatch):
+    workspace = Workspace.ensure_default_for_user(user)
     RepositoryLink.objects.create(
         user=user,
+        workspace=workspace,
         provider=RepositoryLink.Provider.GITLAB,
         repository="org/project",
         access_token="token-123",
     )
-    link = RepositoryLink.objects.get(user=user)
+    link = RepositoryLink.objects.get(workspace=workspace)
 
     monkeypatch.setattr(
         "astraforge.interfaces.rest.views.app_tasks.execute_request_task.delay",
@@ -133,8 +138,10 @@ def test_create_request_preserves_description_whitespace(api_client, user, reque
 
 
 def test_create_request_rejects_unknown_project(api_client, user, request_payload):
+    workspace = Workspace.ensure_default_for_user(user)
     RepositoryLink.objects.create(
         user=user,
+        workspace=workspace,
         provider=RepositoryLink.Provider.GITLAB,
         repository="org/project",
         access_token="token-123",
@@ -142,8 +149,10 @@ def test_create_request_rejects_unknown_project(api_client, user, request_payloa
     other_user = get_user_model().objects.create_user(
         username="stranger", password="pass12345"
     )
+    other_workspace = Workspace.ensure_default_for_user(other_user)
     foreign_link = RepositoryLink.objects.create(
         user=other_user,
+        workspace=other_workspace,
         provider=RepositoryLink.Provider.GITHUB,
         repository="elsewhere/repo",
         access_token="token-456",
@@ -156,7 +165,7 @@ def test_create_request_rejects_unknown_project(api_client, user, request_payloa
 
     assert response.status_code == 400
     assert response.json() == {
-        "project_id": ["Select a project linked to your account."]
+        "project_id": ["Select a project linked to this workspace."]
     }
 
 

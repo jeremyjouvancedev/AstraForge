@@ -1,6 +1,9 @@
+import axios from "axios";
+import { ChangeEvent, FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/lib/auth";
+import { submitEarlyAccessRequest } from "@/lib/api-client";
 
 const heroTags = [
   "Isolation by default",
@@ -184,6 +187,54 @@ export default function HomePage() {
   const primaryCtaHref = isAuthenticated ? "/app" : "#waitlist";
   const primaryCtaLabel = isAuthenticated ? "Open console" : "Request access";
   const currentYear = new Date().getFullYear();
+  const [waitlistForm, setWaitlistForm] = useState({
+    email: "",
+    teamRole: "",
+    projectSummary: ""
+  });
+  const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
+  const [waitlistFeedback, setWaitlistFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const handleWaitlistChange =
+    (field: "email" | "teamRole" | "projectSummary") =>
+    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setWaitlistForm((prev) => ({ ...prev, [field]: event.target.value }));
+      setWaitlistFeedback(null);
+    };
+
+  const handleWaitlistSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!waitlistForm.email) {
+      setWaitlistFeedback({ type: "error", text: "Please add your work email so we can reach you." });
+      return;
+    }
+    setWaitlistSubmitting(true);
+    try {
+      const result = await submitEarlyAccessRequest({
+        email: waitlistForm.email,
+        teamRole: waitlistForm.teamRole,
+        projectSummary: waitlistForm.projectSummary
+      });
+      setWaitlistFeedback({
+        type: "success",
+        text: result.owner_email_sent
+          ? "You're on the list! Check your inbox for a confirmation email."
+          : "You're confirmed! Check your inbox for a confirmation email. We couldn't ping the team automatically, but we'll follow up shortly."
+      });
+      setWaitlistForm({ email: "", teamRole: "", projectSummary: "" });
+    } catch (err) {
+      console.error(err);
+      setWaitlistFeedback({
+        type: "error",
+        text:
+          axios.isAxiosError(err) && typeof err.response?.data?.detail === "string"
+            ? err.response.data.detail
+            : "We couldn't submit your request. Please try again in a moment."
+      });
+    } finally {
+      setWaitlistSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 antialiased" style={{ colorScheme: "dark" }}>
@@ -656,10 +707,7 @@ $ generate artifact patch.diff
                 </div>
               </div>
 
-              <form
-                className="rounded-2xl bg-black/35 p-6 ring-1 ring-white/10"
-                onSubmit={(event) => event.preventDefault()}
-              >
+              <form className="rounded-2xl bg-black/35 p-6 ring-1 ring-white/10" onSubmit={handleWaitlistSubmit}>
                 <div className="text-sm font-semibold">Join the waitlist</div>
                 <p className="mt-1 text-xs text-zinc-400">No spam. Just product updates & access.</p>
 
@@ -671,6 +719,8 @@ $ generate artifact patch.diff
                       required
                       placeholder="name@company.com"
                       className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
+                      value={waitlistForm.email}
+                      onChange={handleWaitlistChange("email")}
                     />
                   </label>
 
@@ -680,6 +730,8 @@ $ generate artifact patch.diff
                       type="text"
                       placeholder="Platform · Infra · AI Engineering"
                       className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
+                      value={waitlistForm.teamRole}
+                      onChange={handleWaitlistChange("teamRole")}
                     />
                   </label>
 
@@ -689,14 +741,28 @@ $ generate artifact patch.diff
                       rows={3}
                       placeholder="DeepAgents that patch repos, run tasks, and produce artifacts…"
                       className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
+                      value={waitlistForm.projectSummary}
+                      onChange={handleWaitlistChange("projectSummary")}
                     />
                   </label>
 
+                  {waitlistFeedback ? (
+                    <p
+                      className={`text-xs ${
+                        waitlistFeedback.type === "success" ? "text-emerald-300" : "text-rose-300"
+                      }`}
+                      aria-live="polite"
+                    >
+                      {waitlistFeedback.text}
+                    </p>
+                  ) : null}
+
                   <button
                     type="submit"
-                    className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white home-btn-primary ring-1 ring-white/10"
+                    className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white home-btn-primary ring-1 ring-white/10 disabled:opacity-60"
+                    disabled={waitlistSubmitting}
                   >
-                    Request access
+                    {waitlistSubmitting ? "Submitting..." : "Request access"}
                   </button>
                 </div>
               </form>

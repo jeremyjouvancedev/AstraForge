@@ -10,7 +10,9 @@ from astraforge.interfaces.rest.views import (
     ChatViewSet,
     MergeRequestViewSet,
     CsrfTokenView,
+    AuthSettingsView,
     CurrentUserView,
+    EarlyAccessRequestView,
     ExecutionViewSet,
     LoginView,
     LogoutView,
@@ -22,6 +24,7 @@ from astraforge.interfaces.rest.views import (
     RunLogStreamView,
     DeepAgentConversationView,
     DeepAgentMessageView,
+    WorkspaceViewSet,
 )
 from astraforge.sandbox.views import SandboxSessionViewSet
 
@@ -33,6 +36,7 @@ router.register(r"repository-links", RepositoryLinkViewSet, basename="repository
 router.register(r"runs", RunViewSet, basename="run")
 router.register(r"merge-requests", MergeRequestViewSet, basename="merge-request")
 router.register(r"sandbox/sessions", SandboxSessionViewSet, basename="sandbox-session")
+router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 
 urlpatterns = [
     path("", include(router.urls)),
@@ -62,4 +66,10 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", CurrentUserView.as_view(), name="auth-me"),
     path("auth/csrf/", CsrfTokenView.as_view(), name="auth-csrf"),
+    path("auth/settings/", AuthSettingsView.as_view(), name="auth-settings"),
+    path(
+        "marketing/early-access/",
+        EarlyAccessRequestView.as_view(),
+        name="marketing-early-access",
+    ),
 ]
