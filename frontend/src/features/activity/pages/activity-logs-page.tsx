@@ -578,7 +578,7 @@ export default function ActivityLogsPage() {
                         <p className="text-xs text-zinc-400">
                           Unable to load consumption data right now.
                         </p>
-                      ) : selectedEvent.consumption ? (
+                      ) : selectedEvent.consumption && workspaceUsage ? (
                         <EventConsumptionDetails
                           consumption={selectedEvent.consumption}
                           workspaceUsage={workspaceUsage}
