@@ -139,62 +139,6 @@ docker compose up
 
 5) Open `http://localhost:5174` for the app (API at `http://localhost:8001/api`). Stop with `docker compose down`. For details and troubleshooting, see `docs/docker-compose.md`.
 
-## Local development (manual)
-
-1) Install toolchains:
-
-```bash
-make install-deps  # creates backend/.venv, installs backend + frontend deps
-pip install pre-commit && pre-commit install
-```
-
-2) Configure environment (`.env` at repo root) to set `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, and related values.  
-3) Run migrations:
-
-```bash
-source backend/.venv/bin/activate
-cd backend
-python manage.py migrate
-```
-
-4) Start services:
-
-```bash
-# Terminal 1 – Django API
-make backend-serve
-
-# Terminal 2 – Celery worker queues
-cd backend
-celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default --beat
-```
-
-5) Launch the LLM proxy:
-
-```bash
-cd llm-proxy
-uvicorn app.main:app --reload --port 8080
-```
-
-6) Build the Codex CLI runner stub (only if you need a local image):
-
-```bash
-docker build -t astraforge/codex-cli:latest backend/codex_cli_stub
-```
-
-7) Start the frontend:
-
-```bash
-cd frontend
-pnpm dev
-```
-
-Visit `http://localhost:5174` and sign in. Keep `UNSAFE_DISABLE_AUTH=1` limited to local dev.
-
-## Other workflows
-
-- **Compose + Kubernetes hybrid** – Keep API/worker in Docker Compose but run workspaces in Kubernetes with `docker-compose.hybrid.yml`. Export `HYBRID_KUBECONFIG` as described in `docs/kubernetes-local.md`.
-- **Local Kubernetes** – Use manifests in `infra/k8s/local` and follow `docs/kubernetes-local.md` (build images, load into Kind/k3d/Minikube, apply manifests, port-forward frontend/backend).
-
 ## Frontend webapp
 
 ![home](./images/astra_forge_home.jpg)
