@@ -116,43 +116,28 @@ For a ready-to-run smoke test against `http://localhost:8001/api`, open `astrafo
 
 ## Quickstart (Docker Compose)
 
-Fastest way to see the stack locally (API, worker, frontend, LLM proxy, Postgres, Redis, MinIO).
+Shortest path to the full stack.
 
 1) Prereqs: Docker + Docker Compose, `make`, and an OpenAI-compatible API key.  
-2) Create a minimal `.env` in the repo root (adjust secrets in real deployments):
+2) Create a `.env` in the repo root with your key:
 
 ```bash
-cat <<'ENV' > .env
-POSTGRES_PASSWORD=astraforge
-SECRET_KEY=dev-secret # replace in any non-local environment
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
-EXECUTOR=codex
-RUN_LOG_STREAMER=redis
-ASTRAFORGE_EXECUTE_COMMANDS=1
-UNSAFE_DISABLE_AUTH=1  # local only
-CODEX_CLI_SKIP_PULL=1 # pre-pull workspace/sandbox images when this is 1
-CODEX_WORKSPACE_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest
-SANDBOX_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-sandbox:latest
-ENV
+echo "OPENAI_API_KEY=sk-..." > .env
 ```
 
-3) Pull the workspace and sandbox images (required because `CODEX_CLI_SKIP_PULL=1` in Compose):
+3) Build the required executor images (one time):
 
 ```bash
-docker pull "$CODEX_WORKSPACE_IMAGE"
-docker pull "$SANDBOX_IMAGE"
+make sandbox-image codex-image
 ```
 
-4) Run migrations and start the stack:
+4) Start everything:
 
 ```bash
-docker compose run --rm backend-migrate
-docker compose up --build
+docker compose up
 ```
 
-5) Open the app at `http://localhost:5174` (frontend) and API at `http://localhost:8001/api`. Authentication is disabled locally when `UNSAFE_DISABLE_AUTH=1`.  
-6) Stop with `docker compose down`. For more details and troubleshooting, see `docs/docker-compose.md`.
+5) Open `http://localhost:5174` for the app (API at `http://localhost:8001/api`). Stop with `docker compose down`. For details and troubleshooting, see `docs/docker-compose.md`.
 
 ## Local development (manual)
 
@@ -163,7 +148,7 @@ make install-deps  # creates backend/.venv, installs backend + frontend deps
 pip install pre-commit && pre-commit install
 ```
 
-2) Configure environment (`.env` at repo root, similar to the Quickstart sample) to set `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, and related values.  
+2) Configure environment (`.env` at repo root) to set `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, and related values.  
 3) Run migrations:
 
 ```bash
