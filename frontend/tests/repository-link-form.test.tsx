@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RepositoryLinkForm } from "@/features/repositories/components/repository-link-form";
+import { WorkspaceContext } from "@/features/workspaces/workspace-context";
 import * as apiClient from "@/lib/api-client";
 
 describe("RepositoryLinkForm", () => {
@@ -25,9 +26,19 @@ describe("RepositoryLinkForm", () => {
       defaultOptions: { queries: { retry: false } }
     });
 
+    const workspaceValue = {
+      workspaces: [{ uid: "tenant-default", name: "Personal" }],
+      activeWorkspace: { uid: "tenant-default", name: "Personal" },
+      selectWorkspace: vi.fn(),
+      createWorkspace: vi.fn().mockResolvedValue(null),
+      loading: false
+    };
+
     render(
       <QueryClientProvider client={queryClient}>
-        <RepositoryLinkForm />
+        <WorkspaceContext.Provider value={workspaceValue}>
+          <RepositoryLinkForm />
+        </WorkspaceContext.Provider>
       </QueryClientProvider>
     );
 

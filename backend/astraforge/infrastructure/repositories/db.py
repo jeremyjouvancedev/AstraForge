@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from typing import Dict, List
 
@@ -7,6 +8,14 @@ from django.apps import apps
 
 from astraforge.application.use_cases import RequestRepository
 from astraforge.domain.models.request import Attachment, Request, RequestPayload, RequestState
+
+
+logger = logging.getLogger(__name__)
+
+_LEGACY_STATE_ALIASES = {
+    "pending": RequestState.RECEIVED,
+    "": RequestState.RECEIVED,
+}
 
 
 class DjangoRequestRepository(RequestRepository):
@@ -90,10 +99,36 @@ class DjangoRequestRepository(RequestRepository):
             source=record.source,
             sender=record.sender,
             payload=payload,
-            state=RequestState(record.state),
+            state=self._coerce_state(record.state),
             created_at=record.created_at,
             updated_at=record.updated_at,
             artifacts=record.artifacts or {},
             metadata=record.metadata or {},
         )
         return request
+
+    def _coerce_state(self, raw_state) -> RequestState:
+        """Gracefully handle legacy string values persisted before enum usage."""
+        if isinstance(raw_state, RequestState):
+            return raw_state
+        if raw_state is None:
+            return RequestState.RECEIVED
+        value = str(raw_state).strip()
+        if not value:
+            return RequestState.RECEIVED
+        try:
+            return RequestState(value)
+        except ValueError:
+            normalized = value.upper()
+            try:
+                return RequestState(normalized)
+            except ValueError:
+                alias = _LEGACY_STATE_ALIASES.get(value.lower())
+                if alias:
+                    return alias
+                logger.warning(
+                    "Unknown request state %s; defaulting to %s",
+                    value,
+                    RequestState.RECEIVED.value,
+                )
+                return RequestState.RECEIVED

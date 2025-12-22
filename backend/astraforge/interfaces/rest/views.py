@@ -22,6 +22,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from astraforge.accounts import emails as account_emails
 from astraforge.accounts.models import (
     ApiKey,
     AccessStatus,
@@ -29,11 +30,6 @@ from astraforge.accounts.models import (
     UserAccess,
     Workspace,
     WorkspaceMember,
-)
-from astraforge.accounts.emails import (
-    send_waitlist_email,
-    send_early_access_confirmation,
-    send_early_access_owner_alert,
 )
 from astraforge.application import tasks as app_tasks
 from astraforge.application.use_cases import ApplyPlan, GeneratePlan, SubmitRequest
@@ -201,7 +197,9 @@ class RequestViewSet(
         except KeyError as exc:  # pragma: no cover - fallback
             raise Http404(f"Request {request_id} not found") from exc
         allowed_uids = Workspace.allowed_uids_for_user(self.request.user)
-        if obj.tenant_id not in allowed_uids:
+        if obj.tenant_id not in allowed_uids and obj.user_id != str(
+            self.request.user.id
+        ):
             raise PermissionDenied("You do not have access to this workspace.")
         return obj
 
@@ -1099,7 +1097,9 @@ class RegisterView(APIView):
             and access.status == AccessStatus.PENDING
         ):
             try:
-                send_waitlist_email(recipient=user.email, username=user.username)
+                account_emails.send_waitlist_email(
+                    recipient=user.email, username=user.username
+                )
                 access.mark_waitlist_notified()
                 waitlist_email_sent = True
             except Exception:  # pragma: no cover - mail failures should not break signup
@@ -1121,7 +1121,7 @@ class EarlyAccessRequestView(APIView):
         user_email_sent = False
         owner_email_sent = False
         try:
-            send_early_access_confirmation(
+            account_emails.send_early_access_confirmation(
                 recipient=payload["email"],
                 team_role=payload.get("team_role"),
                 project_summary=payload.get("project_summary"),
@@ -1136,7 +1136,7 @@ class EarlyAccessRequestView(APIView):
         owner_recipient = getattr(settings, "EARLY_ACCESS_NOTIFICATION_EMAIL", "")
         if owner_recipient and user_email_sent:
             try:
-                send_early_access_owner_alert(
+                account_emails.send_early_access_owner_alert(
                     recipient=owner_recipient,
                     requester_email=payload["email"],
                     team_role=payload.get("team_role"),

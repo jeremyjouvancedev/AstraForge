@@ -11,7 +11,7 @@ export type Workspace = {
   accentColor?: string;
 };
 
-type WorkspaceContextValue = {
+export type WorkspaceContextValue = {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   selectWorkspace: (uid: string) => void;
@@ -38,7 +38,7 @@ function loadActiveWorkspaceUid(fallback: string): string {
   return stored || fallback;
 }
 
-const WorkspaceContext = createContext<WorkspaceContextValue | undefined>(undefined);
+export const WorkspaceContext = createContext<WorkspaceContextValue | undefined>(undefined);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
