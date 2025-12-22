@@ -19,7 +19,7 @@ def build_cpu_probe_script(paths: Iterable[str] | None = None) -> str:
     return (
         "for path in "
         f"{path_list} "
-        '; do if [ -f "$path" ]; then echo "__PATH:$path__"; cat "$path"; exit 0; fi; '
+        '; do if [ -f "$path" ]; then printf \'__PATH:%s__\\n\' "$path"; cat "$path"; exit 0; fi; '
         "done; exit 1"
     )
 

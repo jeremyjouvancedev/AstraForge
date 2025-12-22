@@ -860,9 +860,73 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         else:
             return None
         result = self.runner.run(command, allow_failure=True)
-        if result.exit_code != 0 or not result.stdout:
+        if result.exit_code != 0:
+            logger.warning(
+                "CPU probe command failed for workspace %s (%s): exit_code=%s",
+                workspace.ref,
+                mode,
+                result.exit_code,
+            )
             return None
-        return parse_cpu_usage_payload(result.stdout)
+        stdout = result.stdout or ""
+        if not stdout.strip():
+            logger.warning(
+                "CPU probe returned no output for workspace %s (%s)",
+                workspace.ref,
+                mode,
+            )
+            return None
+        seconds = parse_cpu_usage_payload(stdout)
+        if seconds is None:
+            reason = self._diagnose_cpu_payload(stdout)
+            logger.info(
+                "Unable to parse CPU usage payload for workspace %s (%s); %s. payload=%s",
+                workspace.ref,
+                mode,
+                reason,
+                stdout.replace("\n", " ")[:200],
+            )
+            logger.debug(
+                "Raw CPU payload for workspace %s (%s):\n%s",
+                workspace.ref,
+                mode,
+                stdout.rstrip(),
+            )
+            return None
+        logger.debug(
+            "Sampled Codex CPU usage for workspace %s (%s): %.4f seconds",
+            workspace.ref,
+            mode,
+            seconds,
+        )
+        return seconds
+
+    @staticmethod
+    def _diagnose_cpu_payload(payload: str) -> str:
+        if not payload:
+            return "payload empty"
+        lines = [line.rstrip() for line in payload.splitlines() if line.strip()]
+        if not lines:
+            return "payload only whitespace"
+        header = lines[0]
+        if not (header.startswith("__PATH:") and header.endswith("__")):
+            return f"missing __PATH header sentinel (header='{header}')"
+        path_hint = header[len("__PATH:") : -2].strip()
+        body = "\n".join(lines[1:]).strip()
+        if not path_hint:
+            return "header missing cgroup path hint"
+        if not body:
+            return f"cgroup file {path_hint} returned no content"
+        if path_hint.endswith("cpu.stat"):
+            if not any(line.startswith(("usage_usec", "usage_us")) for line in body.splitlines()):
+                return f"cgroup cpu.stat content missing usage counters ({path_hint})"
+        else:
+            first_line = body.splitlines()[0]
+            try:
+                float(first_line)
+            except ValueError:
+                return f"cgroup file {path_hint} did not return numeric usage (got '{first_line[:40]}')"
+        return f"unrecognized format from {path_hint}"
 
     def _workspace_for_request(self, request: Request) -> "Workspace | None":
         tenant_id = getattr(request, "tenant_id", "")

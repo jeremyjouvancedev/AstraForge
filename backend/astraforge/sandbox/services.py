@@ -709,8 +709,37 @@ base64 "$TMPFILE"
             )
             return None
         if not payload:
+            self._log.info(
+                "CPU usage payload missing for sandbox %s (%s); falling back to wall-clock duration",
+                session.id,
+                mode,
+            )
             return None
-        return self._parse_cpu_usage_payload(payload)
+        seconds = self._parse_cpu_usage_payload(payload)
+        if seconds is None:
+            preview = payload.replace("\n", " ")[:200]
+            reason = self._diagnose_cpu_payload(payload)
+            self._log.info(
+                "Unable to parse CPU usage payload for sandbox %s (%s); %s. payload=%s",
+                session.id,
+                mode,
+                reason,
+                preview,
+            )
+            self._log.debug(
+                "Raw CPU payload for sandbox %s (%s):\n%s",
+                session.id,
+                mode,
+                payload.rstrip(),
+            )
+            return None
+        self._log.debug(
+            "Sampled CPU usage for sandbox %s (%s): %.4f seconds",
+            session.id,
+            mode,
+            seconds,
+        )
+        return seconds
 
     def _collect_docker_cpu_payload(self, identifier: str) -> str | None:
         if not identifier:
@@ -722,6 +751,12 @@ base64 "$TMPFILE"
         )
         if result.exit_code == 0 and result.stdout:
             return result.stdout
+        self._log.warning(
+            "CPU probe failed inside Docker sandbox %s (exit_code=%s, stdout=%s)",
+            identifier,
+            result.exit_code,
+            (result.stdout or "").strip()[:120],
+        )
         return None
 
     def _collect_k8s_cpu_payload(self, identifier: str) -> str | None:
@@ -743,6 +778,12 @@ base64 "$TMPFILE"
         except Exception as exc:  # noqa: BLE001
             self._log.warning("Failed to read CPU stats for pod %s: %s", identifier, exc)
             return None
+        if not output:
+            self._log.warning(
+                "CPU probe returned no output for Kubernetes sandbox %s/%s",
+                namespace or provisioner.namespace,
+                pod,
+            )
         return output
 
     def _cpu_probe_script(self) -> str:
@@ -751,6 +792,33 @@ base64 "$TMPFILE"
     @staticmethod
     def _parse_cpu_usage_payload(payload: str | None) -> float | None:
         return parse_cpu_usage_payload(payload)
+
+    @staticmethod
+    def _diagnose_cpu_payload(payload: str) -> str:
+        if not payload:
+            return "payload empty"
+        lines = [line.rstrip() for line in payload.splitlines() if line.strip()]
+        if not lines:
+            return "payload only whitespace"
+        header = lines[0]
+        if not (header.startswith("__PATH:") and header.endswith("__")):
+            return f"missing __PATH header sentinel (header='{header}')"
+        path_hint = header[len("__PATH:") : -2].strip()
+        body = "\n".join(lines[1:]).strip()
+        if not path_hint:
+            return "header missing cgroup path hint"
+        if not body:
+            return f"cgroup file {path_hint} returned no content"
+        if path_hint.endswith("cpu.stat"):
+            if not any(line.startswith(("usage_usec", "usage_us")) for line in body.splitlines()):
+                return f"cgroup cpu.stat content missing usage counters ({path_hint})"
+        else:
+            first_line = body.splitlines()[0]
+            try:
+                float(first_line)
+            except ValueError:
+                return f"cgroup file {path_hint} did not return numeric usage (got '{first_line[:40]}')"
+        return f"unrecognized format from {path_hint}"
 
     def _increment_session_storage(self, session: SandboxSession, bytes_delta: int) -> None:
         if not bytes_delta:
