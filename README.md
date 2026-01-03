@@ -6,6 +6,14 @@ AstraForge provides isolated, ephemeral execution environments that allow
 LLM-based agents to run Python, shell commands, and workflows securely,
 without risking the host system.
 
+## Why AstraForge?
+**AstraForge is a sandboxed execution engine for AI agents that can safely run real code.**
+Agents need to execute real workloads to debug, test, and remediate systems.
+Running that code directly on the host is a security and stability risk.
+Opaque or mocked execution hides side effects and makes outcomes hard to trust.
+AstraForge provides real execution with auditable logs, diffs, and guardrails.
+Each execution runs in an isolated environment with controlled filesystem, network, and resource access.
+
 Two clear ways to plug in:
 - **Coding-agent sandbox** – start from the browser or API, drop incidents into Codex workspaces, let the agent debug and patch, then launch merge-ready MRs without leaving the UI.
 - **Managed DeepAgent backend** – call it via API or the Python package; we host and harden the LangChain DeepAgent sandbox so you get hands-free debugging without carrying the risk surface.
