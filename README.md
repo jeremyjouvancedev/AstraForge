@@ -15,6 +15,7 @@ A responsive web app streams live logs, diffs, and chat while the fixes ship.
 
 
 - [What is AstraForge](#what-is-astraforge)
+- [Sandbox security levels](#sandbox-security-levels)
 - [AstraForge Python toolkit](#astraforge-python-toolkit-use-from-another-project)
 - [Quickstart (Docker Compose)](#quickstart-docker-compose)
 - [Local development (manual)](#local-development-manual)
@@ -37,6 +38,15 @@ A responsive web app streams live logs, diffs, and chat while the fixes ship.
 - **Built for reviewability** – Diff previews, run logs, and chat summaries keep reviewers in the loop before a branch lands in CI.
 
 See `docs/architecture.md` for the current mermaid diagram (kept up to date) and ADRs that capture architectural decisions.
+
+## Sandbox security levels
+
+Pick the isolation tier that matches your deployment surface and workload profile:
+
+- **Docker (single host)** – Fastest path for local dev and smoke tests; workspaces run on an isolated Docker network with default seccomp and PID caps, sharing the host kernel.
+- **Kubernetes** – Namespaced pods with cluster network policies and service accounts; schedule workspaces across nodes while keeping secrets and storage under your existing controls.
+- **Kubernetes + gVisor** – Adds a user-space kernel to filter syscalls, shrinking the host kernel attack surface for shared clusters with multi-tenant workloads.
+- **Kubernetes + Kata/Firecracker** – Hardest boundary via lightweight microVMs; strongest tenant isolation at the cost of higher startup overhead, recommended for regulated or noisy-neighbor-sensitive environments.
 
 ## AstraForge Python toolkit (use from another project)
 
