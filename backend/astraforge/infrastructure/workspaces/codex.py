@@ -983,6 +983,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             stream=stream,
             allow_failure=True,
         )
+        protected_codex_path = ".codex"
         self.runner.run(
             self._wrap_exec(
                 identifier,
@@ -994,32 +995,39 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                     "restore",
                     "--staged",
                     "--",
-                    ".codex/spec.json",
-                    ".codex/history.jsonl",
+                    protected_codex_path,
                 ],
             ),
             stream=stream,
             allow_failure=True,
         )
-        for protected in (".codex/spec.json", ".codex/history.jsonl"):
-            self.runner.run(
-                self._wrap_exec(
-                    identifier,
-                    mode,
-                    ["git", "-C", path, "reset", "HEAD", "--", protected],
-                ),
-                stream=stream,
-                allow_failure=True,
-            )
-            self.runner.run(
-                self._wrap_exec(
-                    identifier,
-                    mode,
-                    ["git", "-C", path, "rm", "--cached", "--ignore-unmatch", protected],
-                ),
-                stream=stream,
-                allow_failure=True,
-            )
+        self.runner.run(
+            self._wrap_exec(
+                identifier,
+                mode,
+                ["git", "-C", path, "reset", "HEAD", "--", protected_codex_path],
+            ),
+            stream=stream,
+            allow_failure=True,
+        )
+        self.runner.run(
+            self._wrap_exec(
+                identifier,
+                mode,
+                [
+                    "git",
+                    "-C",
+                    path,
+                    "rm",
+                    "--cached",
+                    "--ignore-unmatch",
+                    "-r",
+                    protected_codex_path,
+                ],
+            ),
+            stream=stream,
+            allow_failure=True,
+        )
 
         status_command = self._wrap_exec(
             identifier,
