@@ -66,7 +66,7 @@ Create a sandbox session:
 ```python
 from astraforge_toolkit import DeepAgentClient
 
-client = DeepAgentClient(base_url="https://your.astra.forge/api", api_key="your-api-key")
+client = DeepAgentClient(base_url="http://localhost:8001/api", api_key="your-api-key")
 sandbox = client.create_sandbox_session()
 client.upload_file(sandbox.session_id, "/workspace/hello.txt", content="hi!\n")
 print(client.get_file_content(sandbox.session_id, "/workspace/hello.txt", encoding="utf-8"))
@@ -86,7 +86,7 @@ from astraforge_toolkit import (
     sandbox_view_image,
 )
 
-BASE_URL = "https://your.astra.forge/api"
+BASE_URL = "http://localhost:8001/api"
 API_KEY = "your-api-key"
 
 client = DeepAgentClient(base_url=BASE_URL, api_key=API_KEY)
@@ -115,7 +115,7 @@ Prefer direct HTTP calls? The `DeepAgentClient` streams replies without loading 
 ```python
 from astraforge_toolkit import DeepAgentClient
 
-client = DeepAgentClient(base_url="https://your.astra.forge/api", api_key="your-api-key")
+client = DeepAgentClient(base_url="http://localhost:8001/api", api_key="your-api-key")
 conv = client.create_conversation()
 
 for chunk in client.stream_message(conv.conversation_id, "Hello, sandbox!"):
@@ -138,7 +138,7 @@ echo "OPENAI_API_KEY=sk-..." > .env
 3) Build the required executor images (one time):
 
 ```bash
-make sandbox-image codex-image
+make workspace-images
 ```
 
 4) Start everything:
@@ -151,9 +151,9 @@ docker compose up
 
 ## Frontend webapp
 
-![home](./images/astra_forge_home.jpg)
-![diff](./images/astra_forge_diff_view.jpg)
-![log](./images/astra_forge_log_view.jpg)
+![home](./images/astra_forge_home.png)
+![diff](./images/astra_forge_diff_view.png)
+![log](./images/astra_forge_deep_agent_sandbox.png)
 
 ## Configuration
 
@@ -178,7 +178,7 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 
 - `make lint` – Ruff + ESLint
 - `make format` – Ruff formatter + ESLint `--fix`
-- `make test` – `pytest` plus `pnpm test -- --run`
+- `make compose-test` – containerized backend + frontend tests (`pytest` + `pnpm test -- --run`)
 - `gitleaks detect --config gitleaks.toml` – secret scanning
 - `make generate-openapi` – refresh the OpenAPI schema after API contract changes
 
@@ -205,7 +205,7 @@ Update `docs/site/pages/_meta.json` when adding new pages. Keep the canonical me
 ## Contributing
 
 - Open an issue or PR with a short rationale; reference related ADRs when applicable.
-- Before sending a PR, run `make lint`, `make test`, and `gitleaks detect --config gitleaks.toml`.
+- Before sending a PR, run `make lint`, `make compose-test`, and `gitleaks detect --config gitleaks.toml`.
 - Keep docs in sync: update `docs/architecture.md` (mermaid diagram) when behavior changes.
 - After backend API changes, regenerate the schema with `make generate-openapi`.
 
