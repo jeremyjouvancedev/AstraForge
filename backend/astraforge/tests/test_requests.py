@@ -1,9 +1,11 @@
 import uuid
+from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from astraforge.accounts.models import Workspace
@@ -628,3 +630,39 @@ def test_merge_request_viewset_returns_merge_requests(api_client, user, monkeypa
     mr_payload = detail.json()
     assert mr_payload["diff"] == "diff"
     assert mr_payload["target_branch"] == "main"
+
+
+def test_activity_logs_paginate_results(api_client, user, monkeypatch):
+    repo = InMemoryRequestRepository()
+    monkeypatch.setattr("astraforge.bootstrap.repository", repo, raising=False)
+    monkeypatch.setattr("astraforge.interfaces.rest.views.repository", repo, raising=False)
+
+    workspace = Workspace.ensure_default_for_user(user)
+    now = timezone.now()
+    for index in range(3):
+        repo.save(
+            Request(
+                id=f"req-activity-{index}",
+                user_id=str(user.id),
+                tenant_id=workspace.uid,
+                source="direct_user",
+                sender="user@example.com",
+                payload=RequestPayload(
+                    title=f"Request {index}", description="desc", context={}
+                ),
+                created_at=now - timedelta(minutes=index),
+                updated_at=now - timedelta(minutes=index),
+                metadata={"project": {"repository": "org/project"}},
+            )
+        )
+
+    response = api_client.get(reverse("activity-log-list"), {"page_size": 2})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 3
+    assert payload["summary"]["total"] == 3
+    assert payload["summary"]["requests"] == 3
+    assert payload["next_page"] == 2
+    assert len(payload["results"]) == 2
+    assert payload["results"][0]["id"] == "request-req-activity-0"

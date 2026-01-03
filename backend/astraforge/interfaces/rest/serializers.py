@@ -441,3 +441,20 @@ class MergeRequestSerializer(serializers.Serializer):
     ref = serializers.CharField()
     diff = serializers.CharField(allow_blank=True, required=False)
     created_at = serializers.CharField()
+
+
+class ActivityConsumptionSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=["request", "sandbox"])
+    ordinal = serializers.IntegerField(required=False, allow_null=True)
+    cpu_seconds = serializers.FloatField(required=False, allow_null=True)
+    storage_bytes = serializers.IntegerField(required=False, allow_null=True)
+
+
+class ActivityEventSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    type = serializers.ChoiceField(choices=["Request", "Run", "Merge", "Sandbox"])
+    title = serializers.CharField()
+    description = serializers.CharField()
+    timestamp = serializers.CharField()
+    href = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    consumption = ActivityConsumptionSerializer(required=False, allow_null=True)

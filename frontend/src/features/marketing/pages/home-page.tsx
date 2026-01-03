@@ -253,7 +253,7 @@ export default function HomePage() {
       </div>
 
       <header className="relative z-10">
-        <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
+        <nav className="mx-auto flex max-w-[clamp(75rem,85vw,112rem)] items-center justify-between px-6 py-6">
           <Link to="/" className="flex items-center gap-3">
             <div
               className="h-9 w-9 rounded-xl home-ring-soft home-glow"
@@ -313,7 +313,7 @@ export default function HomePage() {
       </header>
 
       <main className="relative z-10">
-        <section className="mx-auto max-w-7xl px-6 pt-10 pb-16 md:pt-16">
+        <section className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 pt-10 pb-16 md:pt-16">
           <div className="grid items-center gap-12 md:grid-cols-2">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-xs text-zinc-300 ring-1 ring-white/10">
@@ -423,7 +423,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-6 pb-10">
+        <section className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 pb-10">
           <div className="home-card home-ring-soft rounded-2xl px-6 py-5">
             <div className="grid gap-4 md:grid-cols-4 md:items-center">
               <div className="md:col-span-1">
@@ -448,7 +448,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="product" className="mx-auto max-w-7xl px-6 py-16">
+        <section id="product" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
           <div className="max-w-4xl">
             <h2 className="text-3xl font-semibold tracking-tight">
               AstraForge provides the execution layer for DeepAgents
@@ -474,7 +474,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="architecture" className="mx-auto max-w-7xl px-6 py-16">
+        <section id="architecture" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
           <div className="grid gap-10 md:grid-cols-2 md:items-start">
             <div>
               <h2 className="text-3xl font-semibold tracking-tight">
@@ -523,7 +523,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="security" className="mx-auto max-w-7xl px-6 py-16">
+        <section id="security" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
           <div className="home-card home-ring-soft rounded-2xl p-8 md:p-10">
             <div className="grid gap-10 md:grid-cols-2 md:items-center">
               <div>
@@ -554,7 +554,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="demo" className="mx-auto max-w-7xl px-6 py-16">
+        <section id="demo" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
           <div className="grid gap-10 md:grid-cols-2 md:items-start">
             <div>
               <h2 className="text-3xl font-semibold tracking-tight">A concrete example</h2>
@@ -622,7 +622,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="pricing" className="mx-auto max-w-7xl px-6 py-16">
+        <section id="pricing" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
           <div className="max-w-2xl">
             <h2 className="text-3xl font-semibold tracking-tight">Pricing built around execution</h2>
             <p className="mt-4 text-zinc-300">
@@ -673,7 +673,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="faq" className="mx-auto max-w-7xl px-6 py-16">
+        <section id="faq" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
           <div className="max-w-2xl">
             <h2 className="text-3xl font-semibold tracking-tight">FAQ</h2>
             <p className="mt-4 text-zinc-300">Questions we typically get when agents “actually execute”.</p>
@@ -689,7 +689,7 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="waitlist" className="mx-auto max-w-7xl px-6 pb-20">
+        <section id="waitlist" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 pb-20">
           <div className="home-card home-ring-soft rounded-2xl p-8 md:p-10">
             <div className="grid gap-8 md:grid-cols-2 md:items-center">
               <div>
@@ -772,7 +772,7 @@ $ generate artifact patch.diff
       </main>
 
       <footer className="relative z-10 border-t border-white/10">
-        <div className="mx-auto max-w-7xl px-6 py-10">
+        <div className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-10">
           <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-3">
               <div

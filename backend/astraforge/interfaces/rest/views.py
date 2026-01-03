@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime
 
 import logging
 
@@ -12,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
@@ -737,6 +739,263 @@ class DeepAgentMessageView(APIView):
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
+
+
+def _coerce_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        parsed = parse_datetime(value)
+        if parsed is None:
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError:
+                return None
+    else:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
+    return parsed
+
+
+class ActivityLogViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        user_id = str(request.user.id)
+        allowed_uids = Workspace.allowed_uids_for_user(request.user)
+        tenant_id = request.query_params.get("tenant_id")
+        if tenant_id and tenant_id not in allowed_uids:
+            raise PermissionDenied("You do not have access to this workspace.")
+
+        requests = repository.list(user_id=user_id)
+        if allowed_uids:
+            requests = [
+                item
+                for item in requests
+                if item.tenant_id in allowed_uids
+                and (not tenant_id or item.tenant_id == tenant_id)
+            ]
+        else:
+            requests = []
+
+        request_ordinals = self._build_request_ordinals(requests)
+        runs = self._collect_runs(requests)
+        merge_requests = self._collect_merge_requests(requests)
+        sessions = self._collect_sandbox_sessions(request.user, allowed_uids, tenant_id)
+        sandbox_ordinals = self._build_sandbox_ordinals(sessions)
+
+        events: list[dict[str, object]] = []
+        summary = {
+            "total": 0,
+            "requests": 0,
+            "runs": 0,
+            "merges": 0,
+            "sandboxes": 0,
+        }
+
+        def add_event(
+            event_type: str, timestamp_value: object, payload: dict[str, object]
+        ) -> None:
+            parsed = _coerce_datetime(timestamp_value)
+            if not parsed:
+                return
+            payload["timestamp"] = parsed.isoformat()
+            payload["_sort_key"] = parsed
+            payload["type"] = event_type
+            events.append(payload)
+            if event_type == "Request":
+                summary["requests"] += 1
+            elif event_type == "Run":
+                summary["runs"] += 1
+            elif event_type == "Merge":
+                summary["merges"] += 1
+            elif event_type == "Sandbox":
+                summary["sandboxes"] += 1
+
+        for request_obj in requests:
+            created_at = request_obj.created_at
+            if not created_at:
+                continue
+            project_meta = request_obj.metadata.get("project") or {}
+            repository_name = (
+                project_meta.get("repository")
+                if isinstance(project_meta, dict)
+                else None
+            )
+            add_event(
+                "Request",
+                created_at,
+                {
+                    "id": f"request-{request_obj.id}",
+                    "title": request_obj.payload.title or "New automation request",
+                    "description": (
+                        f"Captured for {repository_name}"
+                        if repository_name
+                        else "Request captured in AstraForge."
+                    ),
+                    "href": f"/app/requests/{request_obj.id}/run",
+                    "consumption": {
+                        "kind": "request",
+                        "ordinal": request_ordinals.get(str(request_obj.id)),
+                    },
+                },
+            )
+
+        for run in runs:
+            timestamp = run.get("started_at") or run.get("finished_at")
+            if not timestamp:
+                continue
+            status = str(run.get("status") or "queued").lower()
+            request_title = str(run.get("request_title") or "")
+            description = (
+                f'Automation for "{request_title}"'
+                if request_title
+                else "Automation run kicked off."
+            )
+            add_event(
+                "Run",
+                timestamp,
+                {
+                    "id": f"run-{run.get('id')}",
+                    "title": f"Run {status}",
+                    "description": description,
+                    "href": f"/app/requests/{run.get('request_id')}/run",
+                },
+            )
+
+        for mr in merge_requests:
+            created_at = mr.get("created_at")
+            if not created_at:
+                continue
+            target_branch = str(mr.get("target_branch") or "")
+            description = (
+                f"Targeting {target_branch}"
+                if target_branch
+                else "Merge request created by AstraForge."
+            )
+            add_event(
+                "Merge",
+                created_at,
+                {
+                    "id": f"merge-{mr.get('id')}",
+                    "title": str(mr.get("title") or "Merge request opened"),
+                    "description": description,
+                    "href": f"/app/requests/{mr.get('request_id')}/run",
+                },
+            )
+
+        for session in sessions:
+            timestamp = session.updated_at or session.created_at
+            if not timestamp:
+                continue
+            add_event(
+                "Sandbox",
+                timestamp,
+                {
+                    "id": f"sandbox-{session.id}",
+                    "title": f"Sandbox {session.status}",
+                    "description": f"Mode: {session.mode}",
+                    "consumption": {
+                        "kind": "sandbox",
+                        "ordinal": sandbox_ordinals.get(str(session.id)),
+                        "cpu_seconds": session.cpu_seconds,
+                        "storage_bytes": session.storage_bytes,
+                    },
+                },
+            )
+
+        events.sort(key=lambda item: item["_sort_key"], reverse=True)
+        for event in events:
+            event.pop("_sort_key", None)
+        summary["total"] = len(events)
+
+        page, page_size = self._get_pagination(request)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paged = events[start:end]
+        next_page = page + 1 if end < len(events) else None
+        prev_page = page - 1 if page > 1 else None
+        serializer = serializers.ActivityEventSerializer(paged, many=True)
+        return Response(
+            {
+                "count": len(events),
+                "page": page,
+                "page_size": page_size,
+                "next_page": next_page,
+                "previous_page": prev_page,
+                "results": serializer.data,
+                "summary": summary,
+            }
+        )
+
+    def _build_request_ordinals(self, requests: list[Request]) -> dict[str, int]:
+        ordered = sorted(requests, key=lambda item: item.created_at or timezone.now())
+        return {str(item.id): index + 1 for index, item in enumerate(ordered)}
+
+    def _collect_runs(self, requests: list[Request]) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        run_view = RunViewSet()
+        for request_obj in requests:
+            runs_meta = list(request_obj.metadata.get("runs", []) or [])
+            if not runs_meta:
+                fallback = run_view._fallback_run(request_obj)
+                if fallback is not None:
+                    runs_meta = [fallback]
+            for run in runs_meta:
+                entry = run_view._build_run_entry(request_obj, run, include_events=False)
+                if entry is not None:
+                    items.append(entry)
+        return items
+
+    def _collect_merge_requests(self, requests: list[Request]) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        merge_view = MergeRequestViewSet()
+        for request_obj in requests:
+            metadata_mr = request_obj.metadata.get("mr") or {}
+            if not metadata_mr:
+                continue
+            entry = merge_view._build_entry(request_obj, metadata_mr)
+            items.append(entry)
+        return items
+
+    def _collect_sandbox_sessions(
+        self,
+        user,
+        allowed_uids: list[str],
+        tenant_id: str | None,
+    ) -> list[SandboxSession]:
+        sessions = SandboxSession.objects.filter(user=user)
+        if tenant_id:
+            sessions = sessions.filter(workspace__uid=tenant_id)
+        elif allowed_uids:
+            sessions = sessions.filter(workspace__uid__in=allowed_uids)
+        return list(sessions)
+
+    def _build_sandbox_ordinals(
+        self, sessions: list[SandboxSession]
+    ) -> dict[str, int]:
+        ordered = sorted(
+            (session for session in sessions if session.created_at or session.updated_at),
+            key=lambda item: item.created_at or item.updated_at or timezone.now(),
+        )
+        return {str(item.id): index + 1 for index, item in enumerate(ordered)}
+
+    @staticmethod
+    def _get_pagination(request) -> tuple[int, int]:
+        def parse_int(value: object, default: int) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        page = max(parse_int(request.query_params.get("page"), 1), 1)
+        page_size = parse_int(request.query_params.get("page_size"), 25)
+        if page_size < 1:
+            page_size = 25
+        if page_size > 100:
+            page_size = 100
+        return page, page_size
 
 
 class RunViewSet(viewsets.ViewSet):

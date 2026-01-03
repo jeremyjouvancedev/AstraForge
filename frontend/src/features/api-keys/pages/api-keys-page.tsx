@@ -27,7 +27,7 @@ export default function ApiKeysPage() {
   };
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6 text-zinc-100">
+    <div className="mx-auto flex max-w-[clamp(56rem,72vw,96rem)] flex-col gap-6 p-6 text-zinc-100">
       <header className="home-card home-ring-soft space-y-2 rounded-2xl border border-white/10 bg-black/30 p-6 shadow-lg shadow-indigo-500/15 backdrop-blur">
         <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
           Programmatic access

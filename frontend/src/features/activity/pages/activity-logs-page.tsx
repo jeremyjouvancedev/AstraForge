@@ -16,14 +16,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMergeRequests } from "@/features/mr/hooks/use-merge-requests";
-import { useRequests } from "@/features/requests/hooks/use-requests";
-import { useRuns } from "@/features/runs/hooks/use-runs";
-import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
+import {
+  activityEventsQueryKey,
+  useActivityEvents
+} from "@/features/activity/hooks/use-activity-events";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
 import { useWorkspaceUsage } from "@/features/workspaces/hooks/use-workspace-usage";
 import { cn } from "@/lib/utils";
-import type { WorkspaceUsageSummary, SandboxSession } from "@/lib/api-client";
+import type { ActivityEventDto, WorkspaceUsageSummary } from "@/lib/api-client";
 
 type ActivityEvent = {
   id: string;
@@ -75,6 +75,38 @@ function getTone(type: ActivityEvent["type"]) {
     default:
       return "bg-sky-500/15 text-sky-100 border-sky-500/30";
   }
+}
+
+function getIcon(type: ActivityEvent["type"]) {
+  switch (type) {
+    case "Request":
+      return Inbox;
+    case "Run":
+      return ActivityIcon;
+    case "Merge":
+      return GitPullRequest;
+    case "Sandbox":
+    default:
+      return Server;
+  }
+}
+
+function mapConsumption(
+  consumption?: ActivityEventDto["consumption"] | null
+): EventConsumption | undefined {
+  if (!consumption) return undefined;
+  if (consumption.kind === "sandbox") {
+    return {
+      kind: "sandbox",
+      ordinal: consumption.ordinal ?? undefined,
+      cpuSeconds: consumption.cpu_seconds ?? null,
+      storageBytes: consumption.storage_bytes ?? null
+    };
+  }
+  return {
+    kind: "request",
+    ordinal: consumption.ordinal ?? undefined
+  };
 }
 
 function EventConsumptionDetails({
@@ -200,162 +232,36 @@ export default function ActivityLogsPage() {
   const [selectedEvent, setSelectedEvent] = useState<ActivityEvent | null>(null);
   const { activeWorkspace } = useWorkspace();
   const workspaceUid = activeWorkspace?.uid;
-  const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
-  const { data: runs, isLoading: runsLoading } = useRuns();
-  const { data: mergeRequests, isLoading: mergeRequestsLoading } = useMergeRequests();
-  const { data: sandboxSessions, isLoading: sandboxSessionsLoading } = useSandboxSessions();
+  const {
+    data: activityData,
+    isLoading: activityLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage
+  } = useActivityEvents(workspaceUid);
   const {
     data: workspaceUsage,
     isLoading: workspaceUsageLoading,
     isError: workspaceUsageError
   } = useWorkspaceUsage(workspaceUid);
 
-  const requestOrdinals = useMemo(() => {
-    const map = new Map<string, number>();
-    const list = (requests ?? [])
-      .filter((request) => request.created_at)
-      .sort(
-        (a, b) =>
-          new Date(a.created_at ?? "").getTime() - new Date(b.created_at ?? "").getTime()
-      );
-    list.forEach((request, index) => {
-      map.set(request.id, index + 1);
-    });
-    return map;
-  }, [requests]);
-
-  const sandboxOrdinals = useMemo(() => {
-    const map = new Map<string, number>();
-    const list = (sandboxSessions ?? [])
-      .filter((session) => session.created_at || session.updated_at)
-      .sort(
-        (a, b) =>
-          new Date(a.created_at ?? a.updated_at ?? "").getTime() -
-          new Date(b.created_at ?? b.updated_at ?? "").getTime()
-      );
-    list.forEach((session, index) => {
-      map.set(session.id, index + 1);
-    });
-    return map;
-  }, [sandboxSessions]);
-
-  const sandboxDetailMap = useMemo(() => {
-    const map = new Map<string, SandboxSession>();
-    (sandboxSessions ?? []).forEach((session) => {
-      map.set(session.id, session);
-    });
-    return map;
-  }, [sandboxSessions]);
-
-  const scopedRequestIds = useMemo(
-    () => new Set((requests ?? []).map((request) => request.id)),
-    [requests]
-  );
-  const scopedRuns = useMemo(
-    () => (runs ?? []).filter((run) => scopedRequestIds.has(run.request_id)),
-    [runs, scopedRequestIds]
-  );
-  const scopedMergeRequests = useMemo(
-    () => (mergeRequests ?? []).filter((mr) => scopedRequestIds.has(mr.request_id)),
-    [mergeRequests, scopedRequestIds]
-  );
-
   const events = useMemo(() => {
-    const items: ActivityEvent[] = [];
+    const pages = activityData?.pages ?? [];
+    return pages.flatMap((page) =>
+      page.results.map((event) => ({
+        id: event.id,
+        type: event.type,
+        title: event.title,
+        description: event.description,
+        timestamp: event.timestamp,
+        href: event.href ?? undefined,
+        icon: getIcon(event.type),
+        consumption: mapConsumption(event.consumption)
+      }))
+    );
+  }, [activityData]);
 
-    (requests ?? []).forEach((request) => {
-      if (!request.created_at) return;
-      items.push({
-        id: `request-${request.id}`,
-        type: "Request",
-        title: request.payload.title || "New automation request",
-        description: request.project?.repository
-          ? `Captured for ${request.project.repository}`
-          : "Request captured in AstraForge.",
-        timestamp: request.created_at,
-        href: `/app/requests/${request.id}/run`,
-        icon: Inbox,
-        consumption: {
-          kind: "request",
-          ordinal: requestOrdinals.get(request.id) ?? undefined
-        }
-      });
-    });
-
-    (scopedRuns ?? []).forEach((run) => {
-      const timestamp = run.started_at || run.finished_at;
-      if (!timestamp) return;
-      const status = run.status ? run.status.toLowerCase() : "queued";
-      items.push({
-        id: `run-${run.id}`,
-        type: "Run",
-        title: `Run ${status}`,
-        description: run.request_title
-          ? `Automation for “${run.request_title}”`
-          : "Automation run kicked off.",
-        timestamp,
-        href: `/app/requests/${run.request_id}/run`,
-        icon: ActivityIcon
-      });
-    });
-
-    (scopedMergeRequests ?? []).forEach((mr) => {
-      if (!mr.created_at) return;
-      items.push({
-        id: `merge-${mr.id}`,
-        type: "Merge",
-        title: mr.title || "Merge request opened",
-        description: mr.target_branch
-          ? `Targeting ${mr.target_branch}`
-          : "Merge request created by AstraForge.",
-        timestamp: mr.created_at,
-        href: `/app/requests/${mr.request_id}/run`,
-        icon: GitPullRequest
-      });
-    });
-
-    (sandboxSessions ?? []).forEach((session) => {
-      const timestamp = session.updated_at || session.created_at;
-      if (!timestamp) return;
-      const detail = sandboxDetailMap.get(session.id);
-      items.push({
-        id: `sandbox-${session.id}`,
-        type: "Sandbox",
-        title: `Sandbox ${session.status}`,
-        description: `Mode: ${session.mode}`,
-        timestamp,
-        icon: Server,
-        consumption: {
-          kind: "sandbox",
-          ordinal: sandboxOrdinals.get(session.id) ?? undefined,
-          cpuSeconds: detail?.cpu_seconds ?? null,
-          storageBytes: detail?.storage_bytes ?? null
-        }
-      });
-    });
-
-    return items
-      .filter((item) => {
-        const date = new Date(item.timestamp);
-        return !Number.isNaN(date.getTime());
-      })
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [
-    requests,
-    requestOrdinals,
-    sandboxOrdinals,
-    sandboxSessions,
-    sandboxDetailMap,
-    scopedMergeRequests,
-    scopedRuns
-  ]);
-
-  const loading =
-    requestsLoading ||
-    runsLoading ||
-    mergeRequestsLoading ||
-    sandboxSessionsLoading ||
-    workspaceUsageLoading;
+  const loading = activityLoading || workspaceUsageLoading;
 
   useEffect(() => {
     if (events.length === 0) {
@@ -372,27 +278,24 @@ export default function ActivityLogsPage() {
     }
   }, [events, selectedEvent]);
 
-  const summary = {
-    total: events.length,
-    requests: requests?.length ?? 0,
-    runs: scopedRuns?.length ?? 0,
-    merges: scopedMergeRequests?.length ?? 0,
-    sandboxes: sandboxSessions?.length ?? 0
+  const summary = activityData?.pages?.[0]?.summary ?? {
+    total: activityData?.pages?.[0]?.count ?? events.length,
+    requests: 0,
+    runs: 0,
+    merges: 0,
+    sandboxes: 0
   };
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["requests"] });
-    queryClient.invalidateQueries({ queryKey: ["runs"] });
-    queryClient.invalidateQueries({ queryKey: ["merge-requests"] });
-    queryClient.invalidateQueries({ queryKey: ["sandbox-sessions"] });
+    queryClient.invalidateQueries({ queryKey: activityEventsQueryKey(workspaceUid) });
     if (workspaceUid) {
       queryClient.invalidateQueries({ queryKey: ["workspace-usage", workspaceUid] });
     }
   };
 
   return (
-    <div className="relative z-10 mx-auto w-full max-w-5xl space-y-8 px-4 py-8 text-zinc-100 sm:px-6 lg:px-10">
-      <section className="home-card home-ring-soft space-y-4 rounded-3xl border border-white/10 bg-black/30 p-8 shadow-2xl shadow-indigo-500/15 backdrop-blur">
+    <div className="relative z-10 mx-auto flex h-full w-full max-w-[clamp(64rem,76vw,104rem)] flex-col gap-6 overflow-hidden px-4 py-6 text-zinc-100 sm:px-6 lg:px-10">
+      <section className="home-card home-ring-soft shrink-0 space-y-4 rounded-3xl border border-white/10 bg-black/30 p-8 shadow-2xl shadow-indigo-500/15 backdrop-blur">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
@@ -442,7 +345,7 @@ export default function ActivityLogsPage() {
         </div>
       </section>
 
-      <Card className="home-card home-ring-soft rounded-3xl border border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur">
+      <Card className="home-card home-ring-soft flex min-h-0 flex-1 flex-col rounded-3xl border border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur">
         <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-white/10">
           <div className="space-y-1">
             <CardTitle className="text-lg text-white">Timeline</CardTitle>
@@ -459,7 +362,7 @@ export default function ActivityLogsPage() {
             Refresh
           </Button>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="flex-1 min-h-0 p-6">
           {loading ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, index) => (
@@ -493,50 +396,65 @@ export default function ActivityLogsPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-              <div className="space-y-3">
-                {events.map((event) => {
-                  const Icon = event.icon;
-                  const isSelected = selectedEvent?.id === event.id;
-                  return (
-                    <button
-                      key={event.id}
-                      type="button"
-                      onClick={() => setSelectedEvent(event)}
-                      className={cn(
-                        "group relative flex w-full items-start gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70",
-                        isSelected ? "border-white/30 bg-white/10 shadow-lg shadow-indigo-500/10" : "hover:border-white/25 hover:bg-white/10"
-                      )}
-                    >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white ring-1 ring-white/10">
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            className={cn(
-                              "rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide",
-                              getTone(event.type)
-                            )}
-                          >
-                            {event.type}
-                          </Badge>
-                          <span className="text-xs text-zinc-400">
-                            {formatTimestamp(event.timestamp)}
-                          </span>
+            <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[2fr_1fr]">
+              <div className="flex min-h-0 flex-col gap-3">
+                <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
+                  {events.map((event) => {
+                    const Icon = event.icon;
+                    const isSelected = selectedEvent?.id === event.id;
+                    return (
+                      <button
+                        key={event.id}
+                        type="button"
+                        onClick={() => setSelectedEvent(event)}
+                        className={cn(
+                          "group relative flex w-full items-start gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70",
+                          isSelected ? "border-white/30 bg-white/10 shadow-lg shadow-indigo-500/10" : "hover:border-white/25 hover:bg-white/10"
+                        )}
+                      >
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white ring-1 ring-white/10">
+                          <Icon className="h-5 w-5" />
                         </div>
-                        <p className="text-base font-semibold text-white">{event.title}</p>
-                        <p className="text-sm text-zinc-300">{event.description}</p>
-                        {event.href ? (
-                          <span className="inline-flex items-center gap-1 text-sm font-medium text-indigo-200">
-                            View details
-                            <ArrowUpRight className="h-4 w-4" />
-                          </span>
-                        ) : null}
-                      </div>
-                    </button>
-                  );
-                })}
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              className={cn(
+                                "rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide",
+                                getTone(event.type)
+                              )}
+                            >
+                              {event.type}
+                            </Badge>
+                            <span className="text-xs text-zinc-400">
+                              {formatTimestamp(event.timestamp)}
+                            </span>
+                          </div>
+                          <p className="text-base font-semibold text-white">{event.title}</p>
+                          <p className="text-sm text-zinc-300">{event.description}</p>
+                          {event.href ? (
+                            <span className="inline-flex items-center gap-1 text-sm font-medium text-indigo-200">
+                              View details
+                              <ArrowUpRight className="h-4 w-4" />
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {hasNextPage ? (
+                    <div className="flex justify-center pb-1 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl border-white/20 text-zinc-100 hover:border-white/40 hover:text-white"
+                        onClick={() => fetchNextPage()}
+                        disabled={isFetchingNextPage}
+                      >
+                        {isFetchingNextPage ? "Loading..." : "Load more"}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-5">

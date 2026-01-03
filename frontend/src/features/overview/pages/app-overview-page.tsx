@@ -216,7 +216,7 @@ export default function AppOverviewPage() {
     sandboxSessionsLoading;
 
   return (
-    <div className="relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4 py-8 text-zinc-100 sm:px-6 lg:px-10">
+    <div className="relative z-10 mx-auto w-full max-w-[clamp(72rem,80vw,112rem)] space-y-8 px-4 py-8 text-zinc-100 sm:px-6 lg:px-10">
       <section className="home-card home-ring-soft flex flex-col gap-6 rounded-3xl border border-white/10 bg-black/30 p-8 shadow-2xl shadow-indigo-500/15 backdrop-blur md:flex-row md:items-center md:justify-between">
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">

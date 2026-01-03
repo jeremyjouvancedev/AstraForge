@@ -22,7 +22,7 @@ export default function RequestThreadPage() {
   };
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
+    <div className="mx-auto flex max-w-[clamp(56rem,72vw,96rem)] flex-col gap-4 p-6">
       <header className="space-y-1">
         <h2 className="text-lg font-semibold">Conversation</h2>
         <p className="text-sm text-muted-foreground">Discuss requirements and approvals for request {requestId}.</p>

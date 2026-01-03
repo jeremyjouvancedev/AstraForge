@@ -332,6 +332,66 @@ export async function fetchMergeRequestDetail(id: string) {
   return response.data;
 }
 
+export type ActivityEventType = "Request" | "Run" | "Merge" | "Sandbox";
+
+export type ActivityConsumption =
+  | {
+      kind: "request";
+      ordinal?: number | null;
+    }
+  | {
+      kind: "sandbox";
+      ordinal?: number | null;
+      cpu_seconds?: number | null;
+      storage_bytes?: number | null;
+    };
+
+export interface ActivityEventDto {
+  id: string;
+  type: ActivityEventType;
+  title: string;
+  description: string;
+  timestamp: string;
+  href?: string | null;
+  consumption?: ActivityConsumption | null;
+}
+
+export interface ActivitySummary {
+  total: number;
+  requests: number;
+  runs: number;
+  merges: number;
+  sandboxes: number;
+}
+
+export interface ActivityEventsPage {
+  count: number;
+  page: number;
+  page_size: number;
+  next_page: number | null;
+  previous_page: number | null;
+  results: ActivityEventDto[];
+  summary: ActivitySummary;
+}
+
+export async function fetchActivityEvents(params: {
+  tenantId?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const queryParams: Record<string, string | number> = {
+    page: params.page ?? 1,
+    page_size: params.pageSize ?? 25
+  };
+  if (params.tenantId) {
+    queryParams.tenant_id = params.tenantId;
+  }
+  const response = await apiClient.get<ActivityEventsPage>("/activity/", {
+    params: queryParams
+  });
+  return response.data;
+}
+
 // Sandbox sessions ------------------------------------------------------------
 export interface SandboxSession {
   id: string;

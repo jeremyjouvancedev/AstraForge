@@ -14,6 +14,7 @@ flowchart TD
     subgraph Backend_API["Backend API"]
         API["DRF API"]
         AccessCtrl["Access Control & Waitlist"]
+        ActivityFeed["Activity Log Feed<br/>Paginated timeline"]
         SandboxAPI["Sandbox Orchestrator"]
         Beat["Celery Beat Scheduler"]
         Worker["Celery Worker"]
@@ -50,6 +51,7 @@ flowchart TD
     WorkspaceSwitcher --> FE
     FE -->|HTTP + SSE| API
     API --> AccessCtrl
+    API --> ActivityFeed
     API --> WorkspaceStore
     API --> RepoLinks
     PySDK -->|HTTPS + X-Api-Key| API

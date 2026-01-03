@@ -35,7 +35,7 @@ export default function RequestsPage() {
   };
 
   return (
-    <div className="relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-10 text-zinc-100">
+    <div className="relative z-10 mx-auto w-full max-w-[clamp(72rem,80vw,112rem)] space-y-8 px-4 py-8 sm:px-6 lg:px-10 text-zinc-100">
       <section className="home-card home-ring-soft rounded-3xl border border-white/10 bg-black/30 p-8 shadow-2xl shadow-indigo-500/15 backdrop-blur">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
