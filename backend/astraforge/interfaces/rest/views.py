@@ -57,6 +57,8 @@ SUPPORTED_IDENTITY_PROVIDERS = ["password"]
 def _auth_settings() -> dict[str, object]:
     require_approval = getattr(settings, "AUTH_REQUIRE_APPROVAL", False)
     allow_all_users = getattr(settings, "AUTH_ALLOW_ALL_USERS", False)
+    self_hosted = bool(getattr(settings, "SELF_HOSTED", False))
+    billing_enabled = bool(getattr(settings, "BILLING_ENABLED", not self_hosted))
     waitlist_enabled = bool(
         getattr(
             settings,
@@ -70,6 +72,8 @@ def _auth_settings() -> dict[str, object]:
         "require_approval": require_approval,
         "allow_all_users": allow_all_users,
         "waitlist_enabled": waitlist_enabled,
+        "self_hosted": self_hosted,
+        "billing_enabled": billing_enabled,
         "supported_providers": SUPPORTED_IDENTITY_PROVIDERS,
     }
 

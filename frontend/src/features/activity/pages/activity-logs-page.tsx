@@ -7,6 +7,7 @@ import {
   GitPullRequest,
   History,
   Inbox,
+  Infinity,
   Server
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -22,6 +23,7 @@ import {
 } from "@/features/activity/hooks/use-activity-events";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
 import { useWorkspaceUsage } from "@/features/workspaces/hooks/use-workspace-usage";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import type { ActivityEventDto, WorkspaceUsageSummary } from "@/lib/api-client";
 
@@ -111,31 +113,39 @@ function mapConsumption(
 
 function EventConsumptionDetails({
   consumption,
-  workspaceUsage
+  workspaceUsage,
+  billingEnabled
 }: {
   consumption: EventConsumption;
   workspaceUsage: WorkspaceUsageSummary;
+  billingEnabled: boolean;
 }) {
   const limits = workspaceUsage.limits;
   if (consumption.kind === "request") {
     const limitValue = limits.requests_per_month ?? null;
-    const hasLimit = typeof limitValue === "number" && limitValue > 0;
+    const effectiveLimit = billingEnabled ? limitValue : null;
+    const hasLimit = typeof effectiveLimit === "number" && effectiveLimit > 0;
     const ordinalLabel = formatOrdinal(consumption.ordinal);
     const progressValue =
-      hasLimit && limitValue
-        ? Math.min(((consumption.ordinal ?? 1) / limitValue) * 100, 100)
+      hasLimit && effectiveLimit
+        ? Math.min(((consumption.ordinal ?? 1) / effectiveLimit) * 100, 100)
         : 0;
     return (
       <div className="space-y-2 text-xs text-zinc-300">
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[11px] font-semibold">
-            <span className="text-zinc-200">Request quota</span>
+            <span className="text-zinc-200">
+              {billingEnabled ? "Request quota" : "Requests"}
+            </span>
             {hasLimit ? (
               <span className="text-zinc-400">
-                {ordinalLabel ?? "1 request"} of {numberFormatter.format(limitValue ?? 0)}
+                {ordinalLabel ?? "1 request"} of {numberFormatter.format(effectiveLimit ?? 0)}
               </span>
             ) : (
-              <span className="text-zinc-400">Plan unlimited</span>
+              <span className="inline-flex items-center gap-1 text-zinc-400" title="Unlimited">
+                <Infinity className="h-3 w-3" aria-hidden="true" />
+                <span className="sr-only">Unlimited</span>
+              </span>
             )}
           </div>
           {hasLimit ? (
@@ -145,20 +155,25 @@ function EventConsumptionDetails({
           )}
         </div>
         <p className="text-[11px] text-zinc-400">
-          {ordinalLabel
-            ? `This was your ${ordinalLabel} request this billing cycle.`
-            : "Counts as one request on your plan."}
+          {billingEnabled
+            ? ordinalLabel
+              ? `This was your ${ordinalLabel} request this billing cycle.`
+              : "Counts as one request on your plan."
+            : ordinalLabel
+              ? `This was your ${ordinalLabel} request in this workspace.`
+              : "Usage tracked for this request."}
         </p>
       </div>
     );
   }
 
   const limitValue = limits.sandbox_sessions_per_month ?? null;
-  const hasLimit = typeof limitValue === "number" && limitValue > 0;
+  const effectiveLimit = billingEnabled ? limitValue : null;
+  const hasLimit = typeof effectiveLimit === "number" && effectiveLimit > 0;
   const ordinalLabel = formatOrdinal(consumption.ordinal);
   const progressValue =
-    hasLimit && limitValue
-      ? Math.min(((consumption.ordinal ?? 1) / limitValue) * 100, 100)
+    hasLimit && effectiveLimit
+      ? Math.min(((consumption.ordinal ?? 1) / effectiveLimit) * 100, 100)
       : 0;
   const runtimeLabel = formatDuration(consumption.cpuSeconds);
   const storageLabel = formatBytes(consumption.storageBytes);
@@ -170,10 +185,13 @@ function EventConsumptionDetails({
           <span className="text-zinc-200">Sandbox sessions</span>
           {hasLimit ? (
             <span className="text-zinc-400">
-              {ordinalLabel ?? "1 sandbox"} of {numberFormatter.format(limitValue ?? 0)}
+              {ordinalLabel ?? "1 sandbox"} of {numberFormatter.format(effectiveLimit ?? 0)}
             </span>
           ) : (
-            <span className="text-zinc-400">Plan unlimited</span>
+            <span className="inline-flex items-center gap-1 text-zinc-400" title="Unlimited">
+              <Infinity className="h-3 w-3" aria-hidden="true" />
+              <span className="sr-only">Unlimited</span>
+            </span>
           )}
         </div>
         {hasLimit ? (
@@ -184,9 +202,13 @@ function EventConsumptionDetails({
       </div>
       <div className="space-y-1 text-[11px] text-zinc-400">
         <p>
-          {ordinalLabel
-            ? `This was your ${ordinalLabel} sandbox session this cycle.`
-            : "Counts as one sandbox session on your plan."}
+          {billingEnabled
+            ? ordinalLabel
+              ? `This was your ${ordinalLabel} sandbox session this cycle.`
+              : "Counts as one sandbox session on your plan."
+            : ordinalLabel
+              ? `This was your ${ordinalLabel} sandbox session.`
+              : "Usage tracked for this session."}
         </p>
         <div className="flex flex-col gap-1 text-zinc-300">
           {runtimeLabel ? <span>Runtime: {runtimeLabel}</span> : null}
@@ -230,6 +252,8 @@ const numberFormatter = new Intl.NumberFormat("en-US");
 export default function ActivityLogsPage() {
   const queryClient = useQueryClient();
   const [selectedEvent, setSelectedEvent] = useState<ActivityEvent | null>(null);
+  const { authSettings } = useAuth();
+  const billingEnabled = authSettings?.billing_enabled ?? true;
   const { activeWorkspace } = useWorkspace();
   const workspaceUid = activeWorkspace?.uid;
   const {
@@ -485,7 +509,7 @@ export default function ActivityLogsPage() {
                     </div>
                     <div className="space-y-2 pt-2">
                       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-400">
-                        Consumption
+                        {billingEnabled ? "Consumption" : "Usage"}
                       </p>
                       {workspaceUsageLoading ? (
                         <div className="space-y-1">
@@ -500,9 +524,14 @@ export default function ActivityLogsPage() {
                         <EventConsumptionDetails
                           consumption={selectedEvent.consumption}
                           workspaceUsage={workspaceUsage}
+                          billingEnabled={billingEnabled}
                         />
                       ) : (
-                        <p className="text-xs text-zinc-400">No quota impact for this event.</p>
+                        <p className="text-xs text-zinc-400">
+                          {billingEnabled
+                            ? "No quota impact for this event."
+                            : "No usage impact for this event."}
+                        </p>
                       )}
                     </div>
                     {selectedEvent.href ? (

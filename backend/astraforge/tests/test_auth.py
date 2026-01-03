@@ -117,7 +117,15 @@ def test_auth_settings_endpoint(api_client):
     response = api_client.get(reverse("auth-settings"))
     assert response.status_code == 200
     data = response.json()
-    assert set(["require_approval", "allow_all_users", "waitlist_enabled"]).issubset(data.keys())
+    assert set(
+        [
+            "require_approval",
+            "allow_all_users",
+            "waitlist_enabled",
+            "self_hosted",
+            "billing_enabled",
+        ]
+    ).issubset(data.keys())
 
 
 def test_waitlist_email_sent_once(settings, api_client):

@@ -105,31 +105,43 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return workspaces.find((workspace) => workspace.uid === activeWorkspaceUid) ?? workspaces[0];
   }, [activeWorkspaceUid, workspaces]);
 
-  const selectWorkspace = (uid: string) => {
-    const exists = workspaces.find((workspace) => workspace.uid === uid);
-    if (!exists) return;
+  const setActiveWorkspace = (uid: string) => {
     setActiveWorkspaceUid(uid);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, uid);
     }
   };
 
+  const selectWorkspace = (uid: string) => {
+    const exists = workspaces.find((workspace) => workspace.uid === uid);
+    if (!exists) return;
+    setActiveWorkspace(uid);
+  };
+
   const createWorkspace = async (name: string) => {
     if (!name.trim()) return null;
     try {
       const created = await apiCreateWorkspace({ name });
-      await loadWorkspaces();
-      selectWorkspace(created.uid);
-      toast.success("Workspace created", {
-        description: `${created.name} is ready to use.`
-      });
-      return {
+      const nextWorkspace = {
         uid: created.uid,
         name: created.name,
         role: created.role,
         plan: created.plan,
         accentColor: colorFromString(created.uid)
       };
+      setWorkspaces((prev) => {
+        const exists = prev.find((workspace) => workspace.uid === created.uid);
+        if (!exists) return [...prev, nextWorkspace];
+        return prev.map((workspace) =>
+          workspace.uid === created.uid ? { ...workspace, ...nextWorkspace } : workspace
+        );
+      });
+      setActiveWorkspace(created.uid);
+      void loadWorkspaces();
+      toast.success("Workspace created", {
+        description: `${created.name} is ready to use.`
+      });
+      return nextWorkspace;
     } catch {
       toast.error("Unable to create workspace", {
         description: "You might not have permission to create workspaces."

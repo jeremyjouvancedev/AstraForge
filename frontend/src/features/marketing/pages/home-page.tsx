@@ -183,7 +183,8 @@ const glowBottomStyle = {
 };
 
 export default function HomePage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authSettings } = useAuth();
+  const billingEnabled = authSettings?.billing_enabled ?? true;
   const primaryCtaHref = isAuthenticated ? "/app" : "#waitlist";
   const primaryCtaLabel = isAuthenticated ? "Open console" : "Request access";
   const currentYear = new Date().getFullYear();
@@ -622,56 +623,58 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="pricing" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
-          <div className="max-w-2xl">
-            <h2 className="text-3xl font-semibold tracking-tight">Pricing built around execution</h2>
-            <p className="mt-4 text-zinc-300">
-              AstraForge isn’t priced on hype. You pay for controlled compute, reliable sandboxes, and the governance
-              required for production agents.
-            </p>
-          </div>
+        {billingEnabled ? (
+          <section id="pricing" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
+            <div className="max-w-2xl">
+              <h2 className="text-3xl font-semibold tracking-tight">Pricing built around execution</h2>
+              <p className="mt-4 text-zinc-300">
+                AstraForge isn’t priced on hype. You pay for controlled compute, reliable sandboxes, and the governance
+                required for production agents.
+              </p>
+            </div>
 
-          <div className="mt-10 grid gap-5 md:grid-cols-3">
-            {pricingPlans.map((plan) => (
-              <div
-                key={plan.name}
-                className={`home-card home-ring-soft rounded-2xl p-7 ${
-                  plan.highlighted ? "border border-white/20" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold">{plan.name}</div>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs ${
-                      plan.badgeTone === "primary"
-                        ? "home-btn-primary text-white ring-1 ring-white/10"
-                        : "home-tag text-zinc-300"
-                    }`}
-                  >
-                    {plan.badge}
-                  </span>
-                </div>
-                <div className="mt-3 text-3xl font-semibold">{plan.price}</div>
-                <p className="mt-2 text-sm text-zinc-300">{plan.description}</p>
-                <ul className="mt-5 space-y-2 text-sm text-zinc-300">
-                  {plan.features.map((feature) => (
-                    <li key={feature}>• {feature}</li>
-                  ))}
-                </ul>
-                <a
-                  href="#waitlist"
-                  className={`mt-6 inline-flex w-full items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold ${
-                    plan.highlighted
-                      ? "text-white home-btn-primary ring-1 ring-white/10"
-                      : "text-zinc-200 ring-1 ring-white/10 hover:bg-white/5"
+            <div className="mt-10 grid gap-5 md:grid-cols-3">
+              {pricingPlans.map((plan) => (
+                <div
+                  key={plan.name}
+                  className={`home-card home-ring-soft rounded-2xl p-7 ${
+                    plan.highlighted ? "border border-white/20" : ""
                   }`}
                 >
-                  {plan.cta}
-                </a>
-              </div>
-            ))}
-          </div>
-        </section>
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold">{plan.name}</div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs ${
+                        plan.badgeTone === "primary"
+                          ? "home-btn-primary text-white ring-1 ring-white/10"
+                          : "home-tag text-zinc-300"
+                      }`}
+                    >
+                      {plan.badge}
+                    </span>
+                  </div>
+                  <div className="mt-3 text-3xl font-semibold">{plan.price}</div>
+                  <p className="mt-2 text-sm text-zinc-300">{plan.description}</p>
+                  <ul className="mt-5 space-y-2 text-sm text-zinc-300">
+                    {plan.features.map((feature) => (
+                      <li key={feature}>• {feature}</li>
+                    ))}
+                  </ul>
+                  <a
+                    href="#waitlist"
+                    className={`mt-6 inline-flex w-full items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold ${
+                      plan.highlighted
+                        ? "text-white home-btn-primary ring-1 ring-white/10"
+                        : "text-zinc-200 ring-1 ring-white/10 hover:bg-white/5"
+                    }`}
+                  >
+                    {plan.cta}
+                  </a>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section id="faq" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 py-16">
           <div className="max-w-2xl">

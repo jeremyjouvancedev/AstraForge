@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useQueryClient } from "@tanstack/react-query";
-import { Activity, BarChart2, Cpu, Rocket, Server } from "lucide-react";
+import { Activity, BarChart2, Cpu, Infinity, Rocket, Server } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { useRuns } from "@/features/runs/hooks/use-runs";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
 import { useWorkspaceUsage } from "@/features/workspaces/hooks/use-workspace-usage";
+import { useAuth } from "@/lib/auth";
 import { formatPlanLabel } from "@/lib/plan-label";
 
 function formatDuration(seconds?: number | null) {
@@ -101,6 +102,8 @@ function normalizeDate(value?: string | null) {
 export default function UsagePage() {
   const queryClient = useQueryClient();
   const { activeWorkspace } = useWorkspace();
+  const { authSettings } = useAuth();
+  const billingEnabled = authSettings?.billing_enabled ?? true;
   const workspaceUid = activeWorkspace?.uid;
   const workspacePlanLabel = formatPlanLabel(activeWorkspace?.plan);
   const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
@@ -136,13 +139,17 @@ export default function UsagePage() {
 
   const runStats = useMemo(() => {
     const list = scopedRuns ?? [];
+    const finishedRuns = list.filter((run) => Boolean(run.finished_at));
     const success = list.filter((run) => {
       const state = (run.status || "").toLowerCase();
       return state.includes("success") || state.includes("done") || state.includes("complete");
     }).length;
     const averageDiff =
-      list.length > 0
-        ? Math.round(list.reduce((total, run) => total + (run.diff_size || 0), 0) / list.length)
+      finishedRuns.length > 0
+        ? Math.round(
+            finishedRuns.reduce((total, run) => total + (run.diff_size || 0), 0) /
+              finishedRuns.length
+          )
         : 0;
     return {
       total: list.length,
@@ -337,7 +344,7 @@ export default function UsagePage() {
             ) : null}
           </div>
           <div className="flex items-center gap-3">
-            {workspacePlanLabel ? (
+            {billingEnabled && workspacePlanLabel ? (
               <Badge className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white">
                 Plan · {workspacePlanLabel}
               </Badge>
@@ -384,16 +391,23 @@ export default function UsagePage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-100/70">
-              Consumption
+              {billingEnabled ? "Consumption" : "Usage"}
             </p>
-            <h2 className="text-xl font-semibold text-white">Monthly limits & meters</h2>
-            {workspaceUsage?.period_start ? (
+            <h2 className="text-xl font-semibold text-white">
+              {billingEnabled ? "Monthly limits & meters" : "Workspace meters"}
+            </h2>
+            {billingEnabled && workspaceUsage?.period_start ? (
               <p className="text-xs text-zinc-400">
                 Cycle since{" "}
                 {new Date(workspaceUsage.period_start).toLocaleDateString(undefined, {
                   month: "short",
                   day: "numeric"
                 })}
+              </p>
+            ) : null}
+            {!billingEnabled ? (
+              <p className="text-xs text-zinc-400">
+                Usage is tracked for visibility; no billing limits are enforced.
               </p>
             ) : null}
           </div>
@@ -406,24 +420,40 @@ export default function UsagePage() {
               <Skeleton className="h-2 w-3/4 rounded-full" />
             </div>
           ) : workspaceUsageError ? (
-            <p className="text-sm text-zinc-300">Unable to load workspace limits right now.</p>
+            <p className="text-sm text-zinc-300">
+              Unable to load workspace {billingEnabled ? "limits" : "usage metrics"} right now.
+            </p>
           ) : !workspaceUsage ? (
-            <p className="text-sm text-zinc-300">Select a workspace to review consumption.</p>
+            <p className="text-sm text-zinc-300">
+              Select a workspace to review {billingEnabled ? "consumption" : "usage"}.
+            </p>
           ) : (
             <>
               <div className="space-y-3">
                 {consumptionMetrics.map((metric) => {
-                  const hasLimit = typeof metric.limit === "number" && metric.limit > 0;
-                  const remaining = hasLimit ? Math.max((metric.limit ?? 0) - metric.used, 0) : null;
-                  const pct = hasLimit && metric.limit ? Math.min((metric.used / metric.limit) * 100, 100) : 0;
+                  const effectiveLimit = billingEnabled ? metric.limit : null;
+                  const hasLimit =
+                    typeof effectiveLimit === "number" && effectiveLimit > 0;
+                  const remaining = hasLimit
+                    ? Math.max((effectiveLimit ?? 0) - metric.used, 0)
+                    : null;
+                  const pct = hasLimit && effectiveLimit
+                    ? Math.min((metric.used / effectiveLimit) * 100, 100)
+                    : 0;
                   return (
                     <div key={metric.key} className="space-y-1">
                       <div className="flex items-center justify-between text-sm font-semibold">
                         <div className="text-zinc-100">{metric.label}</div>
                         <div className="text-zinc-300 text-xs">
-                          {hasLimit
-                            ? `${numberFormatter.format(remaining ?? 0)} remaining / ${numberFormatter.format(metric.limit ?? 0)}`
-                            : `${numberFormatter.format(metric.used)} used`}
+                          {hasLimit ? (
+                            `${numberFormatter.format(remaining ?? 0)} remaining / ${numberFormatter.format(effectiveLimit ?? 0)}`
+                          ) : (
+                            <span className="inline-flex items-center gap-1" title="Unlimited">
+                              <Infinity className="h-3 w-3" aria-hidden="true" />
+                              <span className="sr-only">Unlimited</span>
+                              <span>· {numberFormatter.format(metric.used)} used</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                       {hasLimit ? (

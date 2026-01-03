@@ -132,6 +132,8 @@ export interface AuthSettings {
   require_approval: boolean;
   allow_all_users: boolean;
   waitlist_enabled: boolean;
+  self_hosted: boolean;
+  billing_enabled: boolean;
   supported_providers: string[];
 }
 

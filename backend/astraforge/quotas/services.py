@@ -122,8 +122,6 @@ class WorkspaceQuotaService:
         enabled = bool(getattr(self._settings, "WORKSPACE_QUOTAS_ENABLED", False))
         if not enabled:
             return False
-        if getattr(workspace, "plan", "") == "self_hosted":
-            return False
         overrides = workspace.quota_overrides or {}
         if isinstance(overrides, dict) and overrides.get("enforce") is False:
             return False

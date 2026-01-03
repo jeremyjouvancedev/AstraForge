@@ -7,6 +7,7 @@ import {
   Check,
   History,
   Inbox,
+  Infinity,
   KeyRound,
   LayoutDashboard,
   Link2,
@@ -177,8 +178,9 @@ const navItems = [
 ];
 
 export function Sidebar() {
-  const { logout } = useAuth();
+  const { logout, authSettings } = useAuth();
   const { activeWorkspace } = useWorkspace();
+  const billingEnabled = authSettings?.billing_enabled ?? true;
   const {
     data: workspaceUsage,
     isLoading: usageLoading,
@@ -195,6 +197,10 @@ export function Sidebar() {
       cta: "Contact us"
     };
   const planLabel = currentPlanMeta.label || formatPlanLabel(planKey) || "Workspace plan";
+  const usageLabel = billingEnabled ? planLabel : "Usage";
+  const usageTagline = billingEnabled
+    ? currentPlanMeta.tagline
+    : "Usage tracking for this workspace.";
   const rawCatalog =
     workspaceUsage?.catalog && Object.keys(workspaceUsage.catalog).length > 0
       ? workspaceUsage.catalog
@@ -308,9 +314,9 @@ export function Sidebar() {
         <div className="rounded-2xl border border-sidebar-border/70 bg-sidebar-background/70 p-3 text-xs text-sidebar-foreground shadow-inner shadow-black/20">
           <div className="space-y-0.5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-sidebar-foreground/60">
-              {planLabel}
+              {usageLabel}
             </p>
-            <p className="text-[11px] text-sidebar-foreground/70">{currentPlanMeta.tagline}</p>
+            <p className="text-[11px] text-sidebar-foreground/70">{usageTagline}</p>
           </div>
           <div className="mt-3 space-y-2">
             {usageLoading || usageError || !workspaceUsage ? (
@@ -321,11 +327,26 @@ export function Sidebar() {
             ) : (
               quotaItems.map((item) => {
                 const limit = item.limit;
+                const effectiveLimit = billingEnabled ? limit : null;
                 const used = item.used;
                 const Icon = item.icon;
-                const hasLimit = typeof limit === "number" && limit > 0;
-                const pct = hasLimit ? Math.min((used / limit) * 100, 100) : 0;
-                const remaining = hasLimit ? Math.max(limit - used, 0) : null;
+                const hasLimit =
+                  typeof effectiveLimit === "number" && effectiveLimit > 0;
+                const pct = hasLimit
+                  ? Math.min((used / (effectiveLimit ?? 0)) * 100, 100)
+                  : 0;
+                const remaining = hasLimit
+                  ? Math.max((effectiveLimit ?? 0) - used, 0)
+                  : null;
+                const limitLabel = hasLimit ? (
+                  `${numberFormatter.format(remaining ?? 0)} remaining / ${numberFormatter.format(effectiveLimit ?? 0)}`
+                ) : (
+                  <span className="inline-flex items-center gap-1" title="Unlimited">
+                    <Infinity className="h-3 w-3" aria-hidden="true" />
+                    <span className="sr-only">Unlimited</span>
+                    <span>· {numberFormatter.format(used)} used</span>
+                  </span>
+                );
                 return (
                   <div key={item.key} className="space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[11px] font-semibold">
@@ -333,11 +354,7 @@ export function Sidebar() {
                         <Icon className="h-3.5 w-3.5" />
                         <span>{item.label}</span>
                       </div>
-                      <div className="text-[10px] text-sidebar-foreground/70">
-                        {hasLimit
-                          ? `${numberFormatter.format(remaining ?? 0)} remaining / ${numberFormatter.format(limit)}`
-                          : `${numberFormatter.format(used)} used`}
-                      </div>
+                      <div className="text-[10px] text-sidebar-foreground/70">{limitLabel}</div>
                     </div>
                     {hasLimit ? (
                       <Progress value={pct} className="h-1 rounded-full bg-sidebar-border/60" />
@@ -349,17 +366,19 @@ export function Sidebar() {
               })
             )}
           </div>
-          <div className="mt-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.3em] text-sidebar-foreground/60">
-            <button
-              type="button"
-              onClick={() => setPlanDialogOpen(true)}
-              className="inline-flex items-center gap-1 text-sidebar-foreground hover:text-sidebar-foreground/80"
-            >
-              Manage plan
-              <span aria-hidden="true">›</span>
-            </button>
-            <span>{formatResetLabel(workspaceUsage?.period_start) ?? "Resets soon"}</span>
-          </div>
+          {billingEnabled ? (
+            <div className="mt-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.3em] text-sidebar-foreground/60">
+              <button
+                type="button"
+                onClick={() => setPlanDialogOpen(true)}
+                className="inline-flex items-center gap-1 text-sidebar-foreground hover:text-sidebar-foreground/80"
+              >
+                Manage plan
+                <span aria-hidden="true">›</span>
+              </button>
+              <span>{formatResetLabel(workspaceUsage?.period_start) ?? "Resets soon"}</span>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -384,171 +403,173 @@ export function Sidebar() {
           </Button>
         </div>
       </div>
-      <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
-        <DialogContent className="max-w-[90rem]">
-          <DialogHeader>
-            <DialogTitle>Manage your plan</DialogTitle>
-            <p className="text-sm text-muted-foreground">
-              Compare what&apos;s included at each tier, unlock more automation minutes, and plan
-              ahead for upcoming workloads.
-            </p>
-          </DialogHeader>
-          {usageLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-10 w-full rounded-xl" />
-              <Skeleton className="h-10 w-full rounded-xl" />
-            </div>
-          ) : (
-              <div className="space-y-6">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">
-                    Plans
-                  </p>
-                  <p className="text-base text-muted-foreground">
-                  All plans are billed monthly. Contact us for annual discounts or enterprise
-                  agreements.
-                </p>
+      {billingEnabled ? (
+        <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
+          <DialogContent className="max-w-[90rem]">
+            <DialogHeader>
+              <DialogTitle>Manage your plan</DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                Compare what&apos;s included at each tier, unlock more automation minutes, and plan
+                ahead for upcoming workloads.
+              </p>
+            </DialogHeader>
+            {usageLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full rounded-xl" />
+                <Skeleton className="h-10 w-full rounded-xl" />
               </div>
-              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-                {planCatalog.map(([planKey, limits]) => {
-                  const metadata = planMetadata[planKey] ?? {
-                    label: formatPlanLabel(planKey) ?? planKey,
-                    price: "Custom",
-                    cadence: "",
-                    tagline: "Tailored plan.",
-                    cta: "Contact us"
-                  };
-                  const isCurrent = (workspaceUsage?.plan || activeWorkspace?.plan) === planKey;
-                  const features = [
-                    limits.requests_per_month != null
-                      ? `${numberFormatter.format(limits.requests_per_month)} requests / month`
-                      : "Unlimited requests per month",
-                    limits.sandbox_sessions_per_month != null
-                      ? `${numberFormatter.format(
-                          limits.sandbox_sessions_per_month
-                        )} sandbox sessions / month`
-                      : "Unlimited sandbox sessions",
-                    limits.sandbox_concurrent != null
-                      ? `${numberFormatter.format(limits.sandbox_concurrent)} concurrent sandboxes`
-                      : "Unlimited concurrent sandboxes"
-                  ];
-                  return (
-                    <div
-                      key={planKey}
-                      className={cn(
-                        "flex h-full flex-col rounded-[2rem] border px-6 py-7 shadow-xl transition",
-                        metadata.highlight
-                          ? "border-transparent bg-gradient-to-br from-primary/30 via-primary/10 to-background"
-                          : "border-border/40 bg-card/80",
-                        isCurrent && "ring-2 ring-primary/40",
-                        metadata.accentClass && "bg-gradient-to-br " + metadata.accentClass
-                      )}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-                            {metadata.label}
-                          </p>
-                          {metadata.badge ? (
-                            <span className="rounded-full bg-primary/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-primary-foreground/80">
-                              {metadata.badge}
-                            </span>
+            ) : (
+                <div className="space-y-6">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-muted-foreground">
+                      Plans
+                    </p>
+                    <p className="text-base text-muted-foreground">
+                    All plans are billed monthly. Contact us for annual discounts or enterprise
+                    agreements.
+                  </p>
+                </div>
+                <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                  {planCatalog.map(([planKey, limits]) => {
+                    const metadata = planMetadata[planKey] ?? {
+                      label: formatPlanLabel(planKey) ?? planKey,
+                      price: "Custom",
+                      cadence: "",
+                      tagline: "Tailored plan.",
+                      cta: "Contact us"
+                    };
+                    const isCurrent = (workspaceUsage?.plan || activeWorkspace?.plan) === planKey;
+                    const features = [
+                      limits.requests_per_month != null
+                        ? `${numberFormatter.format(limits.requests_per_month)} requests / month`
+                        : "Unlimited requests per month",
+                      limits.sandbox_sessions_per_month != null
+                        ? `${numberFormatter.format(
+                            limits.sandbox_sessions_per_month
+                          )} sandbox sessions / month`
+                        : "Unlimited sandbox sessions",
+                      limits.sandbox_concurrent != null
+                        ? `${numberFormatter.format(limits.sandbox_concurrent)} concurrent sandboxes`
+                        : "Unlimited concurrent sandboxes"
+                    ];
+                    return (
+                      <div
+                        key={planKey}
+                        className={cn(
+                          "flex h-full flex-col rounded-[2rem] border px-6 py-7 shadow-xl transition",
+                          metadata.highlight
+                            ? "border-transparent bg-gradient-to-br from-primary/30 via-primary/10 to-background"
+                            : "border-border/40 bg-card/80",
+                          isCurrent && "ring-2 ring-primary/40",
+                          metadata.accentClass && "bg-gradient-to-br " + metadata.accentClass
+                        )}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                              {metadata.label}
+                            </p>
+                            {metadata.badge ? (
+                              <span className="rounded-full bg-primary/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-primary-foreground/80">
+                                {metadata.badge}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex items-end gap-2">
+                            <p className="text-4xl font-semibold text-foreground">{metadata.price}</p>
+                            {metadata.cadence ? (
+                              <span className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                                {metadata.cadence}
+                              </span>
+                            ) : null}
+                          </div>
+                          {metadata.credit ? (
+                            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary">
+                              {metadata.credit}
+                            </p>
                           ) : null}
+                          <p className="text-sm text-muted-foreground">{metadata.tagline}</p>
                         </div>
-                        <div className="flex items-end gap-2">
-                          <p className="text-4xl font-semibold text-foreground">{metadata.price}</p>
-                          {metadata.cadence ? (
-                            <span className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                              {metadata.cadence}
-                            </span>
-                          ) : null}
+                        <div className="mt-4">
+                          <Button
+                            variant={isCurrent ? "secondary" : "default"}
+                            disabled
+                            className="w-full rounded-2xl"
+                          >
+                            {isCurrent ? "Current plan" : metadata.cta}
+                          </Button>
                         </div>
-                        {metadata.credit ? (
-                          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary">
-                            {metadata.credit}
-                          </p>
-                        ) : null}
-                        <p className="text-sm text-muted-foreground">{metadata.tagline}</p>
+                        <div className="mt-4 flex-1 space-y-2 text-sm text-muted-foreground">
+                          {features.map((feature, index) => (
+                            <div key={String(index)} className="flex items-start gap-2">
+                              <Check className="mt-0.5 h-4 w-4 text-primary" />
+                              <span>{feature}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="mt-4">
-                        <Button
-                          variant={isCurrent ? "secondary" : "default"}
-                          disabled
-                          className="w-full rounded-2xl"
-                        >
-                          {isCurrent ? "Current plan" : metadata.cta}
-                        </Button>
+                    );
+                  })}
+                </div>
+                <div className="grid gap-4 rounded-2xl border border-border/60 bg-muted/20 p-4 text-xs text-muted-foreground md:grid-cols-[1fr,minmax(0,1.4fr)]">
+                  <div className="space-y-2 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.35em]">
+                      Usage billing
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Usage fees are calculated separately from your plan based on actual consumption.
+                    </p>
+                    {billingCycleLabel ? (
+                      <p className="text-xs text-muted-foreground/80">
+                        Current cycle since {billingCycleLabel}.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60">
+                    {usageUnavailable ? (
+                      <div className="px-4 py-6 text-sm text-muted-foreground">
+                        Usage metrics are unavailable right now. Visit the Usage page for details.
                       </div>
-                      <div className="mt-4 flex-1 space-y-2 text-sm text-muted-foreground">
-                        {features.map((feature, index) => (
-                          <div key={String(index)} className="flex items-start gap-2">
-                            <Check className="mt-0.5 h-4 w-4 text-primary" />
-                            <span>{feature}</span>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-3 border-b border-border/40 text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                          <span className="px-3 py-2 text-left">Meter</span>
+                          <span className="px-3 py-2 text-center">This period</span>
+                          <span className="px-3 py-2 text-right">Rate</span>
+                        </div>
+                        {billingMeters.map((item) => (
+                          <div
+                            key={item.meter}
+                            className="grid grid-cols-3 border-b border-border/30 text-sm last:border-b-0"
+                          >
+                            <div className="px-3 py-3">
+                              <p className="font-medium text-foreground">{item.meter}</p>
+                              <p className="text-xs text-muted-foreground">{item.helper}</p>
+                            </div>
+                            <div className="px-3 py-3 text-center text-sm font-semibold text-foreground">
+                              {item.usage}
+                            </div>
+                            <div className="px-3 py-3 text-right text-sm text-muted-foreground">
+                              {item.rate}
+                            </div>
                           </div>
                         ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="grid gap-4 rounded-2xl border border-border/60 bg-muted/20 p-4 text-xs text-muted-foreground md:grid-cols-[1fr,minmax(0,1.4fr)]">
-                <div className="space-y-2 text-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em]">
-                    Usage billing
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Usage fees are calculated separately from your plan based on actual consumption.
-                  </p>
-                  {billingCycleLabel ? (
-                    <p className="text-xs text-muted-foreground/80">
-                      Current cycle since {billingCycleLabel}.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60">
-                  {usageUnavailable ? (
-                    <div className="px-4 py-6 text-sm text-muted-foreground">
-                      Usage metrics are unavailable right now. Visit the Usage page for details.
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-3 border-b border-border/40 text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
-                        <span className="px-3 py-2 text-left">Meter</span>
-                        <span className="px-3 py-2 text-center">This period</span>
-                        <span className="px-3 py-2 text-right">Rate</span>
-                      </div>
-                      {billingMeters.map((item) => (
-                        <div
-                          key={item.meter}
-                          className="grid grid-cols-3 border-b border-border/30 text-sm last:border-b-0"
-                        >
-                          <div className="px-3 py-3">
-                            <p className="font-medium text-foreground">{item.meter}</p>
-                            <p className="text-xs text-muted-foreground">{item.helper}</p>
-                          </div>
-                          <div className="px-3 py-3 text-center text-sm font-semibold text-foreground">
-                            {item.usage}
-                          </div>
-                          <div className="px-3 py-3 text-right text-sm text-muted-foreground">
-                            {item.rate}
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-                <div className="col-span-full rounded-2xl border border-border/60 bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
-                  Looking for private networking, VPC deployments, or SSO? Email{" "}
-                  <a href="mailto:contact@astraforge.dev" className="text-primary underline">
-                    contact@astraforge.dev
-                  </a>{" "}
-                  and we&apos;ll craft a plan for your team.
+                      </>
+                    )}
+                  </div>
+                  <div className="col-span-full rounded-2xl border border-border/60 bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+                    Looking for private networking, VPC deployments, or SSO? Email{" "}
+                    <a href="mailto:contact@astraforge.dev" className="text-primary underline">
+                      contact@astraforge.dev
+                    </a>{" "}
+                    and we&apos;ll craft a plan for your team.
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            )}
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </aside>
   );
 }

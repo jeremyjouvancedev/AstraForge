@@ -146,9 +146,11 @@ switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`) is frictionle
 - `WorkspaceQuotaLedger` records monthly usage for each workspace (requests submitted, sandbox sessions, and runtime seconds) and is used to enforce plan limits transactionally, preventing bypass attempts by hopping across tenants.
 - Sandbox runtime seconds are sampled directly from Docker/Kubernetes cgroup CPU counters when a session terminates (falling back to wall-clock duration only if the stats are unavailable), so usage-based billing now reflects actual CPU consumption rather than rough lifetime estimates.
 - Codex CLI workspaces reuse the same cgroup probe to log `codex_cpu_seconds` in each request run report and push those seconds through `get_quota_service().record_sandbox_runtime`, giving operators visibility into Codex compute usage even though those containers never produce storage snapshots.
-- Quotas default to SaaS-friendly values (`WORKSPACE_PLAN_LIMITS`) but can be overridden with `WORKSPACE_QUOTAS` (JSON) or completely disabled via `WORKSPACE_QUOTAS_ENABLED=false`. When `SELF_HOSTED=true`, enforcement automatically disables unless explicitly re-enabled.
+- Quotas default to SaaS-friendly values (`WORKSPACE_PLAN_LIMITS`) but can be overridden with `WORKSPACE_QUOTAS` (JSON) or completely disabled via `WORKSPACE_QUOTAS_ENABLED=false`. When `SELF_HOSTED=true`, enforcement automatically disables unless explicitly re-enabled (the open-source defaults set `SELF_HOSTED=true`).
 - Sandbox sessions are now associated with workspaces at creation time, so concurrent-session caps and monthly sandbox allowances apply even if a user belongs to multiple tenants.
 - Self-hosted operators can keep the code paths but mark workspaces as `self_hosted` or set `quota_overrides={"enforce": false}` when they want unlimited usage while retaining the reporting surfacing in the UI.
+- Billing UI can be disabled with `BILLING_ENABLED=false` (default when `SELF_HOSTED=true`); the frontend reads this flag from `/api/auth/settings` to hide plan/pricing surfaces while usage metrics remain available.
+- New workspaces default to `DEFAULT_WORKSPACE_PLAN` (`self_hosted` when `SELF_HOSTED=true`) so self-hosted deployments start with unlimited plans without manual edits.
 
 ## Sandbox Control Plane
 
@@ -408,7 +410,7 @@ runs regression tests, and assembles a merge request for approval.
 ## Security & Operations
 - 12-factor configuration via environment variables and secrets managers.
 - Keycloak OIDC for authentication; API enforces RBAC roles (admin/maintainer/reviewer/observer).
-- OPA/Gatekeeper policies ensure workspace diffs comply with path allowlists and size limits.
+- Workspace diffs comply with path allowlists and size limits enforced in the backend.
 - Sandbox egress is allowlisted: Docker sandboxes default to an isolated bridge (`astraforge-sandbox`) with seccomp+no-new-privileges+PID limits, while Kubernetes sandboxes inherit non-root, read-only security contexts and a NetworkPolicy that permits DNS + public internet while blocking RFC1918/link-local ranges (NAS/LAN). Codex pods add a `codex-egress-llm-proxy` policy when they need the in-cluster LLM proxy; DeepAgent sandboxes stay proxy-free.
 - Rate limiting, quotas, idempotency keys, and compensating actions for workspace cleanup.
 

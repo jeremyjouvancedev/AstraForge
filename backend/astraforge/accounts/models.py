@@ -166,6 +166,13 @@ class Workspace(models.Model):
     def __str__(self) -> str:  # pragma: no cover - admin helper
         return f"{self.name} ({self.uid})"
 
+    @classmethod
+    def _default_plan(cls) -> str:
+        raw = getattr(settings, "DEFAULT_WORKSPACE_PLAN", "") or ""
+        candidate = str(raw).strip() or WorkspacePlan.TRIAL
+        valid_plans = {choice[0] for choice in WorkspacePlan.choices}
+        return candidate if candidate in valid_plans else WorkspacePlan.TRIAL
+
     @staticmethod
     def _unique_uid() -> str:
         """Generate a short, opaque UID and retry on rare collisions."""
@@ -191,6 +198,7 @@ class Workspace(models.Model):
             uid=uid,
             name="Personal",
             created_by=user,
+            plan=cls._default_plan(),
         )
         WorkspaceMember.objects.create(
             workspace=workspace,
@@ -205,7 +213,12 @@ class Workspace(models.Model):
             raise PermissionError("Authentication required to create a workspace.")
         workspace_name = name or "Personal"
         uid = cls._unique_uid()
-        workspace = cls.objects.create(uid=uid, name=workspace_name, created_by=user)
+        workspace = cls.objects.create(
+            uid=uid,
+            name=workspace_name,
+            created_by=user,
+            plan=cls._default_plan(),
+        )
         WorkspaceMember.objects.create(
             workspace=workspace, user=user, role=WorkspaceRole.OWNER
         )

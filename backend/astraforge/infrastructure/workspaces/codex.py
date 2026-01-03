@@ -256,17 +256,6 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             mode, identifier = getattr(self.provisioner, "name", "workspace"), ref
         return mode, identifier
 
-    def _network_exists(self, network: str, stream: Callable[[dict[str, Any]], None] | None = None) -> bool:
-        try:
-            self.runner.run(
-                ["docker", "network", "inspect", network],
-                allow_failure=False,
-                stream=stream,
-            )
-            return True
-        except subprocess.CalledProcessError:
-            return False
-
     def _bootstrap_docker_container(
         self,
         container_name: str,
@@ -274,15 +263,6 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         stream: Callable[[dict[str, Any]], None],
     ) -> None:
         network = os.getenv("CODEX_WORKSPACE_NETWORK")
-        if network and not self._network_exists(network, stream):
-            stream(
-                {
-                    "type": "status",
-                    "stage": "workspace",
-                    "message": f"Workspace network {network} not found; falling back to default bridge",
-                }
-            )
-            network = None
         self.runner.run(
             ["docker", "rm", "-f", container_name],
             stream=stream,
@@ -296,64 +276,70 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                     "message": "Skipping remote image pull; using local Codex CLI image",
                 }
             )
-            pull_args: list[str] = []
-        else:
-            pull_args = ["--pull", "always"]
-        pull_command = [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            container_name,
-            *(["--network", network] if network else []),
-            *pull_args,
-            "--add-host",
-            "host.docker.internal:host-gateway",
-            image,
-            "sleep",
-            "infinity",
-        ]
-        try:
-            self.runner.run(pull_command, stream=stream)
-        except subprocess.CalledProcessError as exc:
-            # best-effort cleanup if the first run left a container behind
-            self.runner.run(["docker", "rm", "-f", container_name], allow_failure=True)
-            output_text = (exc.output or "").lower()
-            should_fallback = any(
-                phrase in output_text
-                for phrase in (
-                    "pull access denied",
-                    "repository does not exist",
-                    "not found",
+
+        def run_container(selected_network: str | None, include_pull: bool) -> None:
+            command = [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                *(["--network", selected_network] if selected_network else []),
+                *(["--pull", "always"] if include_pull else []),
+                "--add-host",
+                "host.docker.internal:host-gateway",
+                image,
+                "sleep",
+                "infinity",
+            ]
+            self.runner.run(command, stream=stream)
+
+        def run_with_image_fallback(selected_network: str | None) -> bool:
+            try:
+                run_container(selected_network, include_pull=not self.skip_image_pull)
+                return True
+            except subprocess.CalledProcessError as exc:
+                # best-effort cleanup if the first run left a container behind
+                self.runner.run(["docker", "rm", "-f", container_name], allow_failure=True)
+                output_text = (exc.output or "").lower()
+                network_missing = bool(selected_network) and (
+                    "no such network" in output_text
+                    or ("network" in output_text and "not found" in output_text)
                 )
-            ) or exc.returncode == 125
-            if should_fallback:
-                stream(
-                    {
-                        "type": "status",
-                        "stage": "workspace",
-                        "message": (
-                            f"Image {image} unavailable from registry; attempting local build"
-                        ),
-                    }
-                )
-                self._ensure_local_image(image, stream)
-                run_command = [
-                    "docker",
-                    "run",
-                    "-d",
-                    "--name",
-                    container_name,
-                    *(["--network", network] if network else []),
-                    "--add-host",
-                    "host.docker.internal:host-gateway",
-                    image,
-                    "sleep",
-                    "infinity",
-                ]
-                self.runner.run(run_command, stream=stream)
-            else:
+                if network_missing:
+                    return False
+                should_fallback = any(
+                    phrase in output_text
+                    for phrase in (
+                        "pull access denied",
+                        "repository does not exist",
+                        "not found",
+                    )
+                ) or exc.returncode == 125
+                if should_fallback:
+                    stream(
+                        {
+                            "type": "status",
+                            "stage": "workspace",
+                            "message": (
+                                f"Image {image} unavailable from registry; attempting local build"
+                            ),
+                        }
+                    )
+                    self._ensure_local_image(image, stream)
+                    run_container(selected_network, include_pull=False)
+                    return True
                 raise
+
+        if not run_with_image_fallback(network):
+            stream(
+                {
+                    "type": "status",
+                    "stage": "workspace",
+                    "message": f"Workspace network {network} not found; falling back to default bridge",
+                }
+            )
+            run_with_image_fallback(None)
         stream(
             {
                 "type": "status",

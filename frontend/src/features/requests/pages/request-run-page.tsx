@@ -42,6 +42,54 @@ interface DiffFileStat {
   deletions: number;
 }
 
+const DEFAULT_REPOSITORY_BASES = {
+  github: "https://github.com",
+  gitlab: "https://gitlab.com",
+};
+
+type RepositoryBaseParams = {
+  repository: string | null;
+  provider: string | null | undefined;
+  baseUrl: string | null;
+};
+
+export function buildRepositoryBaseUrl({
+  repository,
+  provider,
+  baseUrl,
+}: RepositoryBaseParams): string | null {
+  const trimmedRepository = repository?.trim();
+  if (!trimmedRepository || !provider) return null;
+
+  const stripGitSuffix = (value: string) => {
+    const withoutTrailingSlash = value.replace(/\/+$/, "");
+    return withoutTrailingSlash.endsWith(".git")
+      ? withoutTrailingSlash.slice(0, -4)
+      : withoutTrailingSlash;
+  };
+
+  if (/^https?:\/\//i.test(trimmedRepository)) {
+    return stripGitSuffix(trimmedRepository);
+  }
+
+  const sshMatch = trimmedRepository.match(/^git@([^:]+):(.+)$/i);
+  if (sshMatch) {
+    return `https://${sshMatch[1]}/${stripGitSuffix(sshMatch[2])}`;
+  }
+
+  const domainMatch = trimmedRepository.match(/^([a-z0-9.-]+\.[a-z]{2,})(?:\/(.+))$/i);
+  if (domainMatch) {
+    return `https://${domainMatch[1]}/${stripGitSuffix(domainMatch[2])}`;
+  }
+
+  const normalizedBase = (
+    provider === "gitlab"
+      ? baseUrl ?? DEFAULT_REPOSITORY_BASES.gitlab
+      : DEFAULT_REPOSITORY_BASES.github
+  ).replace(/\/+$/, "");
+  return `${normalizedBase}/${stripGitSuffix(trimmedRepository)}`;
+}
+
 function deriveDiffFiles(diffText: string | null | undefined): DiffFileStat[] {
   if (!diffText) return [];
   const files: DiffFileStat[] = [];
@@ -234,14 +282,15 @@ export default function RequestRunPage() {
   const mergeRequestUrl = typeof mrMetadata?.["ref"] === "string" ? (mrMetadata["ref"] as string) : undefined;
   const mrSourceBranch = typeof mrMetadata?.["source_branch"] === "string" ? (mrMetadata["source_branch"] as string) : undefined;
   const branchName = featureBranch ?? mrSourceBranch;
-  const repositoryBaseUrl = useMemo(() => {
-    if (!repositorySlugForUrl || !repoProvider) return null;
-    if (repoProvider === "github") {
-      return `https://github.com/${repositorySlugForUrl}`;
-    }
-    const base = (projectBaseUrl ?? "https://gitlab.com").replace(/\/+$/, "");
-    return `${base}/${repositorySlugForUrl}`;
-  }, [projectBaseUrl, repoProvider, repositorySlugForUrl]);
+  const repositoryBaseUrl = useMemo(
+    () =>
+      buildRepositoryBaseUrl({
+        repository: repositorySlugForUrl,
+        provider: repoProvider ?? null,
+        baseUrl: projectBaseUrl,
+      }),
+    [projectBaseUrl, repoProvider, repositorySlugForUrl],
+  );
   const branchUrl = useMemo(() => {
     if (!repositoryBaseUrl || !branchName) return null;
     const encodedBranch = encodeURIComponent(branchName);
@@ -406,8 +455,6 @@ export default function RequestRunPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" className="rounded-full px-4">Archive</Button>
-            <Button size="sm" variant="outline" className="rounded-full px-4">Share</Button>
             {externalViewUrl ? (
               <Button size="sm" className="rounded-full px-4" asChild>
                 <a href={externalViewUrl} target="_blank" rel="noreferrer noopener">

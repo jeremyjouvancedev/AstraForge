@@ -8,7 +8,7 @@
 ## Project Structure & Module Organization
 - `backend/` hosts the Django app (`astraforge/`) arranged by layer: `domain/`, `interfaces/`, `infrastructure/`, with pytest suites in `tests/` and commands via `manage.py`.
 - `frontend/` is the Vite React client; author UI under `src/` and colocate Vitest specs in `tests/`.
-- `docs/`, `infra/`, and `opa/` capture architectural notes, IaC bundles, and Rego policies consumed in CI.
+- `docs/` and `infra/` capture architectural notes and IaC bundles consumed in CI.
 
 ## Build, Test, and Development Commands
 - `make install-deps` provisions the Python virtualenv and installs PNPM packages.
@@ -35,7 +35,7 @@
 
 ## Security & Configuration Tips
 - Run `gitleaks detect --config gitleaks.toml` before pushing to avoid secret leaks.
-- Update `opa/` policies alongside feature work and document notable decisions in `docs/`.
+- `SELF_HOSTED` defaults to `true` for the open-source experience (billing UI + quota enforcement off); set `SELF_HOSTED=false` for hosted/SaaS behavior.
 - When changing backend modules that are exposed via the published Python package, mirror the change
   in the export surface (SDK/code automation/deepagent) and docs so the package stays in sync.
 - Keep the standalone Python package (`astraforge-python-package/`) in parity with backend logic:

@@ -44,7 +44,9 @@ env = environ.Env(
     EMAIL_HOST_PASSWORD=(str, ""),
     DEFAULT_FROM_EMAIL=(str, "AstraForge <noreply@astraforge.dev>"),
     EARLY_ACCESS_NOTIFICATION_EMAIL=(str, ""),
-    SELF_HOSTED=(bool, False),
+    SELF_HOSTED=(bool, True),
+    BILLING_ENABLED=(bool, False),
+    DEFAULT_WORKSPACE_PLAN=(str, ""),
     WORKSPACE_QUOTAS_ENABLED=(bool, True),
     WORKSPACE_QUOTAS=(str, ""),
 )
@@ -73,7 +75,12 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EARLY_ACCESS_NOTIFICATION_EMAIL = env("EARLY_ACCESS_NOTIFICATION_EMAIL")
-SELF_HOSTED = env.bool("SELF_HOSTED", default=False)
+SELF_HOSTED = env.bool("SELF_HOSTED", default=True)
+BILLING_ENABLED = env.bool("BILLING_ENABLED", default=not SELF_HOSTED)
+DEFAULT_WORKSPACE_PLAN = env(
+    "DEFAULT_WORKSPACE_PLAN",
+    default="self_hosted" if SELF_HOSTED else "trial",
+)
 WORKSPACE_QUOTAS_ENABLED = env.bool(
     "WORKSPACE_QUOTAS_ENABLED",
     default=not SELF_HOSTED,
