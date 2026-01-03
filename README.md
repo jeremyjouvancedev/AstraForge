@@ -1,6 +1,12 @@
 # AstraForge
 
-AstraForge is your on-call DevOps co-pilot, with two clear ways to plug in:
+**AstraForge is a sandboxed execution engine for AI agents that can safely run real code.**
+
+AstraForge provides isolated, ephemeral execution environments that allow
+LLM-based agents to run Python, shell commands, and workflows securely,
+without risking the host system.
+
+Two clear ways to plug in:
 - **Coding-agent sandbox** – start from the browser or API, drop incidents into Codex workspaces, let the agent debug and patch, then launch merge-ready MRs without leaving the UI.
 - **Managed DeepAgent backend** – call it via API or the Python package; we host and harden the LangChain DeepAgent sandbox so you get hands-free debugging without carrying the risk surface.
 
