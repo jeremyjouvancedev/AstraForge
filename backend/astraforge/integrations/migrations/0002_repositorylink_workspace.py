@@ -44,6 +44,9 @@ def assign_workspaces(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Avoid pending trigger events on Postgres when the data migration touches
+    # accounts_workspace and we later alter constraints in the same migration.
+    atomic = False
 
     dependencies = [
         ("accounts", "0005_workspace_and_members"),
