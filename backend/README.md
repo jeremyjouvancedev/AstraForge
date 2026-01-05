@@ -12,3 +12,14 @@ python -m venv .venv
 ```
 
 Then run `python manage.py runserver` (or `make backend-serve` from the repo root).
+
+## Ollama (local host access)
+
+If you're running Ollama on your laptop and need containers to reach it, install
+it from https://ollama.com/download, pull the model you plan to use (default
+`gpt-oss:20b`), then start the server:
+
+```bash
+ollama pull gpt-oss:20b
+OLLAMA_HOST=0.0.0.0 ollama serve
+```

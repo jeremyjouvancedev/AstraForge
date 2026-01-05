@@ -34,7 +34,7 @@ flowchart TD
         CLIImage["Codex CLI Image"]
         Workspace["Ephemeral Codex Container"]
         Proxy["Codex Proxy Wrapper"]
-        LLMProxy["LLM Proxy Service</br>(Codex only)"]
+        LLMProxy["LLM Proxy Service</br>(Codex only, OpenAI/Ollama)"]
         Repo["Git Repository"]
     end
     subgraph Agent_Sandbox["Agent Sandbox"]
@@ -42,9 +42,13 @@ flowchart TD
         Reaper["Sandbox Reaper Task"]
         DockerSandboxes["Docker Sandboxes</br>read-only, drop caps"]
         K8sSandboxes["Kubernetes Pods</br>seccomp + non-root"]
-        SandboxNet["Isolated Sandbox Network"]
+        SandboxNet["Sandbox Network</br>default bridge egress"]
         NetPolicy["Sandbox NetworkPolicy</br>(DNS + internet, RFC1918 blocked)"]
         Daemon["Sandbox Daemon (exec/GUI)"]
+    end
+    subgraph LLM_Providers["LLM Providers"]
+        OpenAICloud["OpenAI API"]
+        OllamaAPI["Ollama API"]
     end
     PublicNet["Public Internet"]
 
@@ -86,6 +90,8 @@ flowchart TD
     Provisioner -. build fallback .-> CLIImage
 Workspace -->|codex exec --skip-git-repo-check -o .codex/final_message.txt| Proxy
 Proxy --> LLMProxy
+LLMProxy --> OpenAICloud
+LLMProxy --> OllamaAPI
 Workspace -->|git clone/diff| Repo
 ```
 
@@ -113,7 +119,7 @@ A workspace switcher in the client persists the active tenant locally and tags n
 │   │   ├── features/        # Feature-sliced logic with React Query hooks
 │   │   └── lib/             # OpenAPI client, SSE helpers, feature flag registry
 │   └── tests/
-├── llm-proxy/                # FastAPI wrapper that proxies OpenAI (or compatible) APIs
+├── llm-proxy/                # FastAPI wrapper that proxies OpenAI/Ollama APIs
 ├── sandbox/                  # Desktop/daemon Dockerfile for sandboxed sessions
 ├── astraforge-python-package/ # Published `astraforge-toolkit` Python package
 ├── infra/
@@ -161,7 +167,7 @@ switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`) is frictionle
 - Shell commands, file uploads, snapshots, and heartbeats are proxied through the orchestrator, which shells into the container/pod when no in-guest daemon is present; future iterations can swap in a full GUI daemon without changing the public contract.
 - Snapshots now write archives into `/tmp/astraforge-snapshots/{session_id}/{snapshot_id}.tar.gz` by default (override with `SANDBOX_SNAPSHOT_DIR`); both manual captures and auto-stop/auto-reap flows pin a `latest_snapshot_id` in session metadata so new sessions can restore via `restore_snapshot_id`. When `SANDBOX_S3_BUCKET` is set, archives are streamed out of the sandbox and uploaded to S3/MinIO (endpoint configurable via `SANDBOX_S3_ENDPOINT_URL`), and restores download from the same bucket before extracting into the workspace. If a user returns to a non-ready sandbox, API calls auto-provision a fresh runtime and apply the `latest_snapshot_id` so the session transparently resumes.
 - Artifacts and snapshots are tracked with UUID metadata, and download URLs are derived from `SANDBOX_ARTIFACT_BASE_URL` when available; GUI controls/streaming are stubbed until the sandbox daemon is integrated.
-- **Sandbox isolation hardening**: Docker sandboxes now start with `--read-only`, tmpfs mounts for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `seccomp=default`, and PID limits. They attach to `SANDBOX_DOCKER_NETWORK` (default `astraforge-sandbox`) with the host gateway disabled by default; keep it internal to block LAN or switch to a routed network with host firewall rules if you need internet-only egress. Kubernetes sandboxes run non-root with read-only root filesystems, dropped capabilities, runtime-default seccomp, and service account token auto-mount disabled; the `workspace-networkpolicy.yaml` overlay allows DNS + public internet egress while blocking RFC1918/link-local ranges (so the NAS/LAN stays unreachable), and Codex workspaces layer an additional `codex-egress-llm-proxy` policy so the LLM proxy remains a Codex-only dependency.
+- **Sandbox isolation hardening**: Docker sandboxes now start with `--read-only`, tmpfs mounts for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `seccomp=default`, and PID limits. They use the Docker default bridge for internet egress unless `SANDBOX_DOCKER_NETWORK` is set; point it at an internal bridge like `astraforge-sandbox` to block LAN/internet or at a routed bridge with host firewall rules if you need internet-only egress. The host gateway stays disabled by default. Kubernetes sandboxes run non-root with read-only root filesystems, dropped capabilities, runtime-default seccomp, and service account token auto-mount disabled; the `workspace-networkpolicy.yaml` overlay allows DNS + public internet egress while blocking RFC1918/link-local ranges (so the NAS/LAN stays unreachable), and Codex workspaces layer an additional `codex-egress-llm-proxy` policy so the LLM proxy remains a Codex-only dependency.
 
 ### DeepAgent Sandbox SDK
 
@@ -335,13 +341,13 @@ flowchart LR
 - Local Kubernetes clusters rely on the `infra/k8s/local` kustomize overlay, which mirrors Compose services, runs Django migrations via init containers, and exposes the stack through `kubectl port-forward` so browsers can reach `http://localhost:5174` (frontend) and `http://localhost:8001` (backend) while exercising the Kubernetes provisioner.
 - The Kubernetes provisioner talks directly to the cluster using the Python client, spawning short-lived Codex workspace pods per request with `emptyDir` volumes mounted at `/workspaces`, and authenticates through the `astraforge-operator` service account so Celery workers can `create`, `exec`, and `delete` pods without shipping `kubectl` binaries inside the containers.
 - A hybrid override (`docker-compose.hybrid.yml`) lets engineers keep the API + Celery services in Docker Compose while pointing them at a local Kind cluster; the override mounts `~/.kube`, rewrites `PROVISIONER=k8s`, and teaches the containers to reach the host's Kubernetes API via `host.docker.internal`.
-- The LLM proxy now lives inside workspace orchestration and is a Codex-only dependency; sandboxed DeepAgent flows stay proxy-free while Codex workspaces keep their dedicated gateway.
+- The LLM proxy now lives inside workspace orchestration and is a Codex-only dependency; sandboxed DeepAgent flows stay proxy-free while Codex workspaces keep their dedicated gateway (OpenAI or Ollama).
 - Raw prompts are persisted with the request and transformed on-demand into lightweight development specs so the Codex CLI receives meaningful context without a separate planning task.
 - Follow-up chat messages (`POST /api/chat/`) append to the request metadata, publish user events, and immediately queue a new execution; the operator restores the Codex history JSONL into both the repository cache and the CLI home directory so multi-run conversations resume seamlessly.
 - When the registry image is unavailable, the bootstrapper compiles a local image, tags it `astraforge/codex-cli:latest`, and retries the launch.
-- Each workspace boots with `codex-proxy --listen …` to offer a local LLM proxy; the Python wrapper forwards `codex exec -o /workspace/.codex/final_message.txt` invocations to the real CLI while wiring `~/.codex/config.toml` with an `astraforge-proxy` model provider that points at the proxy and exports the backend-provided API key into the CLI environment. Development environments default to `http://host.docker.internal:8080` while allowing `CODEX_WORKSPACE_PROXY_URL=local` to force the in-container stub. If the CLI omits the final-message file, the backend reconstructs the assistant response from the streamed history and still surfaces it in metadata.
+- Each workspace boots with `codex-proxy --listen …` to offer a local LLM proxy; the Python wrapper forwards `codex exec -o /workspace/.codex/final_message.txt` invocations to the real CLI while wiring `~/.codex/config.toml` with the requested provider definition (OpenAI or Ollama) and a proxy base URL so requests are forwarded without payload rewrites. Requests can specify an LLM provider/model override in metadata, allowing concurrent sandboxes to target different providers. Development environments default to `http://host.docker.internal:8080` while allowing `CODEX_WORKSPACE_PROXY_URL=local` to force the in-container stub. If the CLI omits the final-message file, the backend reconstructs the assistant response from the streamed history and still surfaces it in metadata.
 - Containers run with `--add-host host.docker.internal:host-gateway` so the CLI can reach host-side proxies when required; setting `CODEX_WORKSPACE_PROXY_URL` instructs the workspace operator to bypass the local stub and point Codex at an external proxy endpoint.
-- The LLM proxy mirrors OpenAI's `/responses` API (including streaming) so the Codex CLI can reuse the local proxy as a drop-in replacement for remote OpenAI endpoints.
+- The LLM proxy forwards OpenAI `/responses` and Ollama `/v1/chat/completions` traffic without rewriting payloads, routing to the configured upstream base URLs.
 - Diff collection shells into the workspace (`git -C /workspace diff`) and falls back gracefully if the directory is not yet a Git repository.
 - Run history events and execution diffs are persisted in request metadata so `/api/runs/` can replay prior console output without rehydrating a workspace. Workspaces emit the exact shell commands they run (clone, branch creation, commit/push, etc.) so the run log mirrors what happens inside the container, and every captured Codex assistant reply is streamed as an `assistant_message` event so reviewers can read the final output directly from the log feed.
 
@@ -411,7 +417,7 @@ runs regression tests, and assembles a merge request for approval.
 - 12-factor configuration via environment variables and secrets managers.
 - Keycloak OIDC for authentication; API enforces RBAC roles (admin/maintainer/reviewer/observer).
 - Workspace diffs comply with path allowlists and size limits enforced in the backend.
-- Sandbox egress is allowlisted: Docker sandboxes default to an isolated bridge (`astraforge-sandbox`) with seccomp+no-new-privileges+PID limits, while Kubernetes sandboxes inherit non-root, read-only security contexts and a NetworkPolicy that permits DNS + public internet while blocking RFC1918/link-local ranges (NAS/LAN). Codex pods add a `codex-egress-llm-proxy` policy when they need the in-cluster LLM proxy; DeepAgent sandboxes stay proxy-free.
+- Sandbox egress is configurable: Docker sandboxes use the default bridge for internet egress unless `SANDBOX_DOCKER_NETWORK` points at an internal bridge like `astraforge-sandbox` (or `none` to disable networking), with seccomp+no-new-privileges+PID limits. Kubernetes sandboxes inherit non-root, read-only security contexts and a NetworkPolicy that permits DNS + public internet while blocking RFC1918/link-local ranges (NAS/LAN). Codex pods add a `codex-egress-llm-proxy` policy when they need the in-cluster LLM proxy; DeepAgent sandboxes stay proxy-free.
 - Rate limiting, quotas, idempotency keys, and compensating actions for workspace cleanup.
 
 ## Extensibility

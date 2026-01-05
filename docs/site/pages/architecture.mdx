@@ -17,7 +17,7 @@ flowchart LR
 
 - **Frontend SPA**: streams logs/diffs/chat, drives approvals, and renders sandbox artifacts. Uses the OpenAPI client under `frontend/src/lib`.
 - **Backend API + Workers**: DRF endpoints, conversation orchestration, Celery task routing, persistence in Postgres/Redis, and streaming of run/sandbox events.
-- **Sandbox orchestrator**: provisions Docker or Kubernetes sandboxes with read-only roots, tmpfs workspaces, dropped capabilities, and network policies. Handles shell, upload, snapshot, and heartbeat APIs.
+- **Sandbox orchestrator**: provisions Docker or Kubernetes sandboxes with read-only roots, tmpfs workspaces, dropped capabilities, and network policies (Docker defaults to bridge egress unless `SANDBOX_DOCKER_NETWORK` is set to an internal bridge). Handles shell, upload, snapshot, and heartbeat APIs.
 - **DeepAgent + toolkit**: the LangGraph-based agent and the `astraforge-toolkit` Python package share the sandbox contract so external apps can reuse the same backend.
 - **Storage**: Postgres/Redis for core state, S3/MinIO (or local disk) for snapshots/artifacts.
 

@@ -703,11 +703,11 @@ export default function DeepAgentSandboxPage() {
               </Button>
             )}
           </CardHeader>
-          <CardContent className="flex flex-1 flex-col p-4">
+          <CardContent className="flex min-h-0 flex-1 flex-col p-4">
             {sandboxHint ? (
               <p className="mb-3 text-xs text-zinc-300">{sandboxHint}</p>
             ) : null}
-            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/10 bg-gradient-to-b from-indigo-950/50 via-black/50 to-black/60">
+            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/10 bg-gradient-to-b from-indigo-950/50 via-black/50 to-black/60">
               {preview.kind === "image" && (
                 <img
                   src={preview.url}

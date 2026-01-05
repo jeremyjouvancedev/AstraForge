@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
+import time
+import uuid
 from functools import lru_cache
-from typing import Any, AsyncIterator, Dict, Iterable
+from typing import Any, AsyncIterator, Dict, Iterable, List
+from urllib.parse import urlparse, urlunparse
 
 import anyio
 import httpx
@@ -23,6 +27,19 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"]
 )
+
+_HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "content-length",
+    "host",
+}
 
 
 class SpecRequest(BaseModel):
@@ -59,6 +76,10 @@ class MergeRequestResponse(BaseModel):
 
 
 @lru_cache(maxsize=1)
+def _llm_provider() -> str:
+    return (os.getenv("LLM_PROVIDER") or "ollama").strip().lower()
+
+
 def _create_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -70,12 +91,96 @@ def _create_client() -> OpenAI:
 
 
 def _default_model() -> str:
-    return os.getenv("LLM_MODEL", "gpt-4o-mini")
+    provider = _llm_provider()
+    if provider == "ollama":
+        return os.getenv("OLLAMA_MODEL") or "gpt-oss:20b"
+    return os.getenv("LLM_MODEL") or "gpt-4o-mini"
 
+
+def _ollama_base_url() -> str:
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    return base_url or "http://localhost:11434"
+
+
+def _ollama_chat_url() -> str:
+    return f"{_ollama_base_url()}/api/chat"
+
+
+def _openai_base_url() -> str:
+    return os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+
+
+def _build_upstream_url(base_url: str, request_path: str, query: str) -> str:
+    parsed = urlparse(base_url)
+    base_path = parsed.path.rstrip("/")
+    if base_path and base_path != "/":
+        if request_path == base_path or request_path.startswith(f"{base_path}/"):
+            merged_path = request_path
+        else:
+            merged_path = f"{base_path}{request_path if request_path.startswith('/') else '/' + request_path}"
+    else:
+        merged_path = request_path
+    return urlunparse(parsed._replace(path=merged_path, query=query))
+
+
+def _filter_headers(headers: Dict[str, str]) -> Dict[str, str]:
+    return {key: value for key, value in headers.items() if key.lower() not in _HOP_BY_HOP_HEADERS}
+
+
+async def _proxy_raw_request(request: Request, upstream_base_url: str) -> StreamingResponse:
+    body = await request.body()
+    upstream_url = _build_upstream_url(upstream_base_url, request.url.path, request.url.query)
+    headers = _filter_headers(dict(request.headers))
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+    stream_ctx = client.stream(request.method, upstream_url, headers=headers, content=body)
+    try:
+        upstream = await stream_ctx.__aenter__()
+    except Exception:
+        await client.aclose()
+        raise
+
+    response_headers = _filter_headers(dict(upstream.headers))
+
+    async def iterator() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await stream_ctx.__aexit__(None, None, None)
+            await client.aclose()
+
+    return StreamingResponse(iterator(), status_code=upstream.status_code, headers=response_headers)
 
 async def _invoke_chat(messages: Iterable[Dict[str, str]], *, response_format: Dict[str, str]) -> str:
-    client = _create_client()
+    provider = _llm_provider()
     model = _default_model()
+
+    if provider == "ollama":
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": list(messages),
+            "stream": False,
+            "options": {"temperature": 0.2},
+        }
+        if response_format.get("type") == "json_object":
+            payload["format"] = "json"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
+            response = await client.post(_ollama_chat_url(), json=payload)
+        if response.status_code >= 400:
+            detail = response.text or "Upstream model error"
+            logger.error("Ollama /api/chat error %s: %s", response.status_code, detail)
+            raise HTTPException(status_code=response.status_code, detail=detail)
+        data = response.json()
+        content = data.get("message", {}).get("content")
+        if not content:
+            raise HTTPException(status_code=502, detail="Empty response from language model")
+        return str(content)
+
+    if provider != "openai":
+        raise HTTPException(status_code=400, detail=f"Unsupported LLM provider '{provider}'")
+
+    client = _create_client()
 
     def do_request() -> str:
         response = client.chat.completions.create(
@@ -97,8 +202,7 @@ async def _invoke_chat(messages: Iterable[Dict[str, str]], *, response_format: D
 
 
 def _openai_responses_url() -> str:
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    return f"{base_url}/responses"
+    return f"{_openai_base_url()}/responses"
 
 
 def _build_openai_headers() -> Dict[str, str]:
@@ -181,6 +285,190 @@ async def _openai_stream_iterator(
     return iterator(), upstream.status_code, response_headers
 
 
+def _coerce_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for part in value:
+            if isinstance(part, str):
+                parts.append(part)
+                continue
+            if isinstance(part, dict):
+                text = part.get("text") or part.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    if isinstance(value, dict):
+        text = value.get("text") or value.get("content")
+        if isinstance(text, str):
+            return text
+    return ""
+
+
+def _responses_payload_to_messages(payload: Dict[str, Any]) -> List[Dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    instructions = payload.get("instructions")
+    if isinstance(instructions, str) and instructions.strip():
+        messages.append({"role": "system", "content": instructions})
+
+    input_payload = payload.get("input")
+    if isinstance(input_payload, str):
+        messages.append({"role": "user", "content": input_payload})
+        return messages
+
+    if isinstance(input_payload, list):
+        for item in input_payload:
+            if isinstance(item, dict):
+                role = item.get("role")
+                content = _coerce_content(item.get("content"))
+                if isinstance(role, str) and content:
+                    messages.append({"role": role, "content": content})
+                    continue
+            if isinstance(item, str):
+                messages.append({"role": "user", "content": item})
+        return messages
+
+    if not messages:
+        raise HTTPException(
+            status_code=400,
+            detail="Request body must include input text or message list for Ollama",
+        )
+    return messages
+
+
+def _ollama_response_payload(content: str, model: str) -> Dict[str, Any]:
+    return {
+        "id": f"ollama-{uuid.uuid4()}",
+        "object": "response",
+        "created": int(time.time()),
+        "model": model,
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": content}],
+            }
+        ],
+    }
+
+
+async def _ollama_stream_iterator(payload: Dict[str, Any]) -> tuple[AsyncIterator[bytes], int, Dict[str, str]]:
+    model = _default_model()
+    messages = _responses_payload_to_messages(payload)
+    response_id = f"ollama-{uuid.uuid4()}"
+    chat_payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "options": {},
+    }
+    temperature = payload.get("temperature")
+    if isinstance(temperature, (int, float)):
+        chat_payload["options"]["temperature"] = temperature
+    response_format = payload.get("response_format") or {}
+    if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+        chat_payload["format"] = "json"
+    if not chat_payload["options"]:
+        chat_payload.pop("options")
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+    stream_ctx = client.stream("POST", _ollama_chat_url(), json=chat_payload)
+    try:
+        upstream = await stream_ctx.__aenter__()
+    except Exception:
+        await client.aclose()
+        raise
+
+    if upstream.status_code >= 400:
+        body = await upstream.aread()
+        detail = body.decode("utf-8", errors="ignore") or "Upstream model error"
+        logger.error("Ollama /api/chat streaming error %s: %s", upstream.status_code, detail)
+        await stream_ctx.__aexit__(None, None, None)
+        await client.aclose()
+        raise HTTPException(status_code=upstream.status_code, detail=detail)
+
+    response_headers = {"Content-Type": "text/event-stream"}
+
+    async def iterator() -> AsyncIterator[bytes]:
+        created_event = {
+            "type": "response.created",
+            "response": {"id": response_id, "model": model},
+        }
+        yield f"data: {json.dumps(created_event)}\n\n".encode()
+        try:
+            async for line in upstream.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if data.get("error"):
+                    error_event = {"type": "response.error", "error": data["error"]}
+                    yield f"data: {json.dumps(error_event)}\n\n".encode()
+                    continue
+                message = data.get("message") or {}
+                delta = message.get("content") or ""
+                if delta:
+                    delta_event = {
+                        "type": "response.output_text.delta",
+                        "delta": delta,
+                        "response_id": response_id,
+                    }
+                    yield f"data: {json.dumps(delta_event)}\n\n".encode()
+                if data.get("done"):
+                    done_event = {"type": "response.output_text.done", "response_id": response_id}
+                    complete_event = {
+                        "type": "response.completed",
+                        "response": {"id": response_id, "status": "completed"},
+                    }
+                    yield f"data: {json.dumps(done_event)}\n\n".encode()
+                    yield f"data: {json.dumps(complete_event)}\n\n".encode()
+                    break
+        finally:
+            await stream_ctx.__aexit__(None, None, None)
+            await client.aclose()
+
+    return iterator(), upstream.status_code, response_headers
+
+
+async def _proxy_ollama_responses(payload: Dict[str, Any]) -> StreamingResponse | Dict[str, Any]:
+    stream_mode = bool(payload.get("stream"))
+    if stream_mode:
+        iterator, status_code, response_headers = await _ollama_stream_iterator(payload)
+        return StreamingResponse(iterator, status_code=status_code, headers=response_headers)
+
+    model = _default_model()
+    messages = _responses_payload_to_messages(payload)
+    chat_payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {},
+    }
+    temperature = payload.get("temperature")
+    if isinstance(temperature, (int, float)):
+        chat_payload["options"]["temperature"] = temperature
+    response_format = payload.get("response_format") or {}
+    if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+        chat_payload["format"] = "json"
+    if not chat_payload["options"]:
+        chat_payload.pop("options")
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
+        response = await client.post(_ollama_chat_url(), json=chat_payload)
+    if response.status_code >= 400:
+        detail = response.text or "Upstream model error"
+        logger.error("Ollama /api/chat error %s: %s", response.status_code, detail)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    data = response.json()
+    content = data.get("message", {}).get("content")
+    if not content:
+        raise HTTPException(status_code=502, detail="Empty response from language model")
+    return _ollama_response_payload(str(content), model)
+
+
 @app.post("/spec", response_model=SpecResponse)
 async def generate_spec(request: SpecRequest) -> SpecResponse:
     system_prompt = (
@@ -248,19 +536,21 @@ async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/responses")
-async def proxy_responses(request: Request) -> Any:
-    try:
-        payload = await request.json()
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to parse /responses request body")
-        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+@app.api_route("/responses", methods=["POST"])
+async def proxy_openai_responses(request: Request) -> StreamingResponse:
+    return await _proxy_raw_request(request, _openai_base_url())
 
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
 
-    try:
-        return await _proxy_openai_responses(payload)
-    except RuntimeError as exc:
-        logger.exception("/responses configuration error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+@app.api_route("/v1/responses", methods=["POST"])
+async def proxy_openai_responses_v1(request: Request) -> StreamingResponse:
+    return await _proxy_raw_request(request, _openai_base_url())
+
+
+@app.api_route("/chat/completions", methods=["POST"])
+async def proxy_ollama_chat_completions(request: Request) -> StreamingResponse:
+    return await _proxy_raw_request(request, _ollama_base_url())
+
+
+@app.api_route("/v1/chat/completions", methods=["POST"])
+async def proxy_ollama_chat_completions_v1(request: Request) -> StreamingResponse:
+    return await _proxy_raw_request(request, _ollama_base_url())

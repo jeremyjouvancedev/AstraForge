@@ -8,6 +8,7 @@ import type { AxiosError } from "axios";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import {
@@ -17,12 +18,24 @@ import {
   RepositoryLink
 } from "@/lib/api-client";
 import { extractApiErrorMessage } from "@/lib/api-error";
-import { ArrowUp, GitBranch, Layers, Monitor } from "lucide-react";
+import { ArrowUp, Cpu, Layers, Monitor } from "lucide-react";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
+
+const llmProviders = ["openai", "ollama"] as const;
 
 const schema = z.object({
   projectId: z.string().uuid({ message: "Selectionnez un projet" }),
   prompt: z.string().min(10, "Decrivez brievement votre besoin"),
+  llmProvider: z.union([z.literal(""), z.enum(llmProviders)]),
+  llmModel: z.string().max(120, "Le modele est trop long").optional(),
+}).superRefine((data, ctx) => {
+  if (data.llmModel?.trim() && !data.llmProvider) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["llmProvider"],
+      message: "Selectionnez un fournisseur pour preciser un modele",
+    });
+  }
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -37,7 +50,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
   const navigate = useNavigate();
   const defaultProjectId = projects[0]?.id ?? "";
   const form = useForm<FormValues>({
-    defaultValues: { projectId: defaultProjectId, prompt: "" },
+    defaultValues: { projectId: defaultProjectId, prompt: "", llmProvider: "", llmModel: "" },
     resolver: zodResolver(schema)
   });
   const [submissionError, setSubmissionError] = useState<string | null>(null);
@@ -61,7 +74,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
       }
       setSubmissionError(null);
       const resetProjectId = projects[0]?.id ?? "";
-      form.reset({ projectId: resetProjectId, prompt: "" });
+      form.reset({ projectId: resetProjectId, prompt: "", llmProvider: "", llmModel: "" });
       navigate(`/app/requests/${response.id}/run`);
     },
     onError: (error) => {
@@ -85,11 +98,15 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
     if (submissionError) {
       setSubmissionError(null);
     }
+    const llmProvider = values.llmProvider || undefined;
+    const llmModel = values.llmModel?.trim() || undefined;
 
     mutation.mutate({
       prompt: rawPrompt,
       projectId: values.projectId,
-      tenantId: activeWorkspace?.uid
+      tenantId: activeWorkspace?.uid,
+      ...(llmProvider ? { llmProvider } : {}),
+      ...(llmModel ? { llmModel } : {})
     });
   });
 
@@ -120,33 +137,71 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
           <div className="flex flex-col gap-4 rounded-b-[2.5rem] border-t border-border/60 bg-card/40 px-6 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
             <div className="flex w-full flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
-                  <Monitor size={16} />
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+                    <Monitor size={16} />
+                  </div>
+                  <div className="relative">
+                    <select
+                      aria-label="Project"
+                      className="w-full max-w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60 sm:min-w-[220px] sm:w-auto"
+                      {...form.register("projectId")}
+                      disabled={mutation.isPending}
+                    >
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.provider === "gitlab" ? "GitLab" : "GitHub"} · {project.repository}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="relative">
-                  <select
-                    aria-label="Project"
-                    className="rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60"
-                    {...form.register("projectId")}
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
+                    <Cpu size={16} />
+                  </div>
+                  <div className="relative">
+                    <select
+                      aria-label="LLM provider"
+                      className="w-full max-w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60 sm:min-w-[180px] sm:w-auto"
+                      {...form.register("llmProvider")}
+                      disabled={mutation.isPending}
+                    >
+                      <option value="">Default provider</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="ollama">Ollama</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex w-full items-center gap-2 sm:min-w-[240px] sm:flex-1">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
+                    <Layers size={16} />
+                  </div>
+                  <Input
+                    aria-label="Model"
+                    placeholder="Model (optional)"
+                    className="h-10 w-full flex-1 rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus-visible:ring-1 focus-visible:ring-primary/60"
+                    {...form.register("llmModel")}
                     disabled={mutation.isPending}
-                  >
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.provider === "gitlab" ? "GitLab" : "GitHub"} · {project.repository}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
-                  <GitBranch size={16} />
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
-                  <Layers size={16} />
+                  />
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Optionally choose a provider and model for this request.
+              </p>
               {form.formState.errors.projectId ? (
                 <p className="text-sm text-destructive">
                   {form.formState.errors.projectId.message}
+                </p>
+              ) : null}
+              {form.formState.errors.llmProvider ? (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.llmProvider.message}
+                </p>
+              ) : null}
+              {form.formState.errors.llmModel ? (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.llmModel.message}
                 </p>
               ) : null}
             </div>

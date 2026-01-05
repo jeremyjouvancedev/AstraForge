@@ -33,5 +33,5 @@ This document captures how sandbox sessions are created, reused, and restored ac
 ### Key environment variables
 - `SANDBOX_SNAPSHOT_DIR`: Optional base directory for snapshot archives (default `/tmp/astraforge-snapshots`).
 - `SANDBOX_S3_BUCKET`, `SANDBOX_S3_ENDPOINT_URL`, `SANDBOX_S3_REGION`, `SANDBOX_S3_USE_SSL`: Enable snapshot upload/download to object storage.
-- `SANDBOX_DOCKER_VOLUME_MODE`, `SANDBOX_DOCKER_READ_ONLY`, `SANDBOX_DOCKER_USER`, `SANDBOX_DOCKER_NETWORK`, `SANDBOX_DOCKER_SECCOMP`, `SANDBOX_DOCKER_PIDS_LIMIT`: Control Docker runtime behavior.
+- `SANDBOX_DOCKER_VOLUME_MODE`, `SANDBOX_DOCKER_READ_ONLY`, `SANDBOX_DOCKER_USER`, `SANDBOX_DOCKER_NETWORK`, `SANDBOX_DOCKER_SECCOMP`, `SANDBOX_DOCKER_PIDS_LIMIT`: Control Docker runtime behavior (default bridge egress; set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` for internal-only or `SANDBOX_DOCKER_NETWORK=none` to disable networking).
 - `idle_timeout_sec` / `max_lifetime_sec`: Set per session; the reaper terminates sessions that exceed idle or lifetime windows, recording `terminated_reason` in metadata.

@@ -23,13 +23,20 @@ spec:
           image: astraforge/llm-proxy:local
           imagePullPolicy: IfNotPresent
           env:
+            - name: LLM_PROVIDER
+              value: ollama
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: astraforge-llm
                   key: OPENAI_API_KEY
+                  optional: true
             - name: LLM_MODEL
-              value: gpt-4o-mini
+              value: ""
+            - name: OLLAMA_BASE_URL
+              value: ""
+            - name: OLLAMA_MODEL
+              value: "gpt-oss:20b"
           ports:
             - containerPort: 8080
           readinessProbe:

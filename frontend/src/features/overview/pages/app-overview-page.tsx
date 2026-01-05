@@ -4,7 +4,6 @@ import {
   Activity,
   BadgeCheck,
   BarChart2,
-  Layers,
   PlayCircle,
   Server
 } from "lucide-react";
@@ -19,7 +18,6 @@ import {
   ChartTooltipContent
 } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMergeRequests } from "@/features/mr/hooks/use-merge-requests";
 import { useRepositoryLinks } from "@/features/repositories/hooks/use-repository-links";
 import { useRequests } from "@/features/requests/hooks/use-requests";
 import { useRuns } from "@/features/runs/hooks/use-runs";
@@ -32,13 +30,21 @@ type MetricCardProps = {
   helper?: string;
   icon: ComponentType<{ className?: string }>;
   loading?: boolean;
+  valueClassName?: string;
 };
 
 function toLower(value: string | undefined | null) {
   return (value || "").toLowerCase();
 }
 
-function MetricCard({ label, value, helper, icon: Icon, loading }: MetricCardProps) {
+function MetricCard({
+  label,
+  value,
+  helper,
+  icon: Icon,
+  loading,
+  valueClassName
+}: MetricCardProps) {
   return (
     <Card className="home-card home-ring-soft rounded-2xl border border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur">
       <CardContent className="flex items-start gap-4 p-5">
@@ -56,7 +62,9 @@ function MetricCard({ label, value, helper, icon: Icon, loading }: MetricCardPro
             </div>
           ) : (
             <>
-              <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+              <p className={`mt-2 text-2xl font-semibold text-white ${valueClassName ?? ""}`}>
+                {value}
+              </p>
               {helper && <p className="text-sm text-zinc-300">{helper}</p>}
             </>
           )}
@@ -71,10 +79,6 @@ export default function AppOverviewPage() {
   const workspaceUid = activeWorkspace?.uid;
   const { data: requests, isLoading: requestsLoading } = useRequests(workspaceUid);
   const { data: runs, isLoading: runsLoading } = useRuns();
-  const {
-    data: mergeRequests,
-    isLoading: mergeRequestsLoading
-  } = useMergeRequests();
   const {
     data: repositoryLinks,
     isLoading: repositoryLinksLoading
@@ -93,11 +97,6 @@ export default function AppOverviewPage() {
     () => (runs ?? []).filter((run) => scopedRequestIds.has(run.request_id)),
     [runs, scopedRequestIds]
   );
-  const scopedMergeRequests = useMemo(
-    () => (mergeRequests ?? []).filter((mr) => scopedRequestIds.has(mr.request_id)),
-    [mergeRequests, scopedRequestIds]
-  );
-
   const requestStats = useMemo(() => {
     const list = requests ?? [];
     const sorted = list
@@ -132,15 +131,6 @@ export default function AppOverviewPage() {
     }).length;
     return { total: list.length, successful };
   }, [scopedRuns]);
-
-  const mergeStats = useMemo(() => {
-    const list = scopedMergeRequests ?? [];
-    const open = list.filter((mr) => {
-      const status = toLower(mr.status);
-      return status.includes("open") || status.includes("draft");
-    }).length;
-    return { total: list.length, open };
-  }, [scopedMergeRequests]);
 
   const sandboxStats = useMemo(() => {
     const list = sandboxSessions ?? [];
@@ -211,18 +201,17 @@ export default function AppOverviewPage() {
   const anyLoading =
     requestsLoading ||
     runsLoading ||
-    mergeRequestsLoading ||
     repoLinksLoading ||
     sandboxSessionsLoading;
 
   return (
     <div className="relative z-10 mx-auto w-full max-w-[clamp(72rem,80vw,112rem)] space-y-8 px-4 py-8 text-zinc-100 sm:px-6 lg:px-10">
-      <section className="home-card home-ring-soft flex flex-col gap-6 rounded-3xl border border-white/10 bg-black/30 p-8 shadow-2xl shadow-indigo-500/15 backdrop-blur md:flex-row md:items-center md:justify-between">
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
+      <section className="home-card home-ring-soft flex flex-col gap-4 rounded-3xl border border-white/10 bg-black/30 p-6 shadow-2xl shadow-indigo-500/15 backdrop-blur md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-indigo-200/80">
             Workspace Overview
           </p>
-          <h1 className="text-3xl font-semibold text-white">Automation pulse</h1>
+          <h1 className="text-2xl font-semibold text-white">Automation pulse</h1>
           <p className="max-w-2xl text-sm text-zinc-300">
             Keep an eye on requests flowing through AstraForge, recent automation runs, and your API access without bouncing between sections.
           </p>
@@ -264,7 +253,7 @@ export default function AppOverviewPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
           label="Active requests"
           value={requestStats.active}
@@ -290,17 +279,6 @@ export default function AppOverviewPage() {
           loading={runsLoading}
         />
         <MetricCard
-          label="Merge requests"
-          value={mergeStats.total}
-          helper={
-            mergeRequestsLoading
-              ? undefined
-              : `${mergeStats.open} open or draft`
-          }
-          icon={Layers}
-          loading={mergeRequestsLoading}
-        />
-        <MetricCard
           label="Linked repositories"
           value={repositoryLinks?.length ?? 0}
           helper={
@@ -312,17 +290,6 @@ export default function AppOverviewPage() {
           }
           icon={BadgeCheck}
           loading={repoLinksLoading}
-        />
-        <MetricCard
-          label="Latest request"
-          value={requestStats.latestTitle ?? "No requests"}
-          helper={
-            requestStats.latestTitle
-              ? "Most recent submission"
-              : "Submit a request to populate activity"
-          }
-          icon={PlayCircle}
-          loading={requestsLoading}
         />
       </section>
 

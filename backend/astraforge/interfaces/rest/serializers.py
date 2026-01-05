@@ -19,10 +19,18 @@ class RequestSerializer(serializers.Serializer):
     sender = serializers.EmailField(required=False, allow_blank=True)
     project_id = serializers.UUIDField()
     prompt = serializers.CharField(trim_whitespace=False)
+    llm_provider = serializers.ChoiceField(
+        choices=["openai", "ollama"],
+        required=False,
+        allow_null=True,
+    )
+    llm_model = serializers.CharField(required=False, allow_blank=True)
 
     def create(self, validated_data):
         raw_prompt = validated_data.pop("prompt")
         project_id = validated_data.pop("project_id")
+        llm_provider = (validated_data.pop("llm_provider", None) or "").strip().lower()
+        llm_model = (validated_data.pop("llm_model", None) or "").strip()
         request_obj = self.context.get("request")
         if request_obj is None or request_obj.user.is_anonymous:
             raise serializers.ValidationError(
@@ -77,6 +85,13 @@ class RequestSerializer(serializers.Serializer):
             },
             "workspace": {"uid": workspace.uid, "name": workspace.name},
         }
+        llm_config: dict[str, str] = {}
+        if llm_provider:
+            llm_config["provider"] = llm_provider
+        if llm_model:
+            llm_config["model"] = llm_model
+        if llm_config:
+            metadata["llm"] = llm_config
         metadata["prompt"] = raw_prompt
         metadata["chat_messages"] = [
             {
@@ -277,6 +292,12 @@ class DeepAgentMessageRequestSerializer(serializers.Serializer):
 
 class ExecuteRequestSerializer(serializers.Serializer):
     spec = DevelopmentSpecSerializer(required=False)
+    llm_provider = serializers.ChoiceField(
+        choices=["openai", "ollama"],
+        required=False,
+        allow_null=True,
+    )
+    llm_model = serializers.CharField(required=False, allow_blank=True)
 
 
 class RegisterSerializer(serializers.Serializer):

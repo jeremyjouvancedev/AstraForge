@@ -14,6 +14,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("auth:unauthorized"));
       const path = window.location.pathname;
       if (path !== "/login" && path !== "/register") {
         window.location.href = "/login";
@@ -54,15 +55,20 @@ export interface CreateRequestInput {
   sender?: string;
   source?: string;
   tenantId?: string;
+  llmProvider?: "openai" | "ollama";
+  llmModel?: string;
 }
 
 export async function createRequest(input: CreateRequestInput) {
+  const trimmedModel = input.llmModel?.trim() ?? "";
   const response = await apiClient.post<CreateRequestResponse>("/requests/", {
     source: input.source ?? "direct_user",
     tenant_id: input.tenantId ?? "tenant-default",
     sender: input.sender ?? "user@example.com",
     project_id: input.projectId,
     prompt: input.prompt,
+    ...(input.llmProvider ? { llm_provider: input.llmProvider } : {}),
+    ...(trimmedModel ? { llm_model: trimmedModel } : {})
   });
   return response.data;
 }

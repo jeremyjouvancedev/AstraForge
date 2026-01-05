@@ -12,15 +12,30 @@ Key environment variables for running AstraForge across backend, sandbox, and th
 
 ## LLM proxy
 
-- `OPENAI_API_KEY`, `LLM_MODEL` – credentials and model name.
+- `LLM_PROVIDER` – `ollama` (default) or `openai`.
+- `OPENAI_API_KEY`, `LLM_MODEL` – OpenAI credentials and model name.
+- `OLLAMA_BASE_URL`, `OLLAMA_MODEL` – Ollama daemon URL and model name.
+- `DEEPAGENT_PROVIDER` – override provider for sandbox DeepAgent (`openai` or `ollama`).
+- `DEEPAGENT_REASONING_EFFORT` – reasoning effort hint (OpenAI passes through; Ollama maps to `think=low|medium|high` unless overridden).
+- `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT` – explicit Ollama context/output limits for DeepAgent.
+- `OLLAMA_OPTIONS_JSON` – raw Ollama model kwargs JSON (merged last, overrides other Ollama settings).
 - `EXECUTOR` – default executor (`codex`).
 - `CODEX_WORKSPACE_PROXY_URL` – URL the workspace containers use to reach the proxy (often the service DNS name on the sandbox network).
+
+If you run Ollama on your laptop and need containers to reach it, install it
+from https://ollama.com/download, pull the model you plan to use (default
+`gpt-oss:20b`), then start the daemon with:
+
+```bash
+ollama pull gpt-oss:20b
+OLLAMA_HOST=0.0.0.0 ollama serve
+```
 
 ## Sandbox runtime
 
 - `PROVISIONER` – `docker` (default) or `k8s`.
 - `SANDBOX_IMAGE` – sandbox container image (desktop/daemon).
-- `SANDBOX_DOCKER_NETWORK` – bridge to attach to; use an internal bridge for isolation.
+- `SANDBOX_DOCKER_NETWORK` – Docker network mode: unset for default bridge + internet egress, set to an internal bridge (ex: `astraforge-sandbox`) for internal-only access, or `none` to disable networking.
 - `SANDBOX_DOCKER_READ_ONLY` – keep `1` for hardened rootfs; set `0` only if you must install packages at runtime.
 - `SANDBOX_DOCKER_SECCOMP` – `default`, a custom profile path, or empty to disable the flag.
 - `SANDBOX_DOCKER_USER` – optional user override (set `root` only when necessary).

@@ -448,10 +448,10 @@ base64 "$TMPFILE"
     # internal helpers -------------------------------------------------
 
     def _docker_network_args(self) -> list[str]:
-        network = os.getenv("SANDBOX_DOCKER_NETWORK") or os.getenv("CODEX_WORKSPACE_NETWORK")
+        network = (os.getenv("SANDBOX_DOCKER_NETWORK") or "").strip()
         if network:
             return ["--network", network]
-        return ["--network", "none"]
+        return []
 
     def _docker_host_gateway_args(self) -> list[str]:
         if _env_flag("SANDBOX_DOCKER_HOST_GATEWAY", "0"):

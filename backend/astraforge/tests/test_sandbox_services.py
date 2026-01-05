@@ -283,6 +283,21 @@ def test_spawn_docker_applies_network_and_security(monkeypatch):
     assert any(label.startswith("astraforge.sandbox.session=") for label in labels)
 
 
+def test_spawn_docker_defaults_to_bridge_network(monkeypatch):
+    user = get_user_model().objects.create_user(username="bridged", password="pass12345")
+    session = _create_session(user)
+    runner = _RunnerRecorder()
+    monkeypatch.delenv("SANDBOX_DOCKER_NETWORK", raising=False)
+
+    orchestrator = SandboxOrchestrator(runner=runner)
+    orchestrator._spawn_docker(session)
+
+    run_calls = [call for call in runner.calls if call[:3] == ["docker", "run", "-d"]]
+    assert len(run_calls) == 1
+    args = run_calls[0]
+    assert "--network" not in args
+
+
 def test_spawn_docker_honors_custom_user(monkeypatch):
     user = get_user_model().objects.create_user(username="rooty", password="pass12345")
     session = _create_session(user)

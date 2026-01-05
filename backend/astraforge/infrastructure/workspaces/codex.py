@@ -208,7 +208,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         *,
         stream: Callable[[dict[str, Any]], None],
     ) -> ExecutionOutcome:
-        command = self._codex_command(workspace, spec)
+        command = self._codex_command(request, workspace, spec)
         stream(
             {
                 "type": "status",
@@ -686,14 +686,30 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             }
         )
 
-    def _codex_command(self, workspace: WorkspaceContext, spec: DevelopmentSpec) -> List[str]:
+    def _codex_command(
+        self,
+        request: Request,
+        workspace: WorkspaceContext,
+        spec: DevelopmentSpec,
+    ) -> List[str]:
         def _override(key: str, value: Any) -> str:
             return f"{key}={json.dumps(value)}"
 
+        llm_provider = ""
+        llm_model = ""
+        llm_config = request.metadata.get("llm")
+        if isinstance(llm_config, dict):
+            llm_provider = str(llm_config.get("provider") or "").strip().lower()
+            llm_model = str(llm_config.get("model") or "").strip()
+        if not llm_provider:
+            llm_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+        if llm_provider not in {"openai", "ollama"}:
+            llm_provider = ""
         overrides: List[str] = []
         if workspace.proxy_url:
             overrides.extend(["-c", _override("workspace.proxy_url", workspace.proxy_url)])
-        overrides.extend(["-c", _override("auth.api_key", "sk-astraforge-stub")])
+        if not llm_provider:
+            overrides.extend(["-c", _override("auth.api_key", "sk-astraforge-stub")])
         prompt = _format_spec_prompt(spec) or "Apply the development specification."
         spec_path = f"{workspace.path}/.codex/spec.json"
         overrides.extend(["-c", _override("workspace.spec_path", spec_path)])
@@ -705,7 +721,28 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             ]
         )
         final_message_path = self._final_message_path(workspace.path)
+        env_pairs: List[str] = []
+        if llm_provider:
+            env_pairs.append(f"LLM_PROVIDER={llm_provider}")
+        if llm_model:
+            env_pairs.append(f"CODEX_WRAPPER_DEFAULT_MODEL={llm_model}")
+            if llm_provider == "ollama":
+                env_pairs.append(f"OLLAMA_MODEL={llm_model}")
+        if llm_provider == "openai":
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if openai_key:
+                env_pairs.append(f"OPENAI_API_KEY={openai_key}")
+        if llm_provider == "ollama":
+            ollama_key = os.getenv("OLLAMA_API_KEY")
+            if ollama_key:
+                env_pairs.append(f"OLLAMA_API_KEY={ollama_key}")
+            if not llm_model:
+                ollama_model = os.getenv("OLLAMA_MODEL")
+                if ollama_model:
+                    env_pairs.append(f"OLLAMA_MODEL={ollama_model}")
+        env_prefix = ["env", *env_pairs] if env_pairs else []
         base = [
+            *env_prefix,
             "codex",
             "exec",
             "--skip-git-repo-check",

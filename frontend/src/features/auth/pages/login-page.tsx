@@ -34,6 +34,7 @@ export default function LoginPage() {
     () => Boolean(authSettings?.waitlist_enabled && !authSettings?.allow_all_users),
     [authSettings]
   );
+  const showWaitlistAlert = waitlistActive && !authSettings?.self_hosted;
 
   if (isAuthenticated) {
     return <Navigate to="/app" replace />;
@@ -104,7 +105,7 @@ export default function LoginPage() {
             </span>
           </div>
 
-          {waitlistActive ? (
+          {showWaitlistAlert ? (
             <Alert className="mt-4 border-indigo-400/40 bg-indigo-400/10 text-indigo-50">
               <AlertTitle className="font-semibold text-indigo-100">Access is gated</AlertTitle>
               <AlertDescription className="text-indigo-50/90">

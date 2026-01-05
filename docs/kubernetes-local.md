@@ -55,7 +55,7 @@ Create the namespace once:
 kubectl apply -f infra/k8s/local/namespace.yaml
 ```
 
-Add your LLM credentials as a secret (rerunnable via `kubectl apply`):
+Add your LLM credentials as a secret (rerunnable via `kubectl apply`) when using OpenAI:
 
 ```bash
 kubectl -n astraforge-local create secret generic astraforge-llm \
@@ -65,7 +65,9 @@ kubectl -n astraforge-local create secret generic astraforge-llm \
 
 The backend, worker, and proxy pods read their local-safe defaults from the
 `astraforge-backend-env` ConfigMap, so most of the usual `.env` variables are not
-required here. Update that ConfigMap if you need different log levels or URLs.
+required here. For OpenAI, keep the secret and set `LLM_PROVIDER=openai` in
+`infra/k8s/local/llm-proxy.yaml` (or patch the Deployment). For Ollama, skip the
+secret and set `OLLAMA_BASE_URL` there to point at your Ollama service.
 
 ## 4. Deploy the stack
 
@@ -167,8 +169,9 @@ Codex executions run as Kubernetes pods that the backend spawns on demand.
 
 - **Pods stuck in `ImagePullBackOff`** – re-run the `kind load docker-image ...`
   commands (or push to a registry) so the cluster can access the `:local` tags.
-- **LLM proxy fails to start** – confirm the `astraforge-llm` secret contains a
-  valid `OPENAI_API_KEY`.
+- **LLM proxy fails to start** – confirm `LLM_PROVIDER` is set correctly and the
+  `astraforge-llm` secret contains a valid `OPENAI_API_KEY` (or set
+  `OLLAMA_BASE_URL` when using Ollama).
 - **Frontend cannot reach the backend** – if you’re using the Vite frontend, make
   sure both port-forwards (backend + frontend) are running; otherwise ensure the
   backend port-forward to `http://localhost:8001` is up.

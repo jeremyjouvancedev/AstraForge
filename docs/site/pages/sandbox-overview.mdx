@@ -19,7 +19,7 @@ The sandbox orchestrator provisions disposable workspaces in Docker or Kubernete
 
 ## Security defaults
 
-- Docker sandboxes: read-only rootfs, tmpfs for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, seccomp profile (`SANDBOX_DOCKER_SECCOMP`), `--pids-limit`, and optional internal-only network (`SANDBOX_DOCKER_NETWORK=astraforge-sandbox`).
+- Docker sandboxes: read-only rootfs, tmpfs for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, seccomp profile (`SANDBOX_DOCKER_SECCOMP`), `--pids-limit`, and three network modes (default bridge egress; `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` for internal-only; `SANDBOX_DOCKER_NETWORK=none` for no networking).
 - Kubernetes sandboxes: non-root users, read-only rootfs, dropped capabilities, `RuntimeDefault` seccomp, service account token disabled, and NetworkPolicy that allows DNS/public internet while blocking RFC1918 ranges.
 - Host gateway blocked by default; enable only if you explicitly need host access.
 

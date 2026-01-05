@@ -86,8 +86,11 @@ services:
   llm-proxy:
     image: ghcr.io/jeremyjouvancedev/astraforge-llm-proxy:latest
     environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:20b}
     # Optional: expose if Codex workspaces use host-mapped proxy access. If you attach
     # workspaces to the stack network (see CODEX_WORKSPACE_NETWORK), you can omit this.
     ports:
@@ -124,7 +127,7 @@ services:
       CODEX_WORKSPACE_NETWORK: ${CODEX_WORKSPACE_NETWORK:-astraforge}
       CODEX_WORKSPACE_PROXY_URL: ${CODEX_WORKSPACE_PROXY_URL:-http://llm-proxy:8080}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      SANDBOX_DOCKER_NETWORK: ${SANDBOX_DOCKER_NETWORK:-astraforge-sandbox}
+      SANDBOX_DOCKER_NETWORK: ${SANDBOX_DOCKER_NETWORK:-}
       SANDBOX_DOCKER_READ_ONLY: ${SANDBOX_DOCKER_READ_ONLY:-1}
       SANDBOX_DOCKER_SECCOMP: ${SANDBOX_DOCKER_SECCOMP:-}
       SANDBOX_DOCKER_PIDS_LIMIT: ${SANDBOX_DOCKER_PIDS_LIMIT:-512}
@@ -175,7 +178,7 @@ services:
       CODEX_WORKSPACE_NETWORK: ${CODEX_WORKSPACE_NETWORK:-astraforge}
       CODEX_WORKSPACE_PROXY_URL: ${CODEX_WORKSPACE_PROXY_URL:-http://llm-proxy:8080}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      SANDBOX_DOCKER_NETWORK: ${SANDBOX_DOCKER_NETWORK:-astraforge-sandbox}
+      SANDBOX_DOCKER_NETWORK: ${SANDBOX_DOCKER_NETWORK:-}
       SANDBOX_DOCKER_READ_ONLY: ${SANDBOX_DOCKER_READ_ONLY:-1}
       SANDBOX_DOCKER_SECCOMP: ${SANDBOX_DOCKER_SECCOMP:-}
       SANDBOX_DOCKER_PIDS_LIMIT: ${SANDBOX_DOCKER_PIDS_LIMIT:-512}
@@ -216,14 +219,15 @@ networks:
 
 Notes:
 - Portainer’s stack env interpolation does not support the `:?` “required var” guard. Set stack
-  variables for `POSTGRES_PASSWORD`, `OPENAI_API_KEY`, and `SECRET_KEY` explicitly before deploying.
+  variables for `POSTGRES_PASSWORD`, `LLM_PROVIDER`, `OPENAI_API_KEY` or `OLLAMA_BASE_URL`, and
+  `SECRET_KEY` explicitly before deploying.
 - Postgres uses `pgvector/pgvector:pg16`, so the `vector` extension is available out of the box; run `CREATE EXTENSION IF NOT EXISTS vector;` in your init scripts if you add embeddings.
 - The bundled `astraforge` image serves both the SPA assets and `/api` on port `8001` via Django + WhiteNoise; no separate frontend container or `BACKEND_ORIGIN` env var is required.
 - Sandbox containers are still created on-demand by the backend (via `SANDBOX_IMAGE`, defaulting to the published `ghcr.io/<namespace>/astraforge-sandbox:latest`). Ensure your hosts/agents can pull from GHCR; you do **not** need to run the sandbox image as a long-lived service in the stack.
-- The internal `astraforge-sandbox` network is `internal: true`, so sandboxes only reach `llm-proxy` (and DNS). If you need a different AI gateway, attach it to that network or change `SANDBOX_DOCKER_NETWORK`.
-- For dependency installation inside sandboxes, temporarily relax the hardening: set `SANDBOX_DOCKER_READ_ONLY=0`, optionally `SANDBOX_DOCKER_USER=root` (for `apt-get`), and point `SANDBOX_DOCKER_NETWORK` to a non-internal bridge with internet egress. Revert to the secure defaults afterward.
-- To enforce “internet-only” egress for Docker sandboxes on a NAS, keep an internal bridge for normal runs; if you must switch to a routed bridge for installs, add host firewall rules that drop traffic from that bridge’s subnet to RFC1918/link-local ranges while allowing outbound to the internet.
-- Docker recipe for internet-only (no LAN): create a dedicated bridge (e.g., `docker network create astraforge-sandbox-inet` without `--internal`), apply host firewall rules to deny 10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, 127/8 from that bridge’s CIDR, and set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox-inet` when you need outbound installs. Use the default internal `astraforge-sandbox` bridge the rest of the time.
+- The internal `astraforge-sandbox` network is `internal: true`, so sandboxes only reach `llm-proxy` (and DNS) when you set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox`. Leave it unset for default bridge egress, set `SANDBOX_DOCKER_NETWORK=none` for no networking, or point it at another bridge if you need a different AI gateway.
+- For dependency installation inside sandboxes, temporarily relax the hardening: set `SANDBOX_DOCKER_READ_ONLY=0`, optionally `SANDBOX_DOCKER_USER=root` (for `apt-get`), and keep default bridge egress (unset `SANDBOX_DOCKER_NETWORK`) or point it to a non-internal bridge. Revert to the secure defaults afterward.
+- To enforce “internet-only” egress for Docker sandboxes on a NAS, attach them to a routed bridge and add host firewall rules that drop traffic from that bridge’s subnet to RFC1918/link-local ranges while allowing outbound to the internet.
+- Docker recipe for internet-only (no LAN): create a dedicated bridge (e.g., `docker network create astraforge-sandbox-inet` without `--internal`), apply host firewall rules to deny 10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, 127/8 from that bridge’s CIDR, and set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox-inet` when you need outbound installs. Use the internal `astraforge-sandbox` bridge when you want to block egress.
 - MinIO provides snapshot storage for sandbox backups. The stack bootstraps a bucket named `${SANDBOX_S3_BUCKET:-astraforge-snapshots}` and the app/worker use `SANDBOX_S3_ENDPOINT_URL` + AWS-style credentials to upload and restore snapshots. Set `SANDBOX_S3_USE_SSL=1` if you front MinIO with TLS. Ports are not exposed; access the console via `docker exec` or temporary port-forwarding if needed.
 - Keep `ASTRAFORGE_EXECUTE_COMMANDS` unquoted (`1`, not `"1"`) so the sandbox runner executes real Docker commands instead of staying in dry-run mode.
 - `CODEX_CLI_SKIP_PULL=1` assumes the sandbox image already exists on the host; unset or set to `0` if the host must pull from GHCR (and make sure `docker login ghcr.io` is in place for private images).
@@ -235,7 +239,8 @@ Notes:
 ### Deployment flow
 
 1. Push to `main` to publish fresh `latest`/branch/SHA tags to GHCR (including the combined `astraforge` image).
-2. In Portainer, create a new stack, paste the YAML above, and set env vars (`OPENAI_API_KEY`, optional `LLM_MODEL`, and any Django settings you override).
+2. In Portainer, create a new stack, paste the YAML above, and set env vars (`LLM_PROVIDER`,
+   `OPENAI_API_KEY` or `OLLAMA_BASE_URL`, optional `LLM_MODEL`, and any Django settings you override).
 3. Deploy; Portainer will pull GHCR images, run migrations, and bring up the API/SPA, worker, and LLM proxy.
 4. Update by re-deploying the stack with a new tag (e.g., a specific SHA) or letting it track `latest`.
 

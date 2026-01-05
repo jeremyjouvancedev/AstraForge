@@ -142,26 +142,39 @@ For a ready-to-run smoke test against `http://localhost:8001/api`, open `astrafo
 
 Shortest path to the full stack.
 
-1) Prereqs: Docker + Docker Compose, `make`, and an OpenAI-compatible API key.  
-2) Create a `.env` in the repo root with your key:
+1) Prereqs: Docker + Docker Compose, `make`, and an OpenAI-compatible API key or a local Ollama daemon.  
+2) If you're using Ollama locally, install it from https://ollama.com/download, pull the model, and start the daemon:
 
 ```bash
-echo "OPENAI_API_KEY=sk-..." > .env
+ollama pull gpt-oss:20b
+OLLAMA_HOST=0.0.0.0 ollama serve
 ```
 
-3) Build the required executor images (one time):
+3) Create a `.env` in the repo root with your provider settings. Example for Ollama:
+
+```bash
+cat <<'EOF' > .env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=gpt-oss:20b
+DEEPAGENT_REASONING_EFFORT=high
+EOF
+```
+
+4) For OpenAI, set `LLM_PROVIDER=openai` plus `OPENAI_API_KEY` and optionally `LLM_MODEL`.  
+5) Build the required executor images (one time):
 
 ```bash
 make workspace-images
 ```
 
-4) Start everything:
+6) Start everything:
 
 ```bash
 docker compose up
 ```
 
-5) Open `http://localhost:5174` for the app (API at `http://localhost:8001/api`). Stop with `docker compose down`. For details and troubleshooting, see `docs/docker-compose.md`.
+7) Open `http://localhost:5174` for the app (API at `http://localhost:8001/api`). Stop with `docker compose down`. For details and troubleshooting, see `docs/docker-compose.md`.
 
 ## Frontend webapp
 
@@ -177,14 +190,18 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 | --- | --- |
 | `DATABASE_URL` | Postgres connection (default points to Compose Postgres on 5433) |
 | `REDIS_URL` | Redis connection (default `redis://redis:6379/0`) |
-| `OPENAI_API_KEY`, `LLM_MODEL` | LLM proxy credentials and model (default `gpt-4o-mini`) |
+| `LLM_PROVIDER` | LLM proxy provider (`ollama` or `openai`) |
+| `OPENAI_API_KEY`, `LLM_MODEL` | OpenAI credentials + model name (default `gpt-4o-mini` when `LLM_PROVIDER=openai`) |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Ollama base URL + model name (defaults to `http://localhost:11434` and `gpt-oss:20b`) |
+| `DEEPAGENT_PROVIDER` | DeepAgent provider override (`openai` or `ollama`) |
+| `DEEPAGENT_REASONING_EFFORT` | Reasoning effort for DeepAgent (OpenAI passes through; Ollama maps to `think=low|medium|high` unless overridden) |
 | `EXECUTOR` | LLM executor name (default `codex`) |
 | `PROVISIONER` | Workspace provisioner (`docker` or `k8s`) |
 | `RUN_LOG_STREAMER` | Log transport (`redis` by default) |
 | `ASTRAFORGE_EXECUTE_COMMANDS` | Allow command execution in workspaces (set to `1` locally) |
 | `UNSAFE_DISABLE_AUTH` | Disable auth for local dev only (`1` locally, never in prod) |
 | `CODEX_WORKSPACE_IMAGE`, `CODEX_WORKSPACE_NETWORK`, `CODEX_WORKSPACE_PROXY_URL` | Workspace container image, network, and proxy used by Codex |
-| `SANDBOX_DOCKER_NETWORK`, `SANDBOX_DOCKER_READ_ONLY`, `SANDBOX_DOCKER_SECCOMP`, `SANDBOX_DOCKER_PIDS_LIMIT`, `SANDBOX_DOCKER_HOST_GATEWAY`, `SANDBOX_DOCKER_USER` | Harden sandbox containers (internal bridge name, read-only rootfs, seccomp profile, PID cap, host gateway toggle, optional run user); defaults target the isolated `astraforge-sandbox` network with egress only to the AI gateway. `SANDBOX_DOCKER_SECCOMP` defaults to `default`; set it to empty, a custom profile path, or `unconfined` to override |
+| `SANDBOX_DOCKER_NETWORK`, `SANDBOX_DOCKER_READ_ONLY`, `SANDBOX_DOCKER_SECCOMP`, `SANDBOX_DOCKER_PIDS_LIMIT`, `SANDBOX_DOCKER_HOST_GATEWAY`, `SANDBOX_DOCKER_USER` | Harden sandbox containers (bridge selection, read-only rootfs, seccomp profile, PID cap, host gateway toggle, optional run user); default networking uses the Docker bridge with internet egress. Set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` (internal bridge) to block egress or `SANDBOX_DOCKER_NETWORK=none` to disable networking. `SANDBOX_DOCKER_SECCOMP` defaults to `default`; set it to empty, a custom profile path, or `unconfined` to override |
 | `SANDBOX_*`, `AWS_*` | MinIO/S3 sandbox storage settings (defaults provided for local) |
 | `SECRET_KEY`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | Django security settings; replace defaults outside local |
 
@@ -227,7 +244,7 @@ Update `docs/site/pages/_meta.json` when adding new pages. Keep the canonical me
 
 - Postgres not reachable: confirm port `5433` is free and `.env` matches `docker-compose.yml`.
 - Docker socket mount errors: ensure Docker is running and your user can access `/var/run/docker.sock`.
-- LLM proxy issues: verify `OPENAI_API_KEY` and that the proxy is listening on host port `:8081` (container `:8080`, or `18080` if exposed separately).
+- LLM proxy issues: verify `LLM_PROVIDER`, credentials/`OLLAMA_BASE_URL`, and that the proxy is listening on host port `:8081` (container `:8080`, or `18080` if exposed separately).
 - Frontend not loading: check `pnpm dev` is running on `5174` and no conflicting process holds the port.
 - MinIO bucket setup: if `minio-setup` fails, ensure `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` match across services.
 

@@ -53,6 +53,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadUser();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleUnauthorized = () => {
+      setUser(null);
+    };
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => {
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
+    };
+  }, []);
+
   const login = useCallback(async (credentials: { username: string; password: string }) => {
     const result = await loginUser(credentials);
     setUser(result);
@@ -79,8 +90,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    await logoutUser();
-    setUser(null);
+    try {
+      await logoutUser();
+    } finally {
+      setUser(null);
+    }
   }, []);
 
   const refreshAuthSettings = useCallback(async () => {

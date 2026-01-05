@@ -188,6 +188,19 @@ class RequestViewSet(
             raise NotFound(f"Request {request_id} not found") from exc
         if request_obj.tenant_id not in allowed_uids:
             raise PermissionDenied("You do not have access to this workspace.")
+        llm_provider = (serializer.validated_data.get("llm_provider") or "").strip().lower()
+        llm_model = (serializer.validated_data.get("llm_model") or "").strip()
+        if llm_provider or llm_model:
+            llm_config: dict[str, str] = {}
+            existing_llm = request_obj.metadata.get("llm")
+            if isinstance(existing_llm, dict):
+                llm_config.update({k: str(v) for k, v in existing_llm.items()})
+            if llm_provider:
+                llm_config["provider"] = llm_provider
+            if llm_model:
+                llm_config["model"] = llm_model
+            request_obj.metadata["llm"] = llm_config
+            repository.save(request_obj)
         app_tasks.execute_request_task.delay(
             request_id,
             serializer.validated_data.get("spec"),
@@ -430,9 +443,14 @@ class DeepAgentMessageView(APIView):
             raise NotFound("Sandbox session not found for this conversation")
 
         workspace_root = session.workspace_path or "/workspace"
-        path_pattern = re.compile(rf"({re.escape(workspace_root)}/[^\s'\"`]+)")
+        workspace_path_pattern = re.compile(
+            rf"({re.escape(workspace_root)}/[^\s'\"`]+)"
+        )
         sandbox_link_pattern = re.compile(
             r"\[(?P<label>[^\]]+)\]\(sandbox:(?P<path>[^\)]+)\)"
+        )
+        sandbox_path_pattern = re.compile(
+            r"sandbox:(?P<path>(?:workspace/|/workspace/)[^\)\s'\"`]+)"
         )
         orchestrator = SandboxOrchestrator()
         exported_paths: dict[str, dict[str, object]] = {}
@@ -492,17 +510,34 @@ class DeepAgentMessageView(APIView):
             exported_paths[abs_path] = artifact_dict
             return artifact_dict
 
-        def export_artifacts_from_text(text: str | None) -> list[dict[str, object]]:
-            if not text or workspace_root not in text:
+        def export_artifacts_from_text(
+            text: str | None, *, allow_workspace_paths: bool = False
+        ) -> list[dict[str, object]]:
+            if not text:
                 return []
-            matches = path_pattern.findall(text)
+            matches: list[str] = []
+            if "sandbox:" in text:
+                matches.extend(sandbox_path_pattern.findall(text))
+            if allow_workspace_paths and workspace_root in text:
+                matches.extend(workspace_path_pattern.findall(text))
             if not matches:
                 return []
             artifacts: list[dict[str, object]] = []
+            seen: set[str] = set()
             for path in matches:
                 artifact_dict = _export_path(path)
-                if artifact_dict is not None:
-                    artifacts.append(artifact_dict)
+                if artifact_dict is None:
+                    continue
+                key = str(
+                    artifact_dict.get("id")
+                    or artifact_dict.get("storage_path")
+                    or artifact_dict.get("download_url")
+                    or path
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                artifacts.append(artifact_dict)
             return artifacts
 
         def rewrite_sandbox_links(text: str | None) -> str:
@@ -652,9 +687,15 @@ class DeepAgentMessageView(APIView):
                     seen_ids.add(str(tool_call_id))
 
                 content = data.get("content")
-                content_text = rewrite_sandbox_links(_content_to_text(content))
+                raw_content_text = _content_to_text(content)
+                content_text = rewrite_sandbox_links(raw_content_text)
                 artifacts_from_data = data.get("artifacts")
-                auto_artifacts = export_artifacts_from_text(content_text)
+                tool_name_normalized = str(tool_name or "").lower()
+                auto_artifacts = export_artifacts_from_text(
+                    raw_content_text,
+                    allow_workspace_paths=tool_name_normalized
+                    in {"write_file", "edit_file", "ls"},
+                )
                 combined_artifacts: list[dict[str, object]] = []
                 if artifacts_from_data:
                     if isinstance(artifacts_from_data, list):
@@ -710,19 +751,6 @@ class DeepAgentMessageView(APIView):
                             "data": result,
                         }
                         yield encode_sse(tool_result_payload)
-
-                        artifacts = result.get("artifacts")
-                        if isinstance(artifacts, list):
-                            for artifact in artifacts:
-                                tool_artifact_payload = {
-                                    "event": "tool_artifact",
-                                    "data": {
-                                        "tool_call_id": result.get("tool_call_id"),
-                                        "tool_name": result.get("tool_name"),
-                                        "artifact": artifact,
-                                    },
-                                }
-                                yield encode_sse(tool_artifact_payload)
 
                     if not messages:
                         continue

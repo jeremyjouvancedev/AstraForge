@@ -8,7 +8,7 @@ defined in `docker-compose.yml`.
 ## Prerequisites
 
 - Docker Engine and Docker Compose plugin (v2.20+ recommended)
-- Access to an OpenAI-compatible key for the LLM proxy
+- Access to an OpenAI-compatible key for the LLM proxy or a local Ollama daemon
 - Port availability: `5433`, `6379`, `8001`, `8081`, `5174`
 - Persistent data: Postgres uses a named volume (`postgres-data`) so accounts/API keys survive restarts.
 
@@ -16,13 +16,16 @@ defined in `docker-compose.yml`.
 
 Create a `.env` file in the repo root so the `backend`, `backend-worker`, and
 `llm-proxy` services can read secrets and feature flags. At minimum you need the
-LLM credentials; you can override any other values shown in
+LLM credentials (or Ollama settings); you can override any other values shown in
 `docker-compose.yml`.
 
 ```bash
 cat <<'ENV' > .env
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=gpt-oss:20b
+DEEPAGENT_PROVIDER=ollama
+DEEPAGENT_REASONING_EFFORT=high
 UNSAFE_DISABLE_AUTH=1   # keep this to skip login locally
 CODEX_CLI_SKIP_PULL=1   # prevents redundant image pulls
 CODEX_WORKSPACE_IMAGE=ghcr.io/jeremyjouvancedev/astraforge-codex-cli:latest
@@ -91,8 +94,9 @@ spawn workspaces.
 
 - **Migrations keep running** – Ensure Postgres finished booting (watch
   `docker compose logs -f postgres`) before rerunning `backend-migrate`.
-- **LLM proxy fails to start** – Confirm `OPENAI_API_KEY` is set in `.env`; the
-  proxy refuses to boot otherwise.
+- **LLM proxy fails to start** – Confirm `LLM_PROVIDER` is correct and either
+  `OPENAI_API_KEY` or `OLLAMA_BASE_URL` is set in `.env`; the proxy refuses to
+  boot otherwise.
 - **Port already in use** – Stop conflicting local services or override the
   `ports` entries in `docker-compose.yml`.
 - **File permission issues on Linux** – add your user to the `docker` group so

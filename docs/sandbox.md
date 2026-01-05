@@ -69,12 +69,16 @@ curl -X POST http://localhost:8001/api/sandbox/sessions/<id>/exec \
 
 ### Hardened Docker sandboxes
 
-- Create an internal-only bridge to isolate sandboxes from the internet: `docker network create --internal astraforge-sandbox`. DeepAgent sandboxes do not need the Codex LLM proxy, so you can leave this bridge empty unless you explicitly expose another gateway.
-- If you want Codex workloads on the same bridge to reach the proxy, attach the `llm-proxy` container (Compose already does this for Codex) and set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` on the backend/worker.
+- Docker sandbox networking has three modes:
+  - **Internet (default)**: leave `SANDBOX_DOCKER_NETWORK` unset to use the Docker bridge with outbound internet access.
+  - **Internal-only**: set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` (an `internal: true` bridge) to block internet/LAN while still allowing access to services attached to that bridge.
+  - **No network**: set `SANDBOX_DOCKER_NETWORK=none` to disable networking entirely (no DNS, no egress).
+- To force internal-only egress, create an internal bridge (`docker network create --internal astraforge-sandbox`) and set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` on the backend/worker. DeepAgent sandboxes do not need the Codex LLM proxy, so you can leave this bridge empty unless you explicitly expose another gateway.
+- If you want Codex workloads on the same internal bridge to reach the proxy, attach the `llm-proxy` container (Compose already does this for Codex) and keep `SANDBOX_DOCKER_NETWORK=astraforge-sandbox`.
 - Security flags are enabled by default: `--read-only`, tmpfs mounts for `/workspace`, `/tmp`, and `/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, optional seccomp profile via `SANDBOX_DOCKER_SECCOMP`, and `--pids-limit` (512 by default). Disable them only if you explicitly need a writable rootfs or host gateway access (`SANDBOX_DOCKER_HOST_GATEWAY=0` by default).
 - Writes still land in `/workspace` via a tmpfs mount when no volume is configured; the fallback tmpfs is world-writable (mode `1777`) so the non-root sandbox user can treat `/workspace` like its home. Set `SANDBOX_DOCKER_VOLUME_MODE` (`session`/`user`/`static`) when you need persistence. Override tmpfs targets with `SANDBOX_DOCKER_TMPFS=/tmp:rw,nosuid,nodev;/run:rw,nosuid,nodev`.
 - If Codex needs a different AI gateway, point `SANDBOX_DOCKER_NETWORK` at a bridge that exposes it, or set `CODEX_WORKSPACE_PROXY_URL` to an address reachable from that network.
-- Package installs: Pip/npm/pnpm already work inside `/workspace`. To allow `apt-get`, run as root and drop the read-only flag: set `SANDBOX_DOCKER_READ_ONLY=0`, `SANDBOX_DOCKER_USER=root`, and attach to a network with internet egress (unset `SANDBOX_DOCKER_NETWORK` or create a non-internal bridge). Use host firewall rules on that bridge to block RFC1918 ranges if you want “internet-only” egress. Re-enable the hardened defaults after provisioning dependencies.
+- Package installs: Pip/npm/pnpm already work inside `/workspace`. To allow `apt-get`, run as root and drop the read-only flag: set `SANDBOX_DOCKER_READ_ONLY=0`, `SANDBOX_DOCKER_USER=root`, and attach to a network with internet egress (leave `SANDBOX_DOCKER_NETWORK` unset or point it at a non-internal bridge). Use host firewall rules on that bridge to block RFC1918 ranges if you want “internet-only” egress. Re-enable the hardened defaults after provisioning dependencies.
 
 ## Kubernetes mode (secure isolation)
 

@@ -40,6 +40,20 @@ function ProtectedShell() {
   return <ShellLayout />;
 }
 
+export function HomeRoute() {
+  const { authSettings, loading } = useAuth();
+
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
+  }
+
+  if (authSettings?.self_hosted) {
+    return <Navigate to="/app" replace />;
+  }
+
+  return <HomePage />;
+}
+
 function LegacyRequestRunRedirect() {
   const { id } = useParams<{ id: string }>();
   const target = id ? `/app/requests/${id}/run` : "/app/requests";
@@ -49,7 +63,7 @@ function LegacyRequestRunRedirect() {
 const routes: RouteObject[] = [
   {
     path: "/",
-    element: <HomePage />
+    element: <HomeRoute />
   },
   {
     path: "/app",

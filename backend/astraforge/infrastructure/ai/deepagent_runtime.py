@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 from functools import lru_cache
 from typing import Any, List, Mapping, Optional
@@ -111,6 +113,76 @@ def _build_checkpointer() -> Optional[Any]:
     return saver
 
 
+def _resolve_deepagent_provider() -> str:
+    return (os.getenv("DEEPAGENT_PROVIDER") or os.getenv("LLM_PROVIDER") or "openai").strip().lower()
+
+
+def _default_deepagent_model(provider: str) -> str:
+    configured = os.getenv("DEEPAGENT_MODEL")
+    if configured:
+        return configured
+    if provider == "ollama":
+        return os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
+    return "gpt-4o"
+
+
+def _parse_int_env(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        logging.getLogger(__name__).warning("Invalid %s value: %s", name, raw)
+        return None
+
+
+def _parse_json_env(name: str) -> dict[str, Any] | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logging.getLogger(__name__).warning("Invalid JSON in %s", name)
+        return None
+    if not isinstance(data, dict):
+        logging.getLogger(__name__).warning("%s must be a JSON object", name)
+        return None
+    return data
+
+
+def _build_ollama_model_kwargs() -> dict[str, Any]:
+    model_kwargs: dict[str, Any] = {}
+    effort = (
+        os.getenv("DEEPAGENT_REASONING_EFFORT")
+        or os.getenv("OLLAMA_REASONING_EFFORT")
+        or ""
+    ).strip().lower()
+    if effort:
+        if effort in {"low", "medium", "high"}:
+            model_kwargs["think"] = effort
+
+    num_ctx = _parse_int_env("OLLAMA_NUM_CTX")
+    if num_ctx is not None:
+        model_kwargs["num_ctx"] = num_ctx
+    num_predict = _parse_int_env("OLLAMA_NUM_PREDICT")
+    if num_predict is not None:
+        model_kwargs["num_predict"] = num_predict
+
+    extra_options = _parse_json_env("OLLAMA_OPTIONS_JSON")
+    if extra_options:
+        model_kwargs.update(extra_options)
+
+    return model_kwargs
+
+
 def _build_playwright_tools() -> List[Any]:
     """Return Playwright tools that execute inside the sandbox container."""
     try:
@@ -168,16 +240,41 @@ def get_deep_agent():
         # depending on environment / constructor arguments.
         return SandboxBackend(rt)
 
-    model_name = os.getenv("DEEPAGENT_MODEL", "gpt-4o")
+    provider = _resolve_deepagent_provider()
+    model_name = _default_deepagent_model(provider)
     temperature = float(os.getenv("DEEPAGENT_TEMPERATURE", "0.3"))
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL") or None
-    model = ChatOpenAI(
-        model=model_name,
-        temperature=temperature,
-        api_key=api_key,
-        base_url=base_url,
-    )
+    if provider == "ollama":
+        try:
+            from langchain_ollama import ChatOllama
+        except Exception as exc:
+            raise RuntimeError(
+                "langchain-ollama is required for DEEPAGENT_PROVIDER=ollama"
+            ) from exc
+        base_url = os.getenv("OLLAMA_BASE_URL") or None
+        model_kwargs = _build_ollama_model_kwargs()
+        ollama_kwargs: dict[str, Any] = {
+            "model": model_name,
+            "temperature": temperature,
+        }
+        if base_url:
+            ollama_kwargs["base_url"] = base_url
+        if model_kwargs:
+            ollama_kwargs["model_kwargs"] = model_kwargs
+        model = ChatOllama(**ollama_kwargs)
+    else:
+        api_key = os.getenv("OPENAI_API_KEY")
+        base_url = os.getenv("OPENAI_BASE_URL") or None
+        reasoning_effort = os.getenv("DEEPAGENT_REASONING_EFFORT")
+        openai_kwargs: dict[str, Any] = {
+            "model": model_name,
+            "temperature": temperature,
+            "api_key": api_key,
+        }
+        if base_url:
+            openai_kwargs["base_url"] = base_url
+        if reasoning_effort:
+            openai_kwargs["model_kwargs"] = {"reasoning_effort": reasoning_effort}
+        model = ChatOpenAI(**openai_kwargs)
     system_prompt = os.getenv(
         "DEEPAGENT_SYSTEM_PROMPT",
         (

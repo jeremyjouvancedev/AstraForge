@@ -178,7 +178,7 @@ const navItems = [
 ];
 
 export function Sidebar() {
-  const { logout, authSettings } = useAuth();
+  const { logout, authSettings, isAuthenticated } = useAuth();
   const { activeWorkspace } = useWorkspace();
   const billingEnabled = authSettings?.billing_enabled ?? true;
   const {
@@ -388,7 +388,9 @@ export function Sidebar() {
             <p className="text-[11px] uppercase tracking-[0.3em] text-sidebar-foreground/60">
               Session
             </p>
-            <p className="text-sm font-medium text-sidebar-foreground">Signed in</p>
+            <p className="text-sm font-medium text-sidebar-foreground">
+              {isAuthenticated ? "Signed out" : "Signed in"}
+            </p>
           </div>
           <Button
             variant="ghost"

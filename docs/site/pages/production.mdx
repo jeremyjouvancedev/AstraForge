@@ -6,7 +6,7 @@ This guide covers running AstraForge in a production-like environment with harde
 
 - Docker Engine + Compose v2.20+ (or a Kubernetes cluster for sandbox workloads)
 - Postgres and Redis reachable from the backend/worker
-- OpenAI-compatible credentials for the LLM proxy
+- OpenAI-compatible credentials or an Ollama daemon for the LLM proxy
 - TLS termination (reverse proxy or ingress)
 
 ## Images and versions
@@ -16,10 +16,10 @@ This guide covers running AstraForge in a production-like environment with harde
 
 ## Environment and secrets
 
-- Copy `.env.example` to `.env` and set `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `LLM_MODEL`, and `PROVISIONER` (`docker` or `k8s`).
+- Copy `.env.example` to `.env` and set `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL`, `LLM_PROVIDER`, `OLLAMA_BASE_URL` + `OLLAMA_MODEL` (or `OPENAI_API_KEY` + `LLM_MODEL`), and `PROVISIONER` (`docker` or `k8s`).
 - Leave `UNSAFE_DISABLE_AUTH` unset (or `0`) outside local dev.
 - When using S3/MinIO for snapshots/artifacts, set `SANDBOX_S3_BUCKET`, `SANDBOX_S3_ENDPOINT_URL`, and `AWS_*` credentials.
-- For Docker sandboxes, keep `SANDBOX_DOCKER_READ_ONLY=1`, `SANDBOX_DOCKER_SECCOMP=default` (or a custom profile), and `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` (internal bridge) unless you explicitly need broader egress.
+- For Docker sandboxes, keep `SANDBOX_DOCKER_READ_ONLY=1` and `SANDBOX_DOCKER_SECCOMP=default` (or a custom profile). Default networking uses the Docker bridge with internet egress; set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` for internal-only isolation or `SANDBOX_DOCKER_NETWORK=none` for no networking.
 
 See [Configuration & secrets](/configuration) for a detailed variable breakdown.
 
@@ -75,7 +75,7 @@ For a compose + Kubernetes hybrid, use `docker-compose.hybrid.yml` and export `H
 
 - Disable `UNSAFE_DISABLE_AUTH`; configure your auth provider or API key strategy.
 - Enforce TLS at the proxy/ingress layer.
-- Keep sandbox network isolated: use an internal bridge or NetworkPolicy that blocks RFC1918.
+- Keep sandbox network isolated when required: use an internal bridge or NetworkPolicy that blocks RFC1918.
 - Leave sandbox rootfs read-only; only relax for image bootstrap steps.
 - Run `gitleaks detect --config gitleaks.toml` in CI.
 - Rotate API keys regularly; store them in your secret manager.

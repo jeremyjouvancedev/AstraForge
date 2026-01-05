@@ -287,6 +287,35 @@ def test_wrap_exec_includes_namespace_for_k8s():
     assert command[4:] == ["workspace-123", "--", "git", "status"]
 
 
+def test_codex_command_uses_request_llm_config(monkeypatch):
+    operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
+    request = type(
+        "RequestStub",
+        (),
+        {"metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:120b"}}},
+    )()
+    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
+    workspace = WorkspaceContext(
+        ref="local",
+        mode="local",
+        repository="example/repo",
+        branch="main",
+        path="/workspace",
+        proxy_url="http://proxy.local",
+    )
+
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
+
+    command = operator._codex_command(request, workspace, spec)
+
+    assert command[0] == "env"
+    assert "LLM_PROVIDER=ollama" in command
+    assert "OLLAMA_MODEL=gpt-oss:120b" in command
+    assert "CODEX_WRAPPER_DEFAULT_MODEL=gpt-oss:120b" in command
+    assert "OLLAMA_API_KEY=ollama-key" in command
+    assert not any("auth.api_key" in part for part in command)
+
+
 def test_sample_cpu_usage_seconds_from_docker():
     payload = "__PATH:/sys/fs/cgroup/cpu.stat__\nusage_usec 1250000\nuser_usec 1000000\nsystem_usec 250000\n"
     runner = _CPUStubRunner(payload)
