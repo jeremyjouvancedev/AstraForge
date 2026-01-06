@@ -21,6 +21,7 @@ Key environment variables for running AstraForge across backend, sandbox, and th
 - `OLLAMA_OPTIONS_JSON` – raw Ollama model kwargs JSON (merged last, overrides other Ollama settings).
 - `EXECUTOR` – default executor (`codex`).
 - `CODEX_WORKSPACE_PROXY_URL` – URL the workspace containers use to reach the proxy (often the service DNS name on the sandbox network).
+- `CODEX_WORKSPACE_KEEP_ALIVE` – set `1` to skip tearing down Codex workspaces after each run (useful for debugging).
 
 If you run Ollama on your laptop and need containers to reach it, install it
 from https://ollama.com/download, pull the model you plan to use (default
@@ -57,5 +58,6 @@ OLLAMA_HOST=0.0.0.0 ollama serve
 
 - `CODEX_CLI_SKIP_PULL` – `1` to skip image pulls when images are preloaded (set in Compose).
 - `ASTRAFORGE_EXECUTE_COMMANDS` – `1` to allow workspace command execution (required for agents).
+- `OLLAMA_CONTEXT_WINDOW` – override the Ollama provider `context_window` in Codex wrapper config (defaults to `16384` for the local Ollama-backed provider). Increase this based on your model’s supported context and available RAM.
 
 Keep backend and `astraforge-python-package` sandbox behaviors in parity: changes to sandbox file handling, snapshots, or shell execution must be mirrored in both codebases and documented here.

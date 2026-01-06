@@ -17,15 +17,12 @@ from fastapi.responses import StreamingResponse
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logging.basicConfig(level="DEBUG")  # os.getenv("LOG_LEVEL", "DEBUG"))
 logger = logging.getLogger("llm-proxy")
 
-app = FastAPI(title="AstraForge LLM Proxy", version="0.2.0")
+app = FastAPI(title="AstraForge LLM Proxy", version="0.2.0", debug=True)
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"]
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"]
 )
 
 _HOP_BY_HOP_HEADERS = {
@@ -124,16 +121,27 @@ def _build_upstream_url(base_url: str, request_path: str, query: str) -> str:
 
 
 def _filter_headers(headers: Dict[str, str]) -> Dict[str, str]:
-    return {key: value for key, value in headers.items() if key.lower() not in _HOP_BY_HOP_HEADERS}
+    return {
+        key: value
+        for key, value in headers.items()
+        if key.lower() not in _HOP_BY_HOP_HEADERS
+    }
 
 
-async def _proxy_raw_request(request: Request, upstream_base_url: str) -> StreamingResponse:
+async def _proxy_raw_request(
+    request: Request, upstream_base_url: str, *, request_path: str | None = None
+) -> StreamingResponse:
     body = await request.body()
-    upstream_url = _build_upstream_url(upstream_base_url, request.url.path, request.url.query)
+    path = request_path if request_path is not None else request.url.path
+    upstream_url = _build_upstream_url(
+        upstream_base_url, path, request.url.query
+    )
     headers = _filter_headers(dict(request.headers))
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(None))
-    stream_ctx = client.stream(request.method, upstream_url, headers=headers, content=body)
+    stream_ctx = client.stream(
+        request.method, upstream_url, headers=headers, content=body
+    )
     try:
         upstream = await stream_ctx.__aenter__()
     except Exception:
@@ -150,9 +158,22 @@ async def _proxy_raw_request(request: Request, upstream_base_url: str) -> Stream
             await stream_ctx.__aexit__(None, None, None)
             await client.aclose()
 
-    return StreamingResponse(iterator(), status_code=upstream.status_code, headers=response_headers)
+    return StreamingResponse(
+        iterator(), status_code=upstream.status_code, headers=response_headers
+    )
 
-async def _invoke_chat(messages: Iterable[Dict[str, str]], *, response_format: Dict[str, str]) -> str:
+
+def _normalize_proxy_path(path: str) -> str:
+    if not path:
+        return "/"
+    if path.startswith("/"):
+        return path
+    return f"/{path}"
+
+
+async def _invoke_chat(
+    messages: Iterable[Dict[str, str]], *, response_format: Dict[str, str]
+) -> str:
     provider = _llm_provider()
     model = _default_model()
 
@@ -174,11 +195,15 @@ async def _invoke_chat(messages: Iterable[Dict[str, str]], *, response_format: D
         data = response.json()
         content = data.get("message", {}).get("content")
         if not content:
-            raise HTTPException(status_code=502, detail="Empty response from language model")
+            raise HTTPException(
+                status_code=502, detail="Empty response from language model"
+            )
         return str(content)
 
     if provider != "openai":
-        raise HTTPException(status_code=400, detail=f"Unsupported LLM provider '{provider}'")
+        raise HTTPException(
+            status_code=400, detail=f"Unsupported LLM provider '{provider}'"
+        )
 
     client = _create_client()
 
@@ -191,7 +216,9 @@ async def _invoke_chat(messages: Iterable[Dict[str, str]], *, response_format: D
         )
         content = response.choices[0].message.content
         if not content:
-            raise HTTPException(status_code=502, detail="Empty response from language model")
+            raise HTTPException(
+                status_code=502, detail="Empty response from language model"
+            )
         return content
 
     try:
@@ -225,15 +252,21 @@ def _build_openai_headers() -> Dict[str, str]:
     return headers
 
 
-async def _proxy_openai_responses(payload: Dict[str, Any]) -> StreamingResponse | Dict[str, Any]:
+async def _proxy_openai_responses(
+    payload: Dict[str, Any],
+) -> StreamingResponse | Dict[str, Any]:
     url = _openai_responses_url()
     headers = _build_openai_headers()
     timeout = httpx.Timeout(None)
     stream_mode = bool(payload.get("stream"))
 
     if stream_mode:
-        iterator, status_code, response_headers = await _openai_stream_iterator(url, headers, payload, timeout)
-        return StreamingResponse(iterator, status_code=status_code, headers=response_headers)
+        iterator, status_code, response_headers = await _openai_stream_iterator(
+            url, headers, payload, timeout
+        )
+        return StreamingResponse(
+            iterator, status_code=status_code, headers=response_headers
+        )
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(url, headers=headers, json=payload)
@@ -265,7 +298,9 @@ async def _openai_stream_iterator(
     if upstream.status_code >= 400:
         body = await upstream.aread()
         detail = body.decode("utf-8", errors="ignore") or "Upstream model error"
-        logger.error("OpenAI /responses streaming error %s: %s", upstream.status_code, detail)
+        logger.error(
+            "OpenAI /responses streaming error %s: %s", upstream.status_code, detail
+        )
         await stream_ctx.__aexit__(None, None, None)
         await client.aclose()
         raise HTTPException(status_code=upstream.status_code, detail=detail)
@@ -353,7 +388,9 @@ def _ollama_response_payload(content: str, model: str) -> Dict[str, Any]:
     }
 
 
-async def _ollama_stream_iterator(payload: Dict[str, Any]) -> tuple[AsyncIterator[bytes], int, Dict[str, str]]:
+async def _ollama_stream_iterator(
+    payload: Dict[str, Any],
+) -> tuple[AsyncIterator[bytes], int, Dict[str, str]]:
     model = _default_model()
     messages = _responses_payload_to_messages(payload)
     response_id = f"ollama-{uuid.uuid4()}"
@@ -367,7 +404,10 @@ async def _ollama_stream_iterator(payload: Dict[str, Any]) -> tuple[AsyncIterato
     if isinstance(temperature, (int, float)):
         chat_payload["options"]["temperature"] = temperature
     response_format = payload.get("response_format") or {}
-    if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+    if (
+        isinstance(response_format, dict)
+        and response_format.get("type") == "json_object"
+    ):
         chat_payload["format"] = "json"
     if not chat_payload["options"]:
         chat_payload.pop("options")
@@ -383,7 +423,9 @@ async def _ollama_stream_iterator(payload: Dict[str, Any]) -> tuple[AsyncIterato
     if upstream.status_code >= 400:
         body = await upstream.aread()
         detail = body.decode("utf-8", errors="ignore") or "Upstream model error"
-        logger.error("Ollama /api/chat streaming error %s: %s", upstream.status_code, detail)
+        logger.error(
+            "Ollama /api/chat streaming error %s: %s", upstream.status_code, detail
+        )
         await stream_ctx.__aexit__(None, None, None)
         await client.aclose()
         raise HTTPException(status_code=upstream.status_code, detail=detail)
@@ -418,7 +460,10 @@ async def _ollama_stream_iterator(payload: Dict[str, Any]) -> tuple[AsyncIterato
                     }
                     yield f"data: {json.dumps(delta_event)}\n\n".encode()
                 if data.get("done"):
-                    done_event = {"type": "response.output_text.done", "response_id": response_id}
+                    done_event = {
+                        "type": "response.output_text.done",
+                        "response_id": response_id,
+                    }
                     complete_event = {
                         "type": "response.completed",
                         "response": {"id": response_id, "status": "completed"},
@@ -433,11 +478,15 @@ async def _ollama_stream_iterator(payload: Dict[str, Any]) -> tuple[AsyncIterato
     return iterator(), upstream.status_code, response_headers
 
 
-async def _proxy_ollama_responses(payload: Dict[str, Any]) -> StreamingResponse | Dict[str, Any]:
+async def _proxy_ollama_responses(
+    payload: Dict[str, Any],
+) -> StreamingResponse | Dict[str, Any]:
     stream_mode = bool(payload.get("stream"))
     if stream_mode:
         iterator, status_code, response_headers = await _ollama_stream_iterator(payload)
-        return StreamingResponse(iterator, status_code=status_code, headers=response_headers)
+        return StreamingResponse(
+            iterator, status_code=status_code, headers=response_headers
+        )
 
     model = _default_model()
     messages = _responses_payload_to_messages(payload)
@@ -451,7 +500,10 @@ async def _proxy_ollama_responses(payload: Dict[str, Any]) -> StreamingResponse 
     if isinstance(temperature, (int, float)):
         chat_payload["options"]["temperature"] = temperature
     response_format = payload.get("response_format") or {}
-    if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+    if (
+        isinstance(response_format, dict)
+        and response_format.get("type") == "json_object"
+    ):
         chat_payload["format"] = "json"
     if not chat_payload["options"]:
         chat_payload.pop("options")
@@ -465,7 +517,9 @@ async def _proxy_ollama_responses(payload: Dict[str, Any]) -> StreamingResponse 
     data = response.json()
     content = data.get("message", {}).get("content")
     if not content:
-        raise HTTPException(status_code=502, detail="Empty response from language model")
+        raise HTTPException(
+            status_code=502, detail="Empty response from language model"
+        )
     return _ollama_response_payload(str(content), model)
 
 
@@ -496,7 +550,9 @@ async def generate_spec(request: SpecRequest) -> SpecResponse:
         return SpecResponse.model_validate_json(content)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to parse spec response: %s", content)
-        raise HTTPException(status_code=502, detail="Invalid response from language model") from exc
+        raise HTTPException(
+            status_code=502, detail="Invalid response from language model"
+        ) from exc
 
 
 @app.post("/merge-request", response_model=MergeRequestResponse)
@@ -528,12 +584,47 @@ async def compose_merge_request(request: MergeRequestRequest) -> MergeRequestRes
         return MergeRequestResponse.model_validate_json(content)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to parse merge request response: %s", content)
-        raise HTTPException(status_code=502, detail="Invalid response from language model") from exc
+        raise HTTPException(
+            status_code=502, detail="Invalid response from language model"
+        ) from exc
 
 
 @app.get("/healthz")
 async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.api_route(
+    "/providers/{provider}/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+)
+async def proxy_provider_request(
+    provider: str, path: str, request: Request
+) -> StreamingResponse:
+    provider_key = provider.strip().lower()
+    if provider_key == "openai":
+        upstream_base_url = _openai_base_url()
+    elif provider_key == "ollama":
+        upstream_base_url = _ollama_base_url()
+    else:
+        raise HTTPException(
+            status_code=404, detail=f"Unsupported LLM provider '{provider}'"
+        )
+    if not path:
+        raise HTTPException(status_code=400, detail="Provider subpath is required")
+    trimmed_path = path.strip("/")
+    if provider_key == "ollama" and trimmed_path in {"responses", "v1/responses"}:
+        try:
+            payload = await request.json()
+        except Exception as exc:  # noqa: BLE001 - invalid payload
+            raise HTTPException(
+                status_code=400, detail="Invalid JSON payload for responses request"
+            ) from exc
+        return await _proxy_ollama_responses(payload)
+    request_path = _normalize_proxy_path(path)
+    return await _proxy_raw_request(
+        request, upstream_base_url, request_path=request_path
+    )
 
 
 @app.api_route("/responses", methods=["POST"])

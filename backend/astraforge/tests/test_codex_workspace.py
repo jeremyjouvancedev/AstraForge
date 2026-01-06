@@ -61,6 +61,35 @@ class _CPUStubRunner:
         return CommandResult(exit_code=0, stdout=self.stdout, stderr="")
 
 
+class _TrackingProvisioner:
+    def __init__(self) -> None:
+        self.cleaned: list[str] = []
+
+    def spawn(self, repo: str, toolchain: str) -> str:  # pragma: no cover - test stub
+        raise NotImplementedError
+
+    def cleanup(self, ref: str) -> None:
+        self.cleaned.append(ref)
+
+
+class _TrackingRunner:
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+
+    def run(
+        self,
+        command,
+        *,
+        cwd=None,
+        env=None,
+        stream=None,
+        allow_failure=False,
+    ) -> CommandResult:
+        rendered = list(command)
+        self.commands.append(rendered)
+        return CommandResult(exit_code=0, stdout="", stderr="")
+
+
 def test_collect_results_skips_diff_when_workspace_not_git_repo():
     events: list[dict[str, str]] = []
 
@@ -92,6 +121,26 @@ def test_collect_results_skips_diff_when_workspace_not_git_repo():
     assert diff_events
     assert diff_events[-1]["message"] == "Git repository not detected in workspace; skipping diff"
     assert runner.last_allow_failure is True
+
+
+def test_teardown_skips_when_keep_alive_set(monkeypatch):
+    runner = _TrackingRunner()
+    provisioner = _TrackingProvisioner()
+    operator = CodexWorkspaceOperator(provisioner=provisioner, runner=runner)
+    workspace = WorkspaceContext(
+        ref="docker://codex-123",
+        mode="docker",
+        repository="example/repo",
+        branch="main",
+        path="/workspace",
+    )
+
+    monkeypatch.setenv("CODEX_WORKSPACE_KEEP_ALIVE", "1")
+
+    operator.teardown(workspace)
+
+    assert runner.commands == []
+    assert provisioner.cleaned == []
 
 
 class _FallbackRunner:
@@ -314,6 +363,30 @@ def test_codex_command_uses_request_llm_config(monkeypatch):
     assert "CODEX_WRAPPER_DEFAULT_MODEL=gpt-oss:120b" in command
     assert "OLLAMA_API_KEY=ollama-key" in command
     assert not any("auth.api_key" in part for part in command)
+
+
+def test_codex_command_defaults_ollama_api_key(monkeypatch):
+    operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
+    request = type(
+        "RequestStub",
+        (),
+        {"metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:20b"}}},
+    )()
+    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
+    workspace = WorkspaceContext(
+        ref="local",
+        mode="local",
+        repository="example/repo",
+        branch="main",
+        path="/workspace",
+        proxy_url="http://proxy.local",
+    )
+
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+
+    command = operator._codex_command(request, workspace, spec)
+
+    assert "OLLAMA_API_KEY=local" in command
 
 
 def test_sample_cpu_usage_seconds_from_docker():

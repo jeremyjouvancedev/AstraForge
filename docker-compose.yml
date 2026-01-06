@@ -170,6 +170,7 @@ services:
   llm-proxy:
     build:
       context: ./llm-proxy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload --reload-dir /app
     env_file:
       - .env
     environment:
@@ -178,6 +179,9 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:20b}
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ./llm-proxy:/app
     ports:
       - "8081:8080"
     extra_hosts:

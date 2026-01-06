@@ -409,7 +409,7 @@ export default function RequestRunPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden bg-muted/10">
+    <div className="flex min-h-0 flex-col bg-muted/10 lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
       <header className="border-b border-border/60 bg-background/95">
         <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 lg:px-10">
           <div className="flex min-w-0 flex-1 items-center gap-4">

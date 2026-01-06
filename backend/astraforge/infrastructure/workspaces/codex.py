@@ -101,6 +101,11 @@ def _should_skip_image_pull() -> bool:
     return value.lower() in {"1", "true", "yes"}
 
 
+def _should_keep_workspace_alive() -> bool:
+    value = os.getenv("CODEX_WORKSPACE_KEEP_ALIVE", "")
+    return value.lower() in {"1", "true", "yes"}
+
+
 def _format_spec_prompt(spec: DevelopmentSpec) -> str:
     raw_prompt = getattr(spec, "raw_prompt", None)
     if raw_prompt:
@@ -238,6 +243,12 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         return outcome
 
     def teardown(self, workspace: WorkspaceContext) -> None:
+        if _should_keep_workspace_alive():
+            logger.info(
+                "Skipping Codex workspace teardown",
+                extra={"workspace_ref": workspace.ref},
+            )
+            return
         mode, identifier = self._parse_ref(workspace.ref)
         if mode == "docker":
             self.runner.run(
@@ -733,9 +744,8 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             if openai_key:
                 env_pairs.append(f"OPENAI_API_KEY={openai_key}")
         if llm_provider == "ollama":
-            ollama_key = os.getenv("OLLAMA_API_KEY")
-            if ollama_key:
-                env_pairs.append(f"OLLAMA_API_KEY={ollama_key}")
+            ollama_key = os.getenv("OLLAMA_API_KEY") or "local"
+            env_pairs.append(f"OLLAMA_API_KEY={ollama_key}")
             if not llm_model:
                 ollama_model = os.getenv("OLLAMA_MODEL")
                 if ollama_model:

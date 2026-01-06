@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import LoginPage from "@/features/auth/pages/login-page";
 
@@ -27,6 +27,10 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 describe("LoginPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     authSettings = {
       require_approval: false,

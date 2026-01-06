@@ -280,8 +280,8 @@ export function RunChatPanel({
 
   return (
     <div className={cn("flex h-full min-h-[360px] w-full flex-col overflow-hidden bg-transparent", className)}>
-      <div className="flex flex-1 flex-col gap-4">
-        <ScrollArea className="flex-1 bg-transparent">
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <ScrollArea className="min-h-0 flex-1 bg-transparent">
           <div className="space-y-4 px-2 pt-2">
             {displayedConversation.length === 0 ? (
               <p className="text-sm text-muted-foreground">Aucune conversation pour le moment.</p>
@@ -290,14 +290,14 @@ export function RunChatPanel({
             )}
           </div>
         </ScrollArea>
-          <ChatComposer
-            onSend={handleSend}
-            value={draft}
-            onChange={setDraft}
-            disabled={sendMutation.isPending}
-            showContextButton={false}
-            showMicrophoneButton={false}
-          />        
+        <ChatComposer
+          onSend={handleSend}
+          value={draft}
+          onChange={setDraft}
+          disabled={sendMutation.isPending}
+          showContextButton={false}
+          showMicrophoneButton={false}
+        />
       </div>
     </div>
   );
