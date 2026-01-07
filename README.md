@@ -136,7 +136,7 @@ for chunk in client.stream_message(conv.conversation_id, "Hello, sandbox!"):
     print(chunk)
 ```
 
-For a ready-to-run smoke test against `http://localhost:8001/api`, open `astraforge-python-package/examples/local_api_test.ipynb`.
+For a ready-to-run smoke test against `http://localhost:8001/api`, open `astraforge-python-package/examples/local_api_test.ipynb`. Additional notebooks live in `examples/`.
 
 ## Quickstart (Docker Compose)
 

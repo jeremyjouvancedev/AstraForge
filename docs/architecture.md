@@ -127,6 +127,7 @@ A workspace switcher in the client persists the active tenant locally and tags n
 │   └── k8s/                  # Cluster manifests and local kustomize overlays
 │       └── local/            # Kind/k3d-ready stack mirroring docker-compose.yml
 ├── docs/                     # Architecture, ADRs, runbooks
+├── examples/                 # Notebook walkthroughs for API + toolkit usage
 └── images/                   # Marketing and README screenshots
 ```
 
