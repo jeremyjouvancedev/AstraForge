@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle } from "lucide-react";
+import type { ChangeEvent } from "react";
+import { isAxiosError } from "axios";
+import { AlertCircle, Plus } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -21,13 +24,21 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
 import { useStopSandboxSession } from "@/features/sandbox/hooks/use-stop-sandbox-session";
+import { uploadSandboxFile } from "@/lib/api-client";
+import { extractApiErrorMessage } from "@/lib/api-error";
+import { buildSandboxUploadPath } from "@/features/deepagent/lib/sandbox-upload";
 
 export default function DeepAgentSandboxPage() {
   const [conversation, setConversation] = useState<DeepAgentConversation | null>(null);
   const [messages, setMessages] = useState<DeepAgentMessage[]>([]);
   const [input, setInput] = useState("");
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadPath, setUploadPath] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
   const inputClassName =
     "rounded-xl border-white/10 bg-black/40 text-zinc-100 ring-1 ring-white/5 placeholder:text-zinc-500 focus-visible:border-indigo-400/60 focus-visible:ring-indigo-400/60 focus-visible:ring-offset-0";
+  const uploadInputClassName = `${inputClassName} h-9 text-xs`;
   const panelClassName =
     "home-card home-ring-soft rounded-3xl border border-white/10 bg-black/30 text-zinc-100 shadow-2xl shadow-indigo-500/20 backdrop-blur";
   const [sandboxImageUrl, setSandboxImageUrl] = useState<string | null>(null);
@@ -38,6 +49,7 @@ export default function DeepAgentSandboxPage() {
     | { kind: "html"; name: string; url: string; downloadUrl: string }
   >({ kind: "none" });
   const previewObjectUrlRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const messageIdRef = useRef(0);
   const toolMessageIdsRef = useRef(new Map<string, string>());
@@ -68,6 +80,22 @@ export default function DeepAgentSandboxPage() {
       }),
     [sandboxSessions]
   );
+  const uploadTarget = useMemo<{ path: string; error: string | null }>(() => {
+    if (!selectedFile) {
+      return { path: "", error: null };
+    }
+    try {
+      return {
+        path: buildSandboxUploadPath(uploadPath, selectedFile.name),
+        error: null
+      };
+    } catch (error) {
+      return {
+        path: "",
+        error: error instanceof Error ? error.message : "Invalid upload path."
+      };
+    }
+  }, [selectedFile, uploadPath]);
 
   const rewriteSandboxLinks = (content: string): string => {
     if (!conversation) return content;
@@ -173,6 +201,57 @@ export default function DeepAgentSandboxPage() {
     if (!conversation || stopSandbox.isPending) return;
     handleStopSession(conversation.sandbox_session_id, { resetConversation: true });
   }, [conversation, handleStopSession, stopSandbox.isPending]);
+
+  const handleFileSelection = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setSelectedFile(file);
+    setUploadPath(file?.name ?? "");
+  }, []);
+
+  const handleUploadFile = useCallback(async () => {
+    if (!conversation || !selectedFile || isUploading) return;
+    if (!uploadTarget.path) {
+      toast.error("Upload path invalid", {
+        description: uploadTarget.error ?? "Please choose a path inside /workspace."
+      });
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const result = await uploadSandboxFile(
+        conversation.sandbox_session_id,
+        uploadTarget.path,
+        selectedFile
+      );
+      if (result.exit_code !== 0) {
+        const detail = result.stderr?.trim() || result.stdout?.trim() || "Sandbox upload failed.";
+        throw new Error(detail);
+      }
+      toast.success("File uploaded", { description: uploadTarget.path });
+      setSelectedFile(null);
+      setUploadPath("");
+      setIsUploadModalOpen(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    } catch (error) {
+      const message = isAxiosError(error)
+        ? extractApiErrorMessage(error.response?.data) ?? error.message
+        : error instanceof Error
+          ? error.message
+          : "File upload failed.";
+      toast.error("File upload failed", { description: message });
+    } finally {
+      setIsUploading(false);
+    }
+  }, [
+    conversation,
+    isUploading,
+    selectedFile,
+    uploadTarget.error,
+    uploadTarget.path,
+    setIsUploadModalOpen
+  ]);
 
   const formatToolMessageContent = (
     name: string,
@@ -664,13 +743,26 @@ export default function DeepAgentSandboxPage() {
                 void handleSend();
               }}
             >
-              <Input
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder="Ask the deep agent to inspect or modify files in the sandbox..."
-                disabled={!conversation || isStreaming}
-                className={inputClassName}
-              />
+              <div className="flex w-full items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="rounded-xl border-white/20 text-white hover:border-indigo-300/60 hover:text-indigo-50"
+                  onClick={() => setIsUploadModalOpen(true)}
+                  disabled={!conversation || isUploading}
+                  aria-label="Open file upload"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Input
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="Ask the deep agent to inspect or modify files in the sandbox..."
+                  disabled={!conversation || isStreaming}
+                  className={`${inputClassName} flex-1`}
+                />
+              </div>
               <Button
                 type="submit"
                 variant="brand"
@@ -747,6 +839,77 @@ export default function DeepAgentSandboxPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Upload file to sandbox</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleFileSelection}
+                disabled={!conversation || isUploading}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl border-white/20 text-white hover:border-indigo-300/60 hover:text-indigo-50"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!conversation || isUploading}
+              >
+                Choose file
+              </Button>
+              <span className="text-xs text-zinc-300">
+                {selectedFile ? selectedFile.name : "No file selected"}
+              </span>
+            </div>
+            <Input
+              value={uploadPath}
+              onChange={(event) => setUploadPath(event.target.value)}
+              placeholder="Relative path in /workspace (optional)"
+              disabled={!conversation || isUploading}
+              className={uploadInputClassName}
+            />
+            {uploadTarget.error ? (
+              <p className="text-[10px] text-rose-200">{uploadTarget.error}</p>
+            ) : (
+              <p className="text-[10px] text-zinc-400">
+                {selectedFile && uploadTarget.path
+                  ? `Uploads to ${uploadTarget.path}`
+                  : "Uploads land in /workspace"}
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsUploadModalOpen(false)}
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              variant="brand"
+              onClick={() => void handleUploadFile()}
+              disabled={
+                !conversation ||
+                !selectedFile ||
+                isUploading ||
+                !uploadTarget.path ||
+                !!uploadTarget.error
+              }
+            >
+              {isUploading ? "Uploading..." : "Upload"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!outputModal}

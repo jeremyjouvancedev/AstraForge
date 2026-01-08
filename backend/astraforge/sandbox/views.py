@@ -8,6 +8,7 @@ import time
 from django.http import HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -32,6 +33,13 @@ _PLACEHOLDER_PNG = base64.b64decode(
 )
 
 logger = logging.getLogger(__name__)
+
+
+class RawBytesParser(BaseParser):
+    media_type = "*/*"
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        return stream.read()
 
 
 class SandboxSessionViewSet(
@@ -152,15 +160,20 @@ class SandboxSessionViewSet(
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["post"], url_path="files/upload")
+    @action(detail=True, methods=["post"], url_path="files/upload", parser_classes=[RawBytesParser])
     def files_upload(self, request, pk=None):
         session, error = self._get_ready_session_or_response(self.get_object())
         if error:
             return error
-        path = request.query_params.get("path") or request.data.get("path")
+        path = request.query_params.get("path")
+        if not path and isinstance(request.data, dict):
+            path = request.data.get("path")
         if not path:
             return Response({"detail": "path is required"}, status=status.HTTP_400_BAD_REQUEST)
-        content = request.body or b""
+        if isinstance(request.data, (bytes, bytearray)):
+            content = bytes(request.data)
+        else:
+            content = request.body or b""
         try:
             result = self.orchestrator.upload_bytes(session, path, content)
         except SandboxProvisionError as exc:

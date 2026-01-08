@@ -421,6 +421,29 @@ export async function stopSandboxSession(sessionId: string) {
   await apiClient.post(`/sandbox/sessions/${encodeURIComponent(sessionId)}/stop/`, {});
 }
 
+export interface SandboxUploadResult {
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+}
+
+export async function uploadSandboxFile(sessionId: string, path: string, content: Blob) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<SandboxUploadResult>(
+    `/sandbox/sessions/${encodeURIComponent(sessionId)}/files/upload/`,
+    content,
+    {
+      headers: {
+        "Content-Type": content.type || "application/octet-stream"
+      },
+      params: {
+        path
+      }
+    }
+  );
+  return response.data;
+}
+
 // Workspace usage -------------------------------------------------------------
 export interface WorkspacePlanLimits {
   requests_per_month?: number | null;
