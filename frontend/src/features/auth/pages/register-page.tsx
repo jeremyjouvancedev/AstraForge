@@ -87,12 +87,15 @@ export default function RegisterPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
-                Request access
+                {waitlistActive ? "Request access" : "Get started"}
               </p>
-              <h1 className="mt-2 text-2xl font-semibold text-white">Join the AstraForge waitlist</h1>
+              <h1 className="mt-2 text-2xl font-semibold text-white">
+                {waitlistActive ? "Join the AstraForge waitlist" : "Create your account"}
+              </h1>
               <p className="mt-2 text-sm text-zinc-300">
-                Provision secure sandboxes, replay runs, and ship with confidence. We&apos;ll unlock
-                your account once the team approves it.
+                {waitlistActive
+                  ? "Provision secure sandboxes, replay runs, and ship with confidence. We'll unlock your account once the team approves it."
+                  : "Provision secure sandboxes, replay runs, and ship with confidence."}
               </p>
             </div>
             <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-zinc-300 ring-1 ring-white/10">

@@ -463,14 +463,14 @@ def test_run_codex_includes_cpu_seconds_in_reports(monkeypatch):
         lambda *args, **kwargs: 7.5,
     )
 
-    outcome = operator.run_codex(request, spec, workspace, stream=lambda event: None)
+    outcome = operator.run_agent(request, spec, workspace, stream=lambda event: None)
 
     assert outcome.reports["codex_cpu_seconds"] == 7.5
     assert "codex_exit_code" in outcome.reports
     assert "codex_stdout" in outcome.reports
 
 
-def test_run_codex_records_runtime_in_quota_service(monkeypatch):
+def test_run_agent_records_runtime_in_quota_service(monkeypatch):
     operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
     request = type("RequestStub", (), {"id": "req-123", "metadata": {}, "tenant_id": "workspace-uid"})()
     spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
@@ -507,7 +507,7 @@ def test_run_codex_records_runtime_in_quota_service(monkeypatch):
 
     monkeypatch.setattr(operator, "_quota_service", lambda: _Quota())
 
-    operator.run_codex(request, spec, workspace, stream=lambda event: None)
+    operator.run_agent(request, spec, workspace, stream=lambda event: None)
 
     assert recorded["call"][0] is workspace_model
     assert recorded["call"][1] == 4.2

@@ -185,8 +185,9 @@ const glowBottomStyle = {
 export default function HomePage() {
   const { isAuthenticated, authSettings } = useAuth();
   const billingEnabled = authSettings?.billing_enabled ?? true;
-  const primaryCtaHref = isAuthenticated ? "/app" : "#waitlist";
-  const primaryCtaLabel = isAuthenticated ? "Open console" : "Request access";
+  const waitlistActive = Boolean(authSettings?.waitlist_enabled && !authSettings?.allow_all_users);
+  const primaryCtaHref = isAuthenticated ? "/app" : waitlistActive ? "#waitlist" : "/register";
+  const primaryCtaLabel = isAuthenticated ? "Open console" : waitlistActive ? "Request access" : "Get started";
   const currentYear = new Date().getFullYear();
   const [waitlistForm, setWaitlistForm] = useState({
     email: "",
@@ -339,7 +340,7 @@ export default function HomePage() {
                   href={primaryCtaHref}
                   className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white home-btn-primary ring-1 ring-white/10"
                 >
-                  Request early access
+                  {primaryCtaLabel}
                 </a>
                 <a
                   href="#demo"
@@ -692,86 +693,109 @@ $ generate artifact patch.diff
           </div>
         </section>
 
-        <section id="waitlist" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 pb-20">
-          <div className="home-card home-ring-soft rounded-2xl p-8 md:p-10">
-            <div className="grid gap-8 md:grid-cols-2 md:items-center">
-              <div>
-                <h2 className="text-3xl font-semibold tracking-tight">Request early access</h2>
-                <p className="mt-3 text-zinc-300">
-                  We prioritize teams building DeepAgents in real conditions (repos, scripts, ops, data tasks). We’ll get
-                  back quickly with a demo.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-2 text-xs text-zinc-300">
-                  {waitlistTags.map((tag) => (
-                    <span key={tag} className="home-tag rounded-full px-3 py-1">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <form className="rounded-2xl bg-black/35 p-6 ring-1 ring-white/10" onSubmit={handleWaitlistSubmit}>
-                <div className="text-sm font-semibold">Join the waitlist</div>
-                <p className="mt-1 text-xs text-zinc-400">No spam. Just product updates & access.</p>
-
-                <div className="mt-4 space-y-3">
-                  <label className="block">
-                    <span className="text-xs text-zinc-400">Work email</span>
-                    <input
-                      type="email"
-                      required
-                      placeholder="name@company.com"
-                      className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
-                      value={waitlistForm.email}
-                      onChange={handleWaitlistChange("email")}
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="text-xs text-zinc-400">Team / role</span>
-                    <input
-                      type="text"
-                      placeholder="Platform · Infra · AI Engineering"
-                      className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
-                      value={waitlistForm.teamRole}
-                      onChange={handleWaitlistChange("teamRole")}
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="text-xs text-zinc-400">What are you building?</span>
-                    <textarea
-                      rows={3}
-                      placeholder="DeepAgents that patch repos, run tasks, and produce artifacts…"
-                      className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
-                      value={waitlistForm.projectSummary}
-                      onChange={handleWaitlistChange("projectSummary")}
-                    />
-                  </label>
-
-                  {waitlistFeedback ? (
-                    <p
-                      className={`text-xs ${
-                        waitlistFeedback.type === "success" ? "text-emerald-300" : "text-rose-300"
-                      }`}
-                      aria-live="polite"
-                    >
-                      {waitlistFeedback.text}
+        {!isAuthenticated && (
+          <section id="waitlist" className="mx-auto max-w-[clamp(75rem,85vw,112rem)] px-6 pb-20">
+            <div className="home-card home-ring-soft rounded-2xl p-8 md:p-10">
+              {waitlistActive ? (
+                <div className="grid gap-8 md:grid-cols-2 md:items-center">
+                  <div>
+                    <h2 className="text-3xl font-semibold tracking-tight">Request early access</h2>
+                    <p className="mt-3 text-zinc-300">
+                      We prioritize teams building DeepAgents in real conditions (repos, scripts, ops, data tasks). We’ll get
+                      back quickly with a demo.
                     </p>
-                  ) : null}
+                    <div className="mt-5 flex flex-wrap gap-2 text-xs text-zinc-300">
+                      {waitlistTags.map((tag) => (
+                        <span key={tag} className="home-tag rounded-full px-3 py-1">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
 
-                  <button
-                    type="submit"
-                    className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white home-btn-primary ring-1 ring-white/10 disabled:opacity-60"
-                    disabled={waitlistSubmitting}
-                  >
-                    {waitlistSubmitting ? "Submitting..." : "Request access"}
-                  </button>
+                  <form className="rounded-2xl bg-black/35 p-6 ring-1 ring-white/10" onSubmit={handleWaitlistSubmit}>
+                    <div className="text-sm font-semibold">Join the waitlist</div>
+                    <p className="mt-1 text-xs text-zinc-400">No spam. Just product updates & access.</p>
+
+                    <div className="mt-4 space-y-3">
+                      <label className="block">
+                        <span className="text-xs text-zinc-400">Work email</span>
+                        <input
+                          type="email"
+                          required
+                          placeholder="name@company.com"
+                          className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
+                          value={waitlistForm.email}
+                          onChange={handleWaitlistChange("email")}
+                        />
+                      </label>
+
+                      <label className="block">
+                        <span className="text-xs text-zinc-400">Team / role</span>
+                        <input
+                          type="text"
+                          placeholder="Platform · Infra · AI Engineering"
+                          className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
+                          value={waitlistForm.teamRole}
+                          onChange={handleWaitlistChange("teamRole")}
+                        />
+                      </label>
+
+                      <label className="block">
+                        <span className="text-xs text-zinc-400">What are you building?</span>
+                        <textarea
+                          rows={3}
+                          placeholder="DeepAgents that patch repos, run tasks, and produce artifacts…"
+                          className="mt-1 w-full rounded-xl bg-black/40 px-4 py-3 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
+                          value={waitlistForm.projectSummary}
+                          onChange={handleWaitlistChange("projectSummary")}
+                        />
+                      </label>
+
+                      {waitlistFeedback ? (
+                        <p
+                          className={`text-xs ${
+                            waitlistFeedback.type === "success" ? "text-emerald-300" : "text-rose-300"
+                          }`}
+                          aria-live="polite"
+                        >
+                          {waitlistFeedback.text}
+                        </p>
+                      ) : null}
+
+                      <button
+                        type="submit"
+                        className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white home-btn-primary ring-1 ring-white/10 disabled:opacity-60"
+                        disabled={waitlistSubmitting}
+                      >
+                        {waitlistSubmitting ? "Submitting..." : "Request access"}
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </form>
+              ) : (
+                <div className="flex flex-col items-center py-10 text-center">
+                  <h2 className="text-4xl font-semibold tracking-tight">Ready to deploy your first DeepAgent?</h2>
+                  <p className="mt-4 max-w-2xl text-lg text-zinc-300">
+                    Provision secure sandboxes, replay runs, and ship with confidence. AstraForge is ready for production.
+                  </p>
+                  <Link
+                    to="/register"
+                    className="mt-10 inline-flex items-center justify-center rounded-2xl px-10 py-4 text-lg font-semibold text-white home-btn-primary ring-1 ring-white/10"
+                  >
+                    Create your account
+                  </Link>
+                  <p className="mt-6 text-sm text-zinc-500">
+                    Already have an account?{" "}
+                    <Link to="/login" className="text-indigo-300 hover:text-white">
+                      Sign in
+                    </Link>
+                  </p>
+                </div>
+              )}
             </div>
-          </div>
-        </section>
+          </section>
+        )}
       </main>
 
       <footer className="relative z-10 border-t border-white/10">

@@ -171,7 +171,7 @@ class ExecuteRequest:
             request.metadata["workspace"] = workspace.as_dict()
             self.repository.save(request)
 
-            outcome = self.workspace_operator.run_codex(
+            outcome = self.workspace_operator.run_agent(
                 request,
                 spec,
                 workspace,

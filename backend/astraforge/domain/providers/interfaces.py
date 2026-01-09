@@ -78,7 +78,7 @@ class WorkspaceOperator(Protocol):
     ) -> WorkspaceContext:  # pragma: no cover
         ...
 
-    def run_codex(
+    def run_agent(
         self,
         request: Request,
         spec: DevelopmentSpec,

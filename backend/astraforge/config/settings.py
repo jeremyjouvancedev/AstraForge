@@ -33,8 +33,6 @@ env = environ.Env(
     LOG_LEVEL=(str, "INFO"),
     REQUEST_REPOSITORY=(str, "database"),
     CSRF_TRUSTED_ORIGINS=(list[str], ["http://localhost:5174", "http://127.0.0.1:5174"]),
-    AUTH_REQUIRE_APPROVAL=(bool, True),
-    AUTH_ALLOW_ALL_USERS=(bool, False),
     EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
     EMAIL_HOST=(str, ""),
     EMAIL_PORT=(int, 587),
@@ -45,6 +43,8 @@ env = environ.Env(
     DEFAULT_FROM_EMAIL=(str, "AstraForge <noreply@astraforge.dev>"),
     EARLY_ACCESS_NOTIFICATION_EMAIL=(str, ""),
     SELF_HOSTED=(bool, True),
+    AUTH_REQUIRE_APPROVAL=(bool, False),
+    AUTH_ALLOW_ALL_USERS=(bool, False),
     BILLING_ENABLED=(bool, False),
     DEFAULT_WORKSPACE_PLAN=(str, ""),
     WORKSPACE_QUOTAS_ENABLED=(bool, True),
@@ -62,7 +62,8 @@ CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
     default=["http://localhost:5174", "http://127.0.0.1:5174"],
 )
-AUTH_REQUIRE_APPROVAL = env.bool("AUTH_REQUIRE_APPROVAL", default=True)
+SELF_HOSTED = env.bool("SELF_HOSTED", default=True)
+AUTH_REQUIRE_APPROVAL = env.bool("AUTH_REQUIRE_APPROVAL", default=not SELF_HOSTED)
 AUTH_ALLOW_ALL_USERS = env.bool("AUTH_ALLOW_ALL_USERS", default=False)
 AUTH_WAITLIST_ENABLED = AUTH_REQUIRE_APPROVAL and not AUTH_ALLOW_ALL_USERS
 
@@ -75,7 +76,6 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EARLY_ACCESS_NOTIFICATION_EMAIL = env("EARLY_ACCESS_NOTIFICATION_EMAIL")
-SELF_HOSTED = env.bool("SELF_HOSTED", default=True)
 BILLING_ENABLED = env.bool("BILLING_ENABLED", default=not SELF_HOSTED)
 DEFAULT_WORKSPACE_PLAN = env(
     "DEFAULT_WORKSPACE_PLAN",

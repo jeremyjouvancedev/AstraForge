@@ -250,7 +250,7 @@ class _StubWorkspaceOperator:
             metadata={"feature_branch": f"astraforge/{request.id}"},
         )
 
-    def run_codex(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
+    def run_agent(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
         self.executed = True
         stream({"type": "status", "stage": "codex", "message": "running"})
         return ExecutionOutcome(
@@ -278,7 +278,7 @@ class _StubRunLog:
 
 
 class _HistoryOnlyWorkspaceOperator(_StubWorkspaceOperator):
-    def run_codex(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
+    def run_agent(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
         self.executed = True
         stream({"type": "status", "stage": "codex", "message": "running"})
         return ExecutionOutcome(

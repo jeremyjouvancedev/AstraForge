@@ -149,7 +149,7 @@ export default function LoginPage() {
           <p className="mt-6 text-center text-sm text-zinc-400">
             Need an account?{" "}
             <Link to="/register" className="text-indigo-300 hover:text-white">
-              Join the waitlist
+              {waitlistActive ? "Join the waitlist" : "Create an account"}
             </Link>
           </p>
         </div>
