@@ -14,7 +14,6 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, TYPE_CHECKING
 from urllib.parse import quote, urlparse, urlunparse
 
 from astraforge.domain.models.request import Request
-from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import CommandResult, ExecutionOutcome, WorkspaceContext
 from astraforge.domain.providers.interfaces import Provisioner, WorkspaceOperator
 from astraforge.infrastructure.cpu_usage import build_cpu_probe_script, parse_cpu_usage_payload
@@ -124,7 +123,6 @@ class BaseAgentWorkspaceOperator(WorkspaceOperator):
     def prepare(
         self,
         request: Request,
-        spec: DevelopmentSpec,
         *,
         stream: Callable[[dict[str, Any]], None],
     ) -> WorkspaceContext:
@@ -162,7 +160,6 @@ class BaseAgentWorkspaceOperator(WorkspaceOperator):
             history_content=request.metadata.get("history_jsonl"),
             stream=stream,
         )
-        self._write_spec_file(identifier, mode, spec, stream, workspace_path)
         return WorkspaceContext(
             ref=workspace_ref,
             mode=mode,
@@ -181,12 +178,11 @@ class BaseAgentWorkspaceOperator(WorkspaceOperator):
     def run_agent(
         self,
         request: Request,
-        spec: DevelopmentSpec,
         workspace: WorkspaceContext,
         *,
         stream: Callable[[dict[str, Any]], None],
     ) -> ExecutionOutcome:
-        command = self._agent_command(request, workspace, spec)
+        command = self._agent_command(request, workspace)
         stream(
             {
                 "type": "status",
@@ -239,38 +235,9 @@ class BaseAgentWorkspaceOperator(WorkspaceOperator):
         self,
         request: Request,
         workspace: WorkspaceContext,
-        spec: DevelopmentSpec,
     ) -> List[str]:
         """Generate the CLI command to run the agent."""
         raise NotImplementedError
-
-    def _write_spec_file(
-        self,
-        identifier: str,
-        mode: str,
-        spec: DevelopmentSpec,
-        stream: Callable[[dict[str, Any]], None],
-        workspace_path: str,
-    ) -> None:
-        """Write the development spec to the workspace."""
-        # Default implementation uses JSON
-        payload = spec.as_dict()
-        json_payload = json.dumps(payload, ensure_ascii=False)
-        encoded = base64.b64encode(json_payload.encode("utf-8")).decode("ascii")
-        destination = f"{workspace_path}/{self.config_dir}/spec.json"
-        script = (
-            f"mkdir -p {workspace_path}/{self.config_dir} && "
-            f"echo '{encoded}' | base64 -d > {destination}"
-        )
-        command = self._wrap_exec(identifier, mode, ["sh", "-c", script])
-        self.runner.run(command, stream=stream, allow_failure=True)
-        stream(
-            {
-                "type": "status",
-                "stage": "spec",
-                "message": f"Spec uploaded to {destination}",
-            }
-        )
 
     # internal helpers -------------------------------------------------
 

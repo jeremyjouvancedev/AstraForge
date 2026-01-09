@@ -14,7 +14,6 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, TYPE_CHECKING
 from urllib.parse import quote, urlparse, urlunparse
 
 from astraforge.domain.models.request import Request
-from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import CommandResult, ExecutionOutcome, WorkspaceContext
 from astraforge.domain.providers.interfaces import Provisioner, WorkspaceOperator
 from astraforge.infrastructure.cpu_usage import build_cpu_probe_script, parse_cpu_usage_payload
@@ -106,38 +105,6 @@ def _should_keep_workspace_alive() -> bool:
     return value.lower() in {"1", "true", "yes"}
 
 
-def _format_spec_prompt(spec: DevelopmentSpec) -> str:
-    raw_prompt = getattr(spec, "raw_prompt", None)
-    if raw_prompt:
-        return str(raw_prompt).strip()
-    payload = spec.as_dict()
-    lines = [
-        "You are Codex CLI applying the following development specification.",
-        "",
-        f"Title: {payload.get('title', '').strip()}",
-        f"Summary: {payload.get('summary', '').strip()}",
-        "",
-    ]
-
-    def _append_section(label: str, items: list[str]) -> None:
-        if not items:
-            return
-        lines.append(f"{label}:")
-        for item in items:
-            clean = str(item).strip()
-            if clean:
-                lines.append(f"- {clean}")
-        lines.append("")
-
-    _append_section("Requirements", payload.get("requirements", []))  # type: ignore[arg-type]
-    _append_section("Implementation steps", payload.get("implementation_steps", []))  # type: ignore[arg-type]
-    _append_section("Risks", payload.get("risks", []))  # type: ignore[arg-type]
-    _append_section("Acceptance criteria", payload.get("acceptance_criteria", []))  # type: ignore[arg-type]
-
-    prompt_text = "\n".join(line for line in lines if line is not None)
-    return prompt_text.strip()
-
-
 @dataclass
 class CodexWorkspaceOperator(WorkspaceOperator):
     """Coordinates provisioning, proxy bootstrap, and Codex CLI execution."""
@@ -151,7 +118,6 @@ class CodexWorkspaceOperator(WorkspaceOperator):
     def prepare(
         self,
         request: Request,
-        spec: DevelopmentSpec,
         *,
         stream: Callable[[dict[str, Any]], None],
     ) -> WorkspaceContext:
@@ -189,7 +155,6 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             history_content=request.metadata.get("history_jsonl"),
             stream=stream,
         )
-        self._write_spec_file(identifier, mode, spec, stream, workspace_path)
         return WorkspaceContext(
             ref=workspace_ref,
             mode=mode,
@@ -208,12 +173,11 @@ class CodexWorkspaceOperator(WorkspaceOperator):
     def run_agent(
         self,
         request: Request,
-        spec: DevelopmentSpec,
         workspace: WorkspaceContext,
         *,
         stream: Callable[[dict[str, Any]], None],
     ) -> ExecutionOutcome:
-        command = self._codex_command(request, workspace, spec)
+        command = self._codex_command(request, workspace)
         stream(
             {
                 "type": "status",
@@ -671,37 +635,10 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             }
         )
 
-    def _write_spec_file(
-        self,
-        identifier: str,
-        mode: str,
-        spec: DevelopmentSpec,
-        stream: Callable[[dict[str, Any]], None],
-        workspace_path: str,
-    ) -> None:
-        payload = spec.as_dict()
-        json_payload = json.dumps(payload, ensure_ascii=False)
-        encoded = base64.b64encode(json_payload.encode("utf-8")).decode("ascii")
-        destination = f"{workspace_path}/.codex/spec.json"
-        script = (
-            f"mkdir -p {workspace_path}/.codex && "
-            f"echo '{encoded}' | base64 -d > {destination}"
-        )
-        command = self._wrap_exec(identifier, mode, ["sh", "-c", script])
-        self.runner.run(command, stream=stream, allow_failure=True)
-        stream(
-            {
-                "type": "status",
-                "stage": "spec",
-                "message": f"Spec uploaded to {destination}",
-            }
-        )
-
     def _codex_command(
         self,
         request: Request,
         workspace: WorkspaceContext,
-        spec: DevelopmentSpec,
     ) -> List[str]:
         def _override(key: str, value: Any) -> str:
             return f"{key}={json.dumps(value)}"
@@ -721,10 +658,20 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             overrides.extend(["-c", _override("workspace.proxy_url", workspace.proxy_url)])
         if not llm_provider:
             overrides.extend(["-c", _override("auth.api_key", "sk-astraforge-stub")])
-        prompt = _format_spec_prompt(spec) or "Apply the development specification."
-        spec_path = f"{workspace.path}/.codex/spec.json"
-        overrides.extend(["-c", _override("workspace.spec_path", spec_path)])
-        overrides.extend(["-c", _override("workspace.spec_text", prompt)])
+
+        # Use request payload description as the prompt
+        prompt = request.payload.description or request.payload.title or "User request"
+
+        # Handle images from attachments
+        images = [
+            att.name
+            for att in request.payload.attachments
+            if att.content_type.startswith("image/")
+        ]
+        image_args = []
+        if images:
+            image_args = ["--image", ",".join(images)]
+
         overrides.extend(
             [
                 "-c",
@@ -754,10 +701,10 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         base = [
             *env_prefix,
             "codex",
-            "exec",
             "--skip-git-repo-check",
             "-o",
             final_message_path,
+            *image_args,
             *overrides,
             prompt,
         ]

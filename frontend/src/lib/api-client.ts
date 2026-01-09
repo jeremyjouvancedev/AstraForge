@@ -80,15 +80,6 @@ export async function fetchRequests(filters?: { tenantId?: string }) {
   return response.data;
 }
 
-export interface DevelopmentSpecDto {
-  title: string;
-  summary: string;
-  requirements: string[];
-  implementation_steps: string[];
-  risks: string[];
-  acceptance_criteria: string[];
-}
-
 export async function fetchRequestDetail(id: string) {
   const response = await apiClient.get<CreateRequestResponse>(`/requests/${id}/`);
   return response.data;
@@ -104,11 +95,10 @@ export async function sendChatMessage(payload: { requestId: string; message: str
 
 export async function executeRequest(payload: {
   requestId: string;
-  spec?: DevelopmentSpecDto;
 }) {
   const response = await apiClient.post<{ status: string }>(
     `/requests/${payload.requestId}/execute/`,
-    payload.spec ? { spec: payload.spec } : {}
+    {}
   );
   return response.data;
 }

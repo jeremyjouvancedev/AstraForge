@@ -46,7 +46,6 @@ class Container:
     review_bots: ProviderRegistry[Any] = field(default_factory=ProviderRegistry)
     vector_stores: ProviderRegistry[Any] = field(default_factory=ProviderRegistry)
     event_buses: ProviderRegistry[Any] = field(default_factory=ProviderRegistry)
-    spec_generators: ProviderRegistry[Any] = field(default_factory=ProviderRegistry)
     workspace_operators: ProviderRegistry[Any] = field(default_factory=ProviderRegistry)
     merge_request_composers: ProviderRegistry[Any] = field(default_factory=ProviderRegistry)
     run_logs: ProviderRegistry[Any] = field(default_factory=ProviderRegistry)
@@ -71,10 +70,6 @@ class Container:
     def resolve_provisioner(self, key: Optional[str] = None) -> Any:
         target = key or self._default("PROVISIONER", "docker")
         return self.provisioners.resolve(target)
-
-    def resolve_spec_generator(self, key: Optional[str] = None) -> Any:
-        target = key or self._default("SPEC_GENERATOR", "proxy")
-        return self.spec_generators.resolve(target)
 
     def resolve_workspace_operator(self, key: Optional[str] = None) -> Any:
         target = key or self._default("WORKSPACE_OPERATOR", "codex")

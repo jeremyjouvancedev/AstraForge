@@ -9,9 +9,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from astraforge.accounts.models import Workspace
-from astraforge.application.use_cases import ExecuteRequest, ProcessRequest
+from astraforge.application.use_cases import ExecuteRequest
 from astraforge.domain.models.request import Request, RequestPayload, RequestState
-from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import ExecutionOutcome, WorkspaceContext
 from astraforge.infrastructure.repositories.memory import InMemoryRequestRepository
 from astraforge.integrations.models import RepositoryLink
@@ -211,16 +210,6 @@ def test_request_quota_blocks_after_limit(api_client, user, request_payload, mon
     assert "request quota" in payload["tenant_id"][0].lower()
 
 
-class _StubSpecGenerator:
-    def generate(self, request: Request) -> DevelopmentSpec:
-        return DevelopmentSpec(
-            title=f"Spec for {request.payload.title}",
-            summary="Implementation summary",
-            requirements=["req"],
-            implementation_steps=["step"],
-        )
-
-
 STUB_FINAL_MESSAGE = "Codex execution completed"
 STUB_HISTORY = "[]"
 HISTORY_ONLY_ASSISTANT = "History derived assistant"
@@ -238,7 +227,7 @@ class _StubWorkspaceOperator:
         self.executed = False
         self.teardown_called = False
 
-    def prepare(self, request: Request, spec: DevelopmentSpec, *, stream):
+    def prepare(self, request: Request, *, stream):
         self.prepared = True
         stream({"type": "status", "stage": "workspace", "message": "prepared"})
         return WorkspaceContext(
@@ -250,7 +239,7 @@ class _StubWorkspaceOperator:
             metadata={"feature_branch": f"astraforge/{request.id}"},
         )
 
-    def run_agent(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
+    def run_agent(self, request: Request, workspace: WorkspaceContext, *, stream):
         self.executed = True
         stream({"type": "status", "stage": "codex", "message": "running"})
         return ExecutionOutcome(
@@ -278,7 +267,7 @@ class _StubRunLog:
 
 
 class _HistoryOnlyWorkspaceOperator(_StubWorkspaceOperator):
-    def run_agent(self, request: Request, spec: DevelopmentSpec, workspace: WorkspaceContext, *, stream):
+    def run_agent(self, request: Request, workspace: WorkspaceContext, *, stream):
         self.executed = True
         stream({"type": "status", "stage": "codex", "message": "running"})
         return ExecutionOutcome(
@@ -288,40 +277,6 @@ class _HistoryOnlyWorkspaceOperator(_StubWorkspaceOperator):
                 "history": HISTORY_ONLY_JSONL,
             },
         )
-
-
-def test_process_request_populates_metadata():
-    repo = InMemoryRequestRepository()
-    payload = RequestPayload(title="Add feature", description="desc", context={})
-    request = Request(
-        id="req-1",
-        user_id="user-1",
-        tenant_id="tenant",
-        source="direct_user",
-        sender="user@example.com",
-        payload=payload,
-        metadata={
-            "project": {
-                "repository": "org/project",
-                "branch": "main",
-            }
-        },
-    )
-    repo.save(request)
-    run_log = _StubRunLog()
-
-    spec = ProcessRequest(
-        repository=repo,
-        spec_generator=_StubSpecGenerator(),
-        run_log=run_log,
-    )(request_id="req-1")
-
-    stored = repo.get("req-1")
-    assert stored.state == RequestState.SPEC_READY
-    assert stored.metadata["spec"]["title"].startswith("Spec for")
-    assert "workspace" not in stored.metadata
-    assert run_log.events[-1]["type"] == "spec_ready"
-    assert spec.summary == "Implementation summary"
 
 
 def test_chat_endpoint_preserves_message_whitespace(api_client, monkeypatch):
@@ -375,8 +330,6 @@ def test_execute_request_runs_workspace():
 
     stored = repo.get("req-2")
     assert stored.state == RequestState.PATCH_READY
-    assert stored.metadata["spec"]["summary"] == "desc"
-    assert stored.metadata["spec"]["implementation_steps"] == ["desc"]
     assert stored.metadata["workspace"]["mode"] == "docker"
     assert stored.metadata["execution"]["diff"] == "diff"
     assert stored.metadata.get("history_jsonl") == STUB_HISTORY

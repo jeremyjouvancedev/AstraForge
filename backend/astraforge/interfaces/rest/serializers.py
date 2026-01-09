@@ -259,23 +259,6 @@ class ExecutionRequestSerializer(serializers.Serializer):
     branch = serializers.CharField()
 
 
-class DevelopmentSpecSerializer(serializers.Serializer):
-    title = serializers.CharField()
-    summary = serializers.CharField()
-    requirements = serializers.ListField(
-        child=serializers.CharField(), allow_empty=True, required=False
-    )
-    implementation_steps = serializers.ListField(
-        child=serializers.CharField(), allow_empty=True, required=False
-    )
-    risks = serializers.ListField(
-        child=serializers.CharField(), allow_empty=True, required=False
-    )
-    acceptance_criteria = serializers.ListField(
-        child=serializers.CharField(), allow_empty=True, required=False
-    )
-
-
 class DeepAgentChatMessageSerializer(serializers.Serializer):
     role = serializers.ChoiceField(
         choices=["user", "assistant", "system", "tool"], default="user"
@@ -291,7 +274,6 @@ class DeepAgentMessageRequestSerializer(serializers.Serializer):
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
-    spec = DevelopmentSpecSerializer(required=False)
     llm_provider = serializers.ChoiceField(
         choices=["openai", "ollama"],
         required=False,

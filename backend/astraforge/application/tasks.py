@@ -8,7 +8,6 @@ from astraforge.application.use_cases import (
     ApplyPlan,
     GeneratePlan,
     ExecuteRequest,
-    ProcessRequest,
     SubmitMergeRequest,
 )
 from astraforge.bootstrap import container, repository
@@ -33,22 +32,12 @@ def apply_plan_task(self, request_id: str, repo: str, branch: str) -> str:
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True)
-def generate_spec_task(self, request_id: str) -> dict:
-    spec = ProcessRequest(
-        repository=repository,
-        spec_generator=container.resolve_spec_generator(),
-        run_log=container.resolve_run_log(),
-    )(request_id)
-    return spec.as_dict()
-
-
-@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True)
-def execute_request_task(self, request_id: str, spec: dict | None = None) -> dict:
+def execute_request_task(self, request_id: str) -> dict:
     outcome = ExecuteRequest(
         repository=repository,
         workspace_operator=container.resolve_workspace_operator(),
         run_log=container.resolve_run_log(),
-    )(request_id=request_id, spec_override=spec)
+    )(request_id=request_id)
     return outcome.as_dict()
 
 

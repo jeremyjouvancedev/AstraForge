@@ -47,7 +47,7 @@ export function HomeRoute() {
     return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
   }
 
-  if (authSettings?.self_hosted) {
+  if (authSettings?.self_hosted || import.meta.env.DEV) {
     return <Navigate to="/app" replace />;
   }
 

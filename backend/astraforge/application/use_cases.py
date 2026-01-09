@@ -10,7 +10,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Protocol
 
 from astraforge.domain.models.request import ExecutionPlan, Request, RequestState
-from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import ExecutionOutcome, WorkspaceContext
 
 if TYPE_CHECKING:
@@ -19,7 +18,6 @@ if TYPE_CHECKING:
         MergeRequestComposer,
         Provisioner,
         RunLogStreamer,
-        SpecGenerator,
         VCSProvider,
         WorkspaceOperator,
     )
@@ -49,52 +47,6 @@ class SubmitRequest:
 
 
 @dataclass
-class ProcessRequest:
-    repository: RequestRepository
-    spec_generator: "SpecGenerator"
-    run_log: "RunLogStreamer"
-
-    def __call__(self, request_id: str) -> DevelopmentSpec:
-        request = self.repository.get(request_id)
-        self._emit(
-            request,
-            {"type": "status", "stage": "spec", "message": "Generating development spec"},
-        )
-        try:
-            spec = self.spec_generator.generate(request)
-        except Exception as exc:
-            request.transition(RequestState.FAILED)
-            self.repository.save(request)
-            self._emit(
-                request,
-                {
-                    "type": "error",
-                    "stage": "failed",
-                    "message": str(exc),
-                },
-            )
-            raise
-
-        spec_dict = spec.as_dict()
-        request.metadata["spec"] = spec_dict
-        request.transition(RequestState.SPEC_READY)
-        self.repository.save(request)
-        self._emit(
-            request,
-            {
-                "type": "spec_ready",
-                "message": "Specification generated",
-                "spec": spec_dict,
-            },
-        )
-        return spec
-
-    def _emit(self, request: Request, event: dict[str, object]) -> None:
-        payload = {"request_id": request.id, **event}
-        self.run_log.publish(request.id, payload)
-
-
-@dataclass
 class ExecuteRequest:
     repository: RequestRepository
     workspace_operator: "WorkspaceOperator"
@@ -103,16 +55,8 @@ class ExecuteRequest:
     def __call__(
         self,
         request_id: str,
-        *,
-        spec_override: dict[str, Any] | None = None,
     ) -> ExecutionOutcome:
         request = self.repository.get(request_id)
-        current_spec = spec_override or request.metadata.get("spec")
-        if current_spec is None:
-            spec = self._default_spec_from_request(request)
-        else:
-            spec = self._hydrate_spec(current_spec)
-        request.metadata["spec"] = spec.as_dict()
 
         def _timestamp() -> str:
             return datetime.now(timezone.utc).isoformat()
@@ -165,7 +109,6 @@ class ExecuteRequest:
         try:
             workspace = self.workspace_operator.prepare(
                 request,
-                spec,
                 stream=publish,
             )
             request.metadata["workspace"] = workspace.as_dict()
@@ -173,7 +116,6 @@ class ExecuteRequest:
 
             outcome = self.workspace_operator.run_agent(
                 request,
-                spec,
                 workspace,
                 stream=publish,
             )
@@ -252,31 +194,6 @@ class ExecuteRequest:
     def _emit(self, request: Request, event: dict[str, object]) -> None:
         payload = {"request_id": request.id, **event}
         self.run_log.publish(request.id, payload)
-
-    def _hydrate_spec(self, data: dict[str, Any]) -> DevelopmentSpec:
-        return DevelopmentSpec(
-            title=str(data.get("title", "")),
-            summary=str(data.get("summary", "")),
-            requirements=list(data.get("requirements", []) or []),
-            implementation_steps=list(data.get("implementation_steps", []) or []),
-            risks=list(data.get("risks", []) or []),
-            acceptance_criteria=list(data.get("acceptance_criteria", []) or []),
-            raw_prompt=str(data.get("raw_prompt")) if data.get("raw_prompt") is not None else None,
-        )
-
-    def _default_spec_from_request(self, request: Request) -> DevelopmentSpec:
-        prompt = request.payload.description or ""
-        title = request.payload.title or self._fallback_title(prompt)
-        summary = prompt or title
-        implementation_steps: list[str] = []
-        if prompt:
-            implementation_steps.append(prompt)
-        return DevelopmentSpec(
-            title=title or "User request",
-            summary=summary or "User request",
-            implementation_steps=implementation_steps,
-            raw_prompt=prompt or None,
-        )
 
     @staticmethod
     def _fallback_title(prompt: str) -> str:

@@ -201,10 +201,7 @@ class RequestViewSet(
                 llm_config["model"] = llm_model
             request_obj.metadata["llm"] = llm_config
             repository.save(request_obj)
-        app_tasks.execute_request_task.delay(
-            request_id,
-            serializer.validated_data.get("spec"),
-        )
+        app_tasks.execute_request_task.delay(request_id)
         return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
 
     def get_object(self):
@@ -287,17 +284,7 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             if len(title_candidate) <= 72
             else f"{title_candidate[:69]}..."
         )
-        implementation_steps: list[str] = [summary] if summary else [title]
-        spec_payload = {
-            "title": title,
-            "summary": summary or title,
-            "requirements": [],
-            "implementation_steps": implementation_steps,
-            "risks": [],
-            "acceptance_criteria": [],
-            "raw_prompt": summary or title,
-        }
-        app_tasks.execute_request_task.delay(request_id, spec_payload)
+        app_tasks.execute_request_task.delay(request_id)
         run_log.publish(
             request_id,
             {

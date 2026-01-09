@@ -2,34 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List
-
-
-@dataclass(slots=True)
-class DevelopmentSpec:
-    """Normalized development specification produced from a natural language request."""
-
-    title: str
-    summary: str
-    requirements: List[str] = field(default_factory=list)
-    implementation_steps: List[str] = field(default_factory=list)
-    risks: List[str] = field(default_factory=list)
-    acceptance_criteria: List[str] = field(default_factory=list)
-    raw_prompt: str | None = None
-
-    def as_dict(self) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "title": self.title,
-            "summary": self.summary,
-            "requirements": list(self.requirements),
-            "implementation_steps": list(self.implementation_steps),
-            "risks": list(self.risks),
-            "acceptance_criteria": list(self.acceptance_criteria),
-        }
-        if self.raw_prompt:
-            payload["raw_prompt"] = self.raw_prompt
-        return payload
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import subprocess
 
-from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import CommandResult, ExecutionOutcome, WorkspaceContext
 from astraforge.infrastructure.workspaces.codex import CodexWorkspaceOperator
 
@@ -343,7 +342,6 @@ def test_codex_command_uses_request_llm_config(monkeypatch):
         (),
         {"metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:120b"}}},
     )()
-    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
     workspace = WorkspaceContext(
         ref="local",
         mode="local",
@@ -355,7 +353,7 @@ def test_codex_command_uses_request_llm_config(monkeypatch):
 
     monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
 
-    command = operator._codex_command(request, workspace, spec)
+    command = operator._codex_command(request, workspace)
 
     assert command[0] == "env"
     assert "LLM_PROVIDER=ollama" in command
@@ -372,7 +370,6 @@ def test_codex_command_defaults_ollama_api_key(monkeypatch):
         (),
         {"metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:20b"}}},
     )()
-    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
     workspace = WorkspaceContext(
         ref="local",
         mode="local",
@@ -384,7 +381,7 @@ def test_codex_command_defaults_ollama_api_key(monkeypatch):
 
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
 
-    command = operator._codex_command(request, workspace, spec)
+    command = operator._codex_command(request, workspace)
 
     assert "OLLAMA_API_KEY=local" in command
 
@@ -431,7 +428,6 @@ def test_sample_cpu_usage_seconds_from_k8s():
 def test_run_codex_includes_cpu_seconds_in_reports(monkeypatch):
     operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
     request = type("RequestStub", (), {"id": "req-123", "metadata": {}})()
-    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
     workspace = WorkspaceContext(
         ref="docker://codex-123",
         mode="docker",
@@ -463,7 +459,7 @@ def test_run_codex_includes_cpu_seconds_in_reports(monkeypatch):
         lambda *args, **kwargs: 7.5,
     )
 
-    outcome = operator.run_agent(request, spec, workspace, stream=lambda event: None)
+    outcome = operator.run_agent(request, workspace, stream=lambda event: None)
 
     assert outcome.reports["codex_cpu_seconds"] == 7.5
     assert "codex_exit_code" in outcome.reports
@@ -473,7 +469,6 @@ def test_run_codex_includes_cpu_seconds_in_reports(monkeypatch):
 def test_run_agent_records_runtime_in_quota_service(monkeypatch):
     operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
     request = type("RequestStub", (), {"id": "req-123", "metadata": {}, "tenant_id": "workspace-uid"})()
-    spec = DevelopmentSpec(title="t", summary="s", requirements=[], implementation_steps=[])
     workspace = WorkspaceContext(
         ref="docker://codex-123",
         mode="docker",
@@ -507,7 +502,7 @@ def test_run_agent_records_runtime_in_quota_service(monkeypatch):
 
     monkeypatch.setattr(operator, "_quota_service", lambda: _Quota())
 
-    operator.run_agent(request, spec, workspace, stream=lambda event: None)
+    operator.run_agent(request, workspace, stream=lambda event: None)
 
     assert recorded["call"][0] is workspace_model
     assert recorded["call"][1] == 4.2
