@@ -40,8 +40,8 @@ export interface DeepAgentMessage {
 }
 
 export function useCreateConversation() {
-  return useMutation<DeepAgentConversation, Error, void>({
-    mutationFn: async () => {
+  return useMutation<DeepAgentConversation, Error, { metadata?: Record<string, unknown> } | void>({
+    mutationFn: async (config) => {
       await ensureCsrfToken();
       const csrfToken = getCookie("csrftoken") ?? "";
       const response = await fetch(`${API_BASE}/deepagent/conversations/`, {
@@ -51,7 +51,7 @@ export function useCreateConversation() {
           "X-CSRFToken": csrfToken
         },
         credentials: "include",
-        body: JSON.stringify({})
+        body: JSON.stringify(config ?? {})
       });
       if (!response.ok) {
         let message = "Failed to create deep agent conversation";

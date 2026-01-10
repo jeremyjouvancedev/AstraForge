@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { isAxiosError } from "axios";
 import { AlertCircle, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +24,7 @@ import {
   useSendDeepAgentMessage
 } from "@/features/deepagent/hooks/use-deepagent";
 import { toast } from "@/components/ui/sonner";
-import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
+import { useSandboxSessions, sandboxSessionsQueryKey } from "@/features/sandbox/hooks/use-sandbox-sessions";
 import { useStopSandboxSession } from "@/features/sandbox/hooks/use-stop-sandbox-session";
 import { uploadSandboxFile } from "@/lib/api-client";
 import { extractApiErrorMessage } from "@/lib/api-error";
@@ -71,6 +73,7 @@ export default function DeepAgentSandboxPage() {
   );
   const [provisionError, setProvisionError] = useState<string | null>(null);
   const { data: sandboxSessions, isLoading: sandboxSessionsLoading } = useSandboxSessions();
+  const queryClient = useQueryClient();
   const stopSandbox = useStopSandboxSession();
   const activeSessions = useMemo(
     () =>
@@ -129,10 +132,11 @@ export default function DeepAgentSandboxPage() {
 
   const triggerConversation = useCallback(
     (options?: { silent?: boolean }) => {
-      createConversation.mutate(undefined, {
+      createConversation.mutate({}, {
         onSuccess: (conv) => {
           setProvisionError(null);
           setConversation(conv);
+          void queryClient.invalidateQueries({ queryKey: sandboxSessionsQueryKey });
         },
         onError: (error) => {
           setProvisionError(error.message);
@@ -153,21 +157,8 @@ export default function DeepAgentSandboxPage() {
   }, [createConversation, triggerConversation]);
 
   useEffect(() => {
-    if (
-      !conversation &&
-      !createConversation.isPending &&
-      !createConversation.isSuccess &&
-      !createConversation.isError
-    ) {
-      triggerConversation({ silent: true });
-    }
-  }, [
-    conversation,
-    createConversation.isError,
-    createConversation.isPending,
-    createConversation.isSuccess,
-    triggerConversation
-  ]);
+    // Automatic provisioning disabled to allow user to choose options first.
+  }, []);
 
   const handleStopSession = useCallback(
     (sessionId: string, options?: { resetConversation?: boolean }) => {
@@ -555,6 +546,8 @@ export default function DeepAgentSandboxPage() {
     return "";
   }, [conversation, sandboxImageUrl, preview.kind]);
 
+  const [activeTab, setActiveTab] = useState("preview");
+
   const handleFileLinkClick = async (href: string, label: string) => {
     if (href.startsWith("modal:")) {
       const key = href.replace("modal:", "");
@@ -566,6 +559,9 @@ export default function DeepAgentSandboxPage() {
       });
       return;
     }
+
+    // Switch to preview tab when a file is clicked
+    setActiveTab("preview");
 
     if (!href) return;
     try {
@@ -718,7 +714,9 @@ export default function DeepAgentSandboxPage() {
         <Card className={`${panelClassName} flex min-h-0 flex-1 flex-col`}>
           <CardHeader className="border-b border-white/10 pb-4">
             <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-sm font-semibold text-white">Conversation</CardTitle>
+              <CardTitle className="text-sm font-semibold text-white">
+                {conversation ? "Conversation" : "Setup Session"}
+              </CardTitle>
               {conversation ? (
                 <Button
                   variant="outline"
@@ -733,110 +731,141 @@ export default function DeepAgentSandboxPage() {
             </div>
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-            <div className="flex-1 min-h-0 overflow-y-auto rounded-2xl border border-white/5 bg-gradient-to-b from-indigo-950/40 via-black/30 to-black/50 p-3 shadow-inner shadow-indigo-900/30">
-              <ChatTimeline messages={messages} onLinkClick={handleFileLinkClick} />
-            </div>
-            <form
-              className="flex flex-col gap-2 sm:flex-row sm:items-center"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSend();
-              }}
-            >
-              <div className="flex w-full items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="rounded-xl border-white/20 text-white hover:border-indigo-300/60 hover:text-indigo-50"
-                  onClick={() => setIsUploadModalOpen(true)}
-                  disabled={!conversation || isUploading}
-                  aria-label="Open file upload"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-                <Input
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  placeholder="Ask the deep agent to inspect or modify files in the sandbox..."
-                  disabled={!conversation || isStreaming}
-                  className={`${inputClassName} flex-1`}
-                />
+            {!conversation ? (
+              <div className="flex flex-1 flex-col items-center justify-center space-y-8 py-12">
+                <div className="text-center space-y-2">
+                  <h3 className="text-lg font-medium text-white">Configure your Sandbox</h3>
+                  <p className="text-sm text-zinc-400">Choose your environment settings before starting the deep agent.</p>
+                </div>
+
+                <div className="w-full max-w-sm space-y-6 rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur-sm">
+                  <div className="pt-4">
+                    <Button 
+                      className="w-full rounded-xl py-6 text-base font-semibold"
+                      variant="brand"
+                      onClick={() => triggerConversation()}
+                      disabled={createConversation.isPending}
+                    >
+                      {createConversation.isPending ? "Provisioning..." : "Start Session"}
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <Button
-                type="submit"
-                variant="brand"
-                className="rounded-xl px-6"
-                disabled={!conversation || isStreaming || !input.trim()}
-              >
-                {isStreaming ? "Streaming..." : "Send"}
-              </Button>
-            </form>
+            ) : (
+              <>
+                <div className="flex-1 min-h-0 overflow-y-auto rounded-2xl border border-white/5 bg-gradient-to-b from-indigo-950/40 via-black/30 to-black/50 p-3 shadow-inner shadow-indigo-900/30">
+                  <ChatTimeline messages={messages} onLinkClick={handleFileLinkClick} />
+                </div>
+                <form
+                  className="flex flex-col gap-2 sm:flex-row sm:items-center"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleSend();
+                  }}
+                >
+                  <div className="flex w-full items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="rounded-xl border-white/20 text-white hover:border-indigo-300/60 hover:text-indigo-50"
+                      onClick={() => setIsUploadModalOpen(true)}
+                      disabled={!conversation || isUploading}
+                      aria-label="Open file upload"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      value={input}
+                      onChange={(event) => setInput(event.target.value)}
+                      placeholder="Ask the deep agent to inspect or modify files in the sandbox..."
+                      disabled={!conversation || isStreaming}
+                      className={`${inputClassName} flex-1`}
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="brand"
+                    className="rounded-xl px-6"
+                    disabled={!conversation || isStreaming || !input.trim()}
+                  >
+                    {isStreaming ? "Streaming..." : "Send"}
+                  </Button>
+                </form>
+              </>
+            )}
           </CardContent>
         </Card>
 
         <Card className={`${panelClassName} flex min-h-0 flex-1 flex-col`}>
-          <CardHeader className="flex items-center justify-between gap-2 border-b border-white/10 pb-4">
-            <CardTitle className="text-sm font-semibold text-white">
-              {preview.kind === "none" ? "Sandbox Preview" : `Preview: ${preview.name}`}
-            </CardTitle>
-            {(preview.kind === "image" || preview.kind === "text" || preview.kind === "html") && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="rounded-xl border border-white/10 bg-white/5 text-zinc-100 hover:bg-indigo-500/20"
-                onClick={() => {
-                  const downloadUrl = preview.downloadUrl;
-                  if (!downloadUrl) return;
-                  window.open(downloadUrl, "_blank");
-                }}
-              >
-                Download file
-              </Button>
-            )}
-          </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col p-4">
-            {sandboxHint ? (
-              <p className="mb-3 text-xs text-zinc-300">{sandboxHint}</p>
-            ) : null}
-            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/10 bg-gradient-to-b from-indigo-950/50 via-black/50 to-black/60">
-              {preview.kind === "image" && (
-                <img
-                  src={preview.url}
-                  alt={preview.name}
-                  className="h-full w-full object-contain shadow-lg shadow-indigo-900/30"
-                />
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-4">
+                <CardTitle className="text-sm font-semibold text-white">
+                  {preview.kind === "none" ? "File Preview" : `Preview: ${preview.name}`}
+                </CardTitle>
+              </div>
+              {(activeTab === "preview" && (preview.kind === "image" || preview.kind === "text" || preview.kind === "html")) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="rounded-xl border border-white/10 bg-white/5 text-zinc-100 hover:bg-indigo-500/20 h-7 text-xs"
+                  onClick={() => {
+                    const downloadUrl = preview.downloadUrl;
+                    if (!downloadUrl) return;
+                    window.open(downloadUrl, "_blank");
+                  }}
+                >
+                  Download
+                </Button>
               )}
-              {preview.kind === "text" && (
-                <pre className="h-full w-full overflow-auto rounded-xl bg-black/60 p-4 text-xs text-indigo-50">
-                  {preview.content}
-                </pre>
-              )}
-              {preview.kind === "html" && (
-                <iframe
-                  src={preview.url}
-                  title={preview.name}
-                  className="h-full w-full border-0 rounded-xl bg-black/60"
-                  sandbox="allow-scripts"
-                />
-              )}
-              {preview.kind === "none" &&
-                (sandboxImageUrl ? (
-                  <img
-                    src={sandboxImageUrl}
-                    alt="Sandbox preview"
-                    className="h-full w-full object-contain opacity-90"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 text-xs text-zinc-300">
-                    <span className="text-sm text-white">Sandbox live view is not yet available.</span>
-                    <span className="text-[10px] uppercase tracking-[0.3em] text-indigo-200/80">
-                      Screenshot endpoint /screenshot will be used when implemented
-                    </span>
-                  </div>
-                ))}
-            </div>
-          </CardContent>
+            </CardHeader>
+            <CardContent className="flex min-h-0 flex-1 flex-col p-4">
+              {sandboxHint && activeTab === "preview" ? (
+                <p className="mb-3 text-xs text-zinc-300">{sandboxHint}</p>
+              ) : null}
+              
+              <TabsContent value="preview" className="flex-1 min-h-0 data-[state=active]:flex flex-col mt-0 h-full">
+                <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/10 bg-gradient-to-b from-indigo-950/50 via-black/50 to-black/60">
+                  {preview.kind === "image" && (
+                    <img
+                      src={preview.url}
+                      alt={preview.name}
+                      className="h-full w-full object-contain shadow-lg shadow-indigo-900/30"
+                    />
+                  )}
+                  {preview.kind === "text" && (
+                    <pre className="h-full w-full overflow-auto rounded-xl bg-black/60 p-4 text-xs text-indigo-50">
+                      {preview.content}
+                    </pre>
+                  )}
+                  {preview.kind === "html" && (
+                    <iframe
+                      src={preview.url}
+                      title={preview.name}
+                      className="h-full w-full border-0 rounded-xl bg-black/60"
+                      sandbox="allow-scripts"
+                    />
+                  )}
+                  {preview.kind === "none" &&
+                    (sandboxImageUrl ? (
+                      <img
+                        src={sandboxImageUrl}
+                        alt="Sandbox preview"
+                        className="h-full w-full object-contain opacity-90"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-2 text-xs text-zinc-300">
+                        <span className="text-sm text-white">No file selected.</span>
+                        <span className="text-[10px] uppercase tracking-[0.3em] text-indigo-200/80">
+                          Click a file link in the chat to preview
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </TabsContent>
+            </CardContent>
+          </Tabs>
         </Card>
       </div>
 

@@ -93,7 +93,7 @@ services:
   backend:
     build:
       context: ./backend
-    command: python manage.py runserver 0.0.0.0:8001
+    command: uvicorn astraforge.config.asgi:application --host 0.0.0.0 --port 8001 --reload
     privileged: true
     env_file:
       - .env
@@ -221,8 +221,8 @@ services:
       retries: 10
     volumes:
       - ./llm-proxy:/app
-    ports:
-      - "8081:8080"
+    # ports:
+    #   - "8081:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

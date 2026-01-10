@@ -3,7 +3,6 @@ FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     WORKSPACE_DIR=/workspace \
-    DISPLAY=:99 \
     PYTHONUSERBASE=/workspace/.local \
     PIP_USER=1 \
     PIP_CACHE_DIR=/workspace/.cache/pip \
@@ -11,11 +10,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PNPM_HOME=/workspace/.cache/pnpm \
     PATH=/workspace/.local/bin:$PATH
 
-# GUI base (headless X server + lightweight WM) and useful CLI tools.
-# Includes ImageMagick + x11-apps so the backend can capture screenshots via Xvfb,
-# and system dependencies for Playwright headless browsers.
+# GUI base (headless X server) and useful CLI tools.
+# System dependencies for Playwright headless browsers.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb x11vnc fluxbox imagemagick x11-apps curl ca-certificates git tini \
+    curl ca-certificates git tini \
     libnss3 libatk1.0-0 libatk-bridge2.0-0 libxkbcommon0 libgbm1 libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -36,7 +34,10 @@ RUN playwright install chromium
 
 WORKDIR /workspace
 
+COPY --chown=sandbox:sandbox entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 EXPOSE 8000
 
-# Start Xvfb and Fluxbox; replace tail with sandbox daemon entrypoint when available.
-CMD ["tini", "--", "sh", "-c", "Xvfb :99 -screen 0 1280x720x24 & fluxbox >/tmp/fluxbox.log 2>&1 & tail -f /dev/null"]
+# Start entrypoint
+CMD ["tini", "--", "/usr/local/bin/entrypoint.sh"]

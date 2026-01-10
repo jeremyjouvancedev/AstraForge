@@ -27,6 +27,7 @@ class SandboxSessionCreateSerializer(serializers.Serializer):
     idle_timeout_sec = serializers.IntegerField(default=300, min_value=60)
     max_lifetime_sec = serializers.IntegerField(default=3600, min_value=300)
     workspace_uid = serializers.CharField(required=False, allow_blank=True)
+    metadata = serializers.JSONField(required=False, default=dict)
 
     def validate(self, attrs):
         idle = attrs.get("idle_timeout_sec")

@@ -417,6 +417,7 @@ export interface SandboxSession {
   last_activity_at?: string | null;
   cpu_seconds?: number | null;
   storage_bytes?: number | null;
+  metadata?: Record<string, unknown>;
 }
 
 export async function fetchSandboxSessions() {

@@ -32,7 +32,7 @@ codex-image:
 
 # Build the desktop sandbox daemon image.
 sandbox-image:
-	docker build -f sandbox/Dockerfile -t $(SANDBOX_IMAGE) .
+	docker build -t $(SANDBOX_IMAGE) sandbox
 
 workspace-images: codex-image sandbox-image
 

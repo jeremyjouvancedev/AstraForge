@@ -576,6 +576,9 @@ class DeepAgentMessageView(APIView):
         from astraforge.domain.models.request import RequestPayload
         
         dummy_request = DomainRequest(
+            id=str(conversation_id),
+            source="chat_view",
+            sender=str(request.user.email or request.user.username),
             payload=RequestPayload(title="chat", description="chat", context={}),
             metadata={"llm": llm_config} if llm_config else {},
             user_id=str(request.user.id),

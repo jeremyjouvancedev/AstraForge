@@ -111,6 +111,7 @@ class SandboxOrchestrator:
                 "last_activity_at",
                 "last_heartbeat_at",
                 "updated_at",
+                "metadata",
             ]
         )
         return session
@@ -164,49 +165,6 @@ class SandboxOrchestrator:
 
     def upload_bytes(self, session: SandboxSession, path: str, content: bytes):
         return self.upload(session, path, content)
-
-    def capture_screenshot(
-        self,
-        session: SandboxSession,
-        *,
-        timeout_sec: int | None = 30,  # kept for API compatibility
-    ) -> bytes:
-        """Capture a PNG screenshot from the sandbox X server and return raw bytes."""
-        if not _commands_enabled():
-            raise SandboxProvisionError("Screenshot capture disabled when command execution is off")
-        # Reuse the running X server in the sandbox (DISPLAY is set in the image).
-        script = """
-set -e
-DISPLAY=${DISPLAY:-:99}
-TMPFILE=${TMPDIR:-/tmp}/sandbox-screenshot.png
-if command -v import >/dev/null 2>&1; then
-  DISPLAY="$DISPLAY" import -window root "$TMPFILE"
-elif command -v xwd >/dev/null 2>&1 && command -v convert >/dev/null 2>&1; then
-  DISPLAY="$DISPLAY" xwd -root -silent | convert xwd:- png:"$TMPFILE"
-else
-  echo "NO_CAPTURE_TOOL" >&2
-  exit 3
-fi
-base64 "$TMPFILE"
-"""
-        # Keep timeout optional; most captures should be fast.
-        result = self.execute(session, script, cwd=session.workspace_path, timeout_sec=timeout_sec)
-        if result.exit_code != 0:
-            message = (result.stdout or "").strip() or (result.stderr or "").strip()
-            if "NO_CAPTURE_TOOL" in message:
-                raise SandboxProvisionError(
-                    "Screenshot tooling is not available in the sandbox image. "
-                    "Install ImageMagick (import) or x11-apps (xwd) in the sandbox "
-                    "image (e.g., sandbox/Dockerfile) and set SANDBOX_IMAGE accordingly."
-                )
-            raise SandboxProvisionError(f"Screenshot command failed: {message}")
-        raw_b64 = (result.stdout or "").strip()
-        if not raw_b64:
-            raise SandboxProvisionError("Screenshot command produced no output")
-        try:
-            return base64.b64decode(raw_b64.encode("ascii"))
-        except Exception as exc:  # noqa: BLE001
-            raise SandboxProvisionError("Unable to decode screenshot output") from exc
 
     def create_snapshot(
         self,
@@ -530,7 +488,11 @@ base64 "$TMPFILE"
             args.extend(["--cpus", session.cpu])
         if session.memory:
             args.extend(["-m", session.memory])
-        args.extend([session.image, "sleep", "infinity"])
+
+        # Use the image's CMD (entrypoint.sh) instead of overriding with sleep infinity
+        args.append(session.image)
+        # args.extend([session.image, "sleep", "infinity"]) 
+
         try:
             self.runner.run(args, allow_failure=False)
         except subprocess.CalledProcessError as exc:  # pragma: no cover - surfaced upstream
@@ -580,6 +542,7 @@ base64 "$TMPFILE"
             )
             session.save(update_fields=["status", "error_message", "updated_at"])
             raise SandboxProvisionError(session.error_message)
+
         return SandboxRuntime(
             ref=f"docker://{ident}",
             control_endpoint=f"docker://{ident}",

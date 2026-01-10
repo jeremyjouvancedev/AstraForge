@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import shlex
 import time
+import requests
 
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import BaseParser
@@ -284,33 +286,7 @@ class SandboxSessionViewSet(
         session.mark_heartbeat()
         return Response({"status": session.status, "last_heartbeat_at": session.last_heartbeat_at})
 
-    @action(detail=True, methods=["post"], url_path="input/mouse")
-    def input_mouse(self, request, pk=None):
-        return Response(
-            {"detail": "Mouse input not yet implemented in the sandbox daemon"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
-        )
-
-    @action(detail=True, methods=["post"], url_path="input/keyboard")
-    def input_keyboard(self, request, pk=None):
-        return Response(
-            {"detail": "Keyboard input not yet implemented in the sandbox daemon"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
-        )
-
-    @action(detail=True, methods=["get"], url_path="screenshot")
-    def screenshot(self, request, pk=None):
-        session, error = self._get_ready_session_or_response(self.get_object())
-        if error:
-            return error
-        try:
-            image_bytes = self.orchestrator.capture_screenshot(session)
-        except SandboxProvisionError:
-            # Fall back to a transparent 1x1 PNG so the frontend does not show a broken image.
-            return HttpResponse(_PLACEHOLDER_PNG, content_type="image/png")
-        return HttpResponse(image_bytes, content_type="image/png")
-
-    def _capture_latest_snapshot(self, session: SandboxSession, *, label: str):
+    def _capture_latest_snapshot(self, session: SandboxSession, label: str):
         """Best-effort snapshot capture used before stopping/terminating sessions."""
         try:
             return self.orchestrator.create_snapshot(session, label=label)
@@ -321,6 +297,12 @@ class SandboxSessionViewSet(
                 exc_info=True,
             )
             return None
+
+    @action(detail=True, methods=["get"], url_path="debug-connection")
+    def debug_connection(self, request, pk=None):
+        """Diagnostic endpoint to test backend-to-sandbox connectivity."""
+        session = self.get_object()
+        return Response({"status": "ready" if session.status == SandboxSession.Status.READY else "not_ready"})
 
     def _get_ready_session_or_response(
         self, session: SandboxSession
