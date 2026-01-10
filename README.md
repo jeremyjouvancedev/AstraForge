@@ -331,3 +331,12 @@ See `docs/architecture.md` for the accompanying narrative plus operational consi
 - `docs/docker-compose.md` – runbook for starting/stopping the stack with Docker Compose.
 - `docs/sandbox.md` – sandbox orchestrator API (Docker + Kubernetes) and lifecycle tips.
 - `infra/` – Dockerfiles, Helm charts, and CI definitions.
+
+
+
+## Local Development
+
+```
+codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp
+codex mcp add langchain-docs --url https://docs.langchain.com/mcp
+```
