@@ -336,7 +336,16 @@ See `docs/architecture.md` for the accompanying narrative plus operational consi
 
 ## Local Development
 
+### Codex
+
 ```
 codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp
 codex mcp add langchain-docs --url https://docs.langchain.com/mcp
+```
+
+### Claude
+
+```
+claude mcp add --transport http langchain-docs https://docs.langchain.com/mcp
+claude mcp add --transport http openaiDeveloperDocs https://developers.openai.com/mcp
 ```
