@@ -4,8 +4,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatComposer } from "@/features/chat/components/chat-composer";
 import { ChatTimeline } from "@/features/chat/components/chat-timeline";
 import { cn } from "@/lib/cn";
-import { sendChatMessage } from "@/lib/api-client";
+import { sendChatMessage, Attachment } from "@/lib/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ImageUpload } from "@/components/image-upload";
 
 interface RunChatPanelProps {
   requestId: string;
@@ -27,6 +28,7 @@ interface RunChatPanelProps {
     content: string;
     createdAt?: string;
     role?: TimelineRole;
+    attachments?: Attachment[];
   };
 }
 
@@ -37,6 +39,7 @@ interface TimelineMessage {
   role: TimelineRole;
   content: string;
   created_at: string;
+  attachments?: Attachment[];
 }
 
 function parseIsoTimestamp(value: unknown, fallbackIndex: number): string {
@@ -75,20 +78,27 @@ function parseHistory(history: string | null | undefined): TimelineMessage[] {
     try {
       const record = JSON.parse(trimmed);
       const role = safeRole(record.role ?? record.author ?? record.type);
+      const attachments = record.attachments as Attachment[] | undefined;
       const content =
         typeof record.content === "string"
           ? record.content
           : typeof record.message === "string"
           ? record.message
+          : attachments && attachments.length > 0
+          ? ""
           : "";
-      if (!content) return;
+
+      // Allow empty content if there are attachments
+      if (!content && (!attachments || attachments.length === 0)) return;
+
       const createdAt = parseIsoTimestamp(record.created_at ?? record.timestamp, index);
       const identifier = String(record.id ?? `history-${index}`);
       messages.push({
         id: identifier,
         role,
-        content,
+        content: content || (attachments && attachments.length > 0 ? "[Image]" : ""),
         created_at: createdAt,
+        attachments,
       });
     } catch {
       messages.push({
@@ -102,30 +112,37 @@ function parseHistory(history: string | null | undefined): TimelineMessage[] {
   return messages;
 }
 
-function parseStoredMessages(records: Array<Record<string, unknown>> | null | undefined): TimelineMessage[] {
+function parseStoredMessages(
+  records: Array<Record<string, unknown>> | null | undefined
+): TimelineMessage[] {
   if (!records?.length) {
     return [];
   }
-  return records
-    .map((record, index) => {
-      const role = safeRole(record["role"]);
-      const content =
-        typeof record["message"] === "string"
-          ? (record["message"] as string)
-          : typeof record["content"] === "string"
-          ? (record["content"] as string)
-          : "";
-      if (!content) return null;
-      return {
-        id: `stored-${index}-${Math.abs(
-          content.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
-        )}`,
-        role,
-        content,
-        created_at: parseIsoTimestamp(record["created_at"], index),
-      };
-    })
-    .filter((value): value is TimelineMessage => value !== null);
+  const results: (TimelineMessage | null)[] = records.map((record, index) => {
+    const role = safeRole(record["role"]);
+    const attachments = record["attachments"] as Attachment[] | undefined;
+    const content =
+      typeof record["message"] === "string"
+        ? (record["message"] as string)
+        : typeof record["content"] === "string"
+        ? (record["content"] as string)
+        : "";
+
+    // Allow empty content if there are attachments
+    if (!content && (!attachments || attachments.length === 0)) return null;
+
+    return {
+      id: `stored-${index}-${Math.abs(
+        (content || "no-content").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
+      )}`,
+      role,
+      content: content || (attachments && attachments.length > 0 ? "[Image]" : ""),
+      created_at: parseIsoTimestamp(record["created_at"], index),
+      attachments,
+    };
+  });
+
+  return results.filter((value): value is TimelineMessage => value !== null);
 }
 
 function mergeMessages(historyMessages: TimelineMessage[], storedMessages: TimelineMessage[]): TimelineMessage[] {
@@ -137,7 +154,9 @@ function mergeMessages(historyMessages: TimelineMessage[], storedMessages: Timel
   [...historyMessages, ...storedMessages]
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     .forEach((message) => {
-      const key = `${message.role}|${message.created_at}|${message.content}`;
+      const attKey = (message.attachments || []).map(a => a.name).join(",");
+      // Use id as part of the key to distinguish optimistic messages from stored ones if content is identical
+      const key = `${message.id}|${message.role}|${message.created_at}|${message.content}|${attKey}`;
       if (seen.has(key)) {
         return;
       }
@@ -158,6 +177,7 @@ export function RunChatPanel({
 }: RunChatPanelProps) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
+  const [images, setImages] = useState<Attachment[]>([]);
   const [pendingMessages, setPendingMessages] = useState<TimelineMessage[]>([]);
   const [baseSignature, setBaseSignature] = useState<string>("");
 
@@ -172,7 +192,10 @@ export function RunChatPanel({
       return "";
     }
     return baseMessages
-      .map((message) => `${message.role}|${message.created_at}|${message.content}`)
+      .map((message) => {
+        const attKey = (message.attachments || []).map((a) => a.name).join(",");
+        return `${message.role}|${message.created_at}|${message.content}|${attKey}`;
+      })
       .join("||");
   }, [baseMessages]);
 
@@ -181,11 +204,15 @@ export function RunChatPanel({
       setPendingMessages((current) =>
         current.filter((message) => {
           const normalizedContent = (message.content || "").trim();
-          const existsInBase = baseMessages.some(
-            (base) =>
+          const attKey = (message.attachments || []).map((a) => a.name).join(",");
+          const existsInBase = baseMessages.some((base) => {
+            const baseAttKey = (base.attachments || []).map((a) => a.name).join(",");
+            return (
               base.role === message.role &&
-              (base.content || "").trim() === normalizedContent
-          );
+              (base.content || "").trim() === normalizedContent &&
+              baseAttKey === attKey
+            );
+          });
           return !existsInBase;
         })
       );
@@ -193,7 +220,15 @@ export function RunChatPanel({
     }
   }, [currentSignature, baseSignature, baseMessages]);
 
-  const sendMutation = useMutation<{ status: string }, Error, { requestId: string; message: string }>({
+  const sendMutation = useMutation<
+    { status: string },
+    Error,
+    {
+      requestId: string;
+      message: string;
+      attachments?: Attachment[];
+    }
+  >({
     mutationFn: sendChatMessage,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["request-detail", requestId] });
@@ -215,6 +250,7 @@ export function RunChatPanel({
       role: seedMessage.role ?? "user",
       content: seedMessage.content.trim(),
       created_at: createdAt,
+      attachments: seedMessage.attachments,
     } satisfies TimelineMessage;
   }, [seedMessage]);
 
@@ -255,23 +291,32 @@ export function RunChatPanel({
 
   const handleSend = (message: string) => {
     const trimmed = message.trim();
-    if (!trimmed) {
+    if (!trimmed && images.length === 0) {
       return;
     }
     const timestamp = new Date().toISOString();
-    const id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+    const id =
+      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
     const optimistic: TimelineMessage = {
       id,
       role: "user",
-      content: trimmed,
+      content: trimmed || (images.length > 0 ? "[Image attached]" : ""),
       created_at: timestamp,
+      attachments: images.length > 0 ? [...images] : undefined,
     };
     setPendingMessages((current) => [...current, optimistic]);
     sendMutation.mutate(
-      { requestId, message: trimmed },
+      {
+        requestId,
+        message: trimmed,
+        attachments: images.length > 0 ? images : undefined,
+      },
       {
         onError: () => {
           setPendingMessages((current) => current.filter((message) => message.id !== id));
+        },
+        onSuccess: () => {
+          setImages([]);
         },
       }
     );
@@ -279,7 +324,12 @@ export function RunChatPanel({
   };
 
   return (
-    <div className={cn("flex h-full min-h-[360px] w-full flex-col overflow-hidden bg-transparent", className)}>
+    <div
+      className={cn(
+        "flex h-full min-h-[360px] w-full flex-col overflow-hidden bg-transparent",
+        className
+      )}
+    >
       <div className="flex min-h-0 flex-1 flex-col gap-4">
         <ScrollArea className="min-h-0 flex-1 bg-transparent">
           <div className="space-y-4 px-2 pt-2">
@@ -290,14 +340,17 @@ export function RunChatPanel({
             )}
           </div>
         </ScrollArea>
-        <ChatComposer
-          onSend={handleSend}
-          value={draft}
-          onChange={setDraft}
-          disabled={sendMutation.isPending}
-          showContextButton={false}
-          showMicrophoneButton={false}
-        />
+        <div className="flex flex-col gap-2 px-2">
+          <ImageUpload images={images} setImages={setImages} disabled={sendMutation.isPending} />
+          <ChatComposer
+            onSend={handleSend}
+            value={draft}
+            onChange={setDraft}
+            disabled={sendMutation.isPending}
+            showContextButton={false}
+            showMicrophoneButton={false}
+          />
+        </div>
       </div>
     </div>
   );

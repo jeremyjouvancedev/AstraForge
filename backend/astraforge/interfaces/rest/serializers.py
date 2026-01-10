@@ -8,7 +8,7 @@ from rest_framework import serializers
 
 from astraforge.accounts.models import ApiKey, Workspace, WorkspaceRole
 from astraforge.integrations.models import RepositoryLink
-from astraforge.domain.models.request import Request, RequestPayload
+from astraforge.domain.models.request import Attachment, Request, RequestPayload
 from astraforge.quotas.services import QuotaExceeded, get_quota_service
 
 
@@ -25,12 +25,26 @@ class RequestSerializer(serializers.Serializer):
         allow_null=True,
     )
     llm_model = serializers.CharField(required=False, allow_blank=True)
+    reasoning_effort = serializers.ChoiceField(
+        choices=["low", "medium", "high"],
+        default="high",
+        required=False,
+    )
+    reasoning_check = serializers.BooleanField(required=False, allow_null=True)
+    attachments = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        default=list,
+    )
 
     def create(self, validated_data):
         raw_prompt = validated_data.pop("prompt")
         project_id = validated_data.pop("project_id")
         llm_provider = (validated_data.pop("llm_provider", None) or "").strip().lower()
         llm_model = (validated_data.pop("llm_model", None) or "").strip()
+        reasoning_effort = validated_data.pop("reasoning_effort", "high")
+        reasoning_check = validated_data.pop("reasoning_check", None)
+        raw_attachments = validated_data.pop("attachments", [])
         request_obj = self.context.get("request")
         if request_obj is None or request_obj.user.is_anonymous:
             raise serializers.ValidationError(
@@ -61,11 +75,20 @@ class RequestSerializer(serializers.Serializer):
                 {"tenant_id": [str(exc)]}
             ) from exc
 
+        attachments = [
+            Attachment(
+                uri=att.get("uri", ""),
+                name=att.get("name", ""),
+                content_type=att.get("content_type", ""),
+            )
+            for att in raw_attachments
+        ]
+
         payload = RequestPayload(
             title=self._derive_title(raw_prompt),
             description=raw_prompt,
             context={},
-            attachments=[],
+            attachments=attachments,
         )
         request_id = str(validated_data.get("id") or "")
         if not request_id:
@@ -85,21 +108,26 @@ class RequestSerializer(serializers.Serializer):
             },
             "workspace": {"uid": workspace.uid, "name": workspace.name},
         }
-        llm_config: dict[str, str] = {}
+        llm_config: dict[str, str | bool] = {}
         if llm_provider:
             llm_config["provider"] = llm_provider
         if llm_model:
             llm_config["model"] = llm_model
+        if reasoning_effort:
+            llm_config["reasoning_effort"] = reasoning_effort
+        if reasoning_check is not None:
+            llm_config["reasoning_check"] = reasoning_check
         if llm_config:
             metadata["llm"] = llm_config
         metadata["prompt"] = raw_prompt
-        metadata["chat_messages"] = [
-            {
-                "role": "user",
-                "message": raw_prompt,
-                "created_at": timezone.now().isoformat(),
-            }
-        ]
+        initial_message = {
+            "role": "user",
+            "message": raw_prompt,
+            "created_at": timezone.now().isoformat(),
+        }
+        if raw_attachments:
+            initial_message["attachments"] = raw_attachments
+        metadata["chat_messages"] = [initial_message]
         return Request(
             payload=payload,
             metadata=metadata,
@@ -236,6 +264,11 @@ class WorkspaceSerializer(serializers.Serializer):
 class ChatSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     message = serializers.CharField(trim_whitespace=False)
+    attachments = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        default=list,
+    )
 
 
 class PlanRequestSerializer(serializers.Serializer):
@@ -271,6 +304,18 @@ class DeepAgentMessageRequestSerializer(serializers.Serializer):
         child=DeepAgentChatMessageSerializer(), allow_empty=False
     )
     stream = serializers.BooleanField(default=True)
+    llm_provider = serializers.ChoiceField(
+        choices=["openai", "ollama"],
+        required=False,
+        allow_null=True,
+    )
+    llm_model = serializers.CharField(required=False, allow_blank=True)
+    reasoning_effort = serializers.ChoiceField(
+        choices=["low", "medium", "high"],
+        default="high",
+        required=False,
+    )
+    reasoning_check = serializers.BooleanField(required=False, allow_null=True)
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
@@ -280,6 +325,12 @@ class ExecuteRequestSerializer(serializers.Serializer):
         allow_null=True,
     )
     llm_model = serializers.CharField(required=False, allow_blank=True)
+    reasoning_effort = serializers.ChoiceField(
+        choices=["low", "medium", "high"],
+        default="high",
+        required=False,
+    )
+    reasoning_check = serializers.BooleanField(required=False, allow_null=True)
 
 
 class RegisterSerializer(serializers.Serializer):

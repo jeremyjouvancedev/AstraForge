@@ -8,6 +8,7 @@ import logging
 import os
 import shlex
 import subprocess
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Tuple, TYPE_CHECKING
@@ -39,12 +40,16 @@ class CommandRunner:
         env: Dict[str, str] | None = None,
         stream: Callable[[dict[str, Any]], None] | None = None,
         allow_failure: bool = False,
+        input_data: str | None = None,
     ) -> CommandResult:
         args = list(command)
         rendered = " ".join(shlex.quote(arg) for arg in args)
         if stream is not None:
             stream({"type": "command", "command": rendered, "cwd": cwd})
-        logger.debug("Executing command", extra={"command": args, "cwd": cwd, "dry_run": self.dry_run})
+        logger.debug(
+            "Executing command",
+            extra={"command": args, "cwd": cwd, "dry_run": self.dry_run},
+        )
         if self.dry_run:
             return CommandResult(exit_code=0, stdout="", stderr="")
         process_env = os.environ.copy()
@@ -54,18 +59,25 @@ class CommandRunner:
             args,
             cwd=cwd,
             env=process_env,
+            stdin=subprocess.PIPE if input_data is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
-        output_lines: List[str] = []
-        assert process.stdout is not None
-        for line in process.stdout:
-            output_lines.append(line)
-            if stream is not None:
-                stream({"type": "log", "message": line.rstrip("\n")})
-        process.wait()
-        stdout = "".join(output_lines)
+        
+        stdout = ""
+        if input_data is not None:
+            stdout, _ = process.communicate(input=input_data)
+        else:
+            output_lines: List[str] = []
+            assert process.stdout is not None
+            for line in process.stdout:
+                output_lines.append(line)
+                if stream is not None:
+                    stream({"type": "log", "message": line.rstrip("\n")})
+            process.wait()
+            stdout = "".join(output_lines)
+
         if process.returncode != 0 and not allow_failure:
             error_payload = {
                 "type": "error",
@@ -141,6 +153,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         workspace_path = self._workspace_path(identifier, mode)
         self._ensure_workspace_directory(identifier, mode, workspace_path, stream)
         workspace_path = self._clone_repository(identifier, mode, project, stream, target_path=workspace_path)
+        self._ensure_codex_directory(identifier, mode, workspace_path, stream)
         self._create_feature_branch(
             identifier=identifier,
             mode=mode,
@@ -153,6 +166,13 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             mode=mode,
             workspace_path=workspace_path,
             history_content=request.metadata.get("history_jsonl"),
+            stream=stream,
+        )
+        self._save_attachments_to_workspace(
+            identifier=identifier,
+            mode=mode,
+            workspace_path=workspace_path,
+            request=request,
             stream=stream,
         )
         return WorkspaceContext(
@@ -659,18 +679,40 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         if not llm_provider:
             overrides.extend(["-c", _override("auth.api_key", "sk-astraforge-stub")])
 
-        # Use request payload description as the prompt
+        # Use request payload description as the default prompt
         prompt = request.payload.description or request.payload.title or "User request"
+        
+        # If there are chat messages, use the last user message as the prompt
+        chat_messages = request.metadata.get("chat_messages", [])
+        if isinstance(chat_messages, list) and chat_messages:
+            for msg in reversed(chat_messages):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    msg_text = msg.get("message") or msg.get("content")
+                    if isinstance(msg_text, str) and msg_text.strip():
+                        prompt = msg_text.strip()
+                        break
 
-        # Handle images from attachments
-        images = [
-            att.name
-            for att in request.payload.attachments
-            if att.content_type.startswith("image/")
-        ]
+        # Collect all images from payload and chat messages
+        image_names = set()
+        for att in request.payload.attachments:
+            if att.content_type.startswith("image/"):
+                image_names.add(self._sanitize_filename(att.name))
+        
+        if isinstance(chat_messages, list):
+            for msg in chat_messages:
+                if isinstance(msg, dict):
+                    msg_attachments = msg.get("attachments", [])
+                    if isinstance(msg_attachments, list):
+                        for att_data in msg_attachments:
+                            if isinstance(att_data, dict):
+                                ctype = str(att_data.get("content_type", "")).lower()
+                                name = str(att_data.get("name", ""))
+                                if ctype.startswith("image/") and name:
+                                    image_names.add(self._sanitize_filename(name))
+
         image_args = []
-        if images:
-            image_args = ["--image", ",".join(images)]
+        if image_names:
+            image_args = ["--image", ",".join(sorted(list(image_names)))]
 
         overrides.extend(
             [
@@ -697,6 +739,25 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                 ollama_model = os.getenv("OLLAMA_MODEL")
                 if ollama_model:
                     env_pairs.append(f"OLLAMA_MODEL={ollama_model}")
+            
+            effort = ""
+            check = None
+            if isinstance(llm_config, dict):
+                effort = str(llm_config.get("reasoning_effort") or "").strip().lower()
+                check = llm_config.get("reasoning_check")
+            
+            if not effort:
+                effort = os.getenv("OLLAMA_REASONING_EFFORT", "high")
+            if effort:
+                env_pairs.append(f"OLLAMA_REASONING_EFFORT={effort}")
+            
+            if check is not None:
+                env_pairs.append(f"OLLAMA_REASONING_CHECK={'true' if check else 'false'}")
+            else:
+                # Default to true if not specified in metadata but OLLAMA_REASONING_CHECK env is set
+                default_check = os.getenv("OLLAMA_REASONING_CHECK", "true")
+                env_pairs.append(f"OLLAMA_REASONING_CHECK={default_check}")
+
         env_prefix = ["env", *env_pairs] if env_pairs else []
         base = [
             *env_prefix,
@@ -715,10 +776,10 @@ class CodexWorkspaceOperator(WorkspaceOperator):
 
     def _wrap_exec(self, identifier: str, mode: str, command: List[str]) -> List[str]:
         if mode == "docker":
-            return ["docker", "exec", identifier, *command]
+            return ["docker", "exec", "-i", identifier, *command]
         if mode == "k8s":
             namespace, pod = self._split_k8s_identifier(identifier)
-            exec_command: List[str] = ["kubectl", "exec"]
+            exec_command: List[str] = ["kubectl", "exec", "-i"]
             if namespace:
                 exec_command.extend(["-n", namespace])
             exec_command.extend([pod, "--", *command])
@@ -745,6 +806,20 @@ class CodexWorkspaceOperator(WorkspaceOperator):
         stream: Callable[[dict[str, Any]], None],
     ) -> None:
         command = self._wrap_exec(identifier, mode, ["mkdir", "-p", workspace_path])
+        self.runner.run(command, stream=stream, allow_failure=False)
+
+    def _ensure_codex_directory(
+        self,
+        identifier: str,
+        mode: str,
+        workspace_path: str,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> None:
+        command = self._wrap_exec(
+            identifier,
+            mode,
+            ["mkdir", "-p", f"{workspace_path}/.codex"],
+        )
         self.runner.run(command, stream=stream, allow_failure=False)
 
     def _exec(
@@ -1236,6 +1311,14 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                 return "\n".join(parts)
         return None
 
+    @staticmethod
+    def _sanitize_filename(name: str) -> str:
+        """Sanitize filename for safe usage in shell and codex commands."""
+        safe_name = "".join(c for c in name if c.isalnum() or c in "._-").strip()
+        if not safe_name:
+            safe_name = f"attachment_{uuid.uuid4().hex[:8]}"
+        return safe_name
+
     def _ensure_local_image(
         self,
         image: str,
@@ -1270,6 +1353,66 @@ class CodexWorkspaceOperator(WorkspaceOperator):
                 "message": f"Built local Codex CLI image from {build_context}",
             }
         )
+
+    def _save_attachments_to_workspace(
+        self,
+        identifier: str,
+        mode: str,
+        workspace_path: str,
+        request: Request,
+        stream: Callable[[dict[str, Any]], None],
+    ) -> None:
+        # Collect all attachments from payload and chat messages
+        attachments_to_save = []
+        for att in request.payload.attachments:
+            attachments_to_save.append(
+                {"uri": att.uri, "name": att.name, "content_type": att.content_type}
+            )
+
+        chat_messages = request.metadata.get("chat_messages", [])
+        if isinstance(chat_messages, list):
+            for msg in chat_messages:
+                if isinstance(msg, dict):
+                    msg_attachments = msg.get("attachments", [])
+                    if isinstance(msg_attachments, list):
+                        for att_data in msg_attachments:
+                            if isinstance(att_data, dict):
+                                attachments_to_save.append(att_data)
+
+        if not attachments_to_save:
+            return
+
+        for att_data in attachments_to_save:
+            uri = str(att_data.get("uri", ""))
+            name = str(att_data.get("name", ""))
+            if not uri.startswith("data:") or not name:
+                continue
+
+            try:
+                if "," not in uri:
+                    continue
+                header, encoded = uri.split(",", 1)
+                
+                safe_name = self._sanitize_filename(name)
+                target_path = f"{workspace_path}/{safe_name}"
+
+                # Write to container using base64 -d via stdin
+                # Use sh -c to handle the redirection inside the container
+                script = f"base64 -d > {shlex.quote(target_path)}"
+                command = self._wrap_exec(identifier, mode, ["sh", "-c", script])
+
+                # Pipe the encoded data to the command's stdin
+                self.runner.run(command, stream=None, allow_failure=True, input_data=encoded)
+
+                stream(
+                    {
+                        "type": "status",
+                        "stage": "workspace",
+                        "message": f"Saved attachment {safe_name} to workspace",
+                    }
+                )
+            except Exception as exc:
+                logger.warning("Failed to save attachment %s: %s", name, exc)
 
 def from_env(provisioner: Provisioner) -> CodexWorkspaceOperator:
     image = getattr(provisioner, "image", None)

@@ -24,11 +24,17 @@ apiClient.interceptors.response.use(
   }
 );
 
+export interface Attachment {
+  uri: string;
+  name: string;
+  content_type: string;
+}
+
 export type ApiRequestPayload = {
   title: string;
   description: string;
   context?: Record<string, unknown>;
-  attachments?: Array<{ uri: string; name: string; content_type: string }>;
+  attachments?: Array<Attachment>;
 };
 
 export interface RequestProject {
@@ -57,6 +63,9 @@ export interface CreateRequestInput {
   tenantId?: string;
   llmProvider?: "openai" | "ollama";
   llmModel?: string;
+  reasoningEffort?: "low" | "medium" | "high";
+  reasoningCheck?: boolean;
+  attachments?: Array<{ uri: string; name: string; content_type: string }>;
 }
 
 export async function createRequest(input: CreateRequestInput) {
@@ -68,7 +77,10 @@ export async function createRequest(input: CreateRequestInput) {
     project_id: input.projectId,
     prompt: input.prompt,
     ...(input.llmProvider ? { llm_provider: input.llmProvider } : {}),
-    ...(trimmedModel ? { llm_model: trimmedModel } : {})
+    ...(trimmedModel ? { llm_model: trimmedModel } : {}),
+    ...(input.reasoningEffort ? { reasoning_effort: input.reasoningEffort } : {}),
+    ...(input.reasoningCheck !== undefined ? { reasoning_check: input.reasoningCheck } : {}),
+    ...(input.attachments ? { attachments: input.attachments } : {})
   });
   return response.data;
 }
@@ -85,10 +97,15 @@ export async function fetchRequestDetail(id: string) {
   return response.data;
 }
 
-export async function sendChatMessage(payload: { requestId: string; message: string }) {
+export async function sendChatMessage(payload: {
+  requestId: string;
+  message: string;
+  attachments?: Array<{ uri: string; name: string; content_type: string }>;
+}) {
   const response = await apiClient.post<{ status: string }>("/chat/", {
     request_id: payload.requestId,
-    message: payload.message
+    message: payload.message,
+    ...(payload.attachments ? { attachments: payload.attachments } : {})
   });
   return response.data;
 }

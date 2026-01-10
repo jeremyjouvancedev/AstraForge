@@ -36,7 +36,7 @@ from astraforge.accounts.models import (
 from astraforge.application import tasks as app_tasks
 from astraforge.application.use_cases import ApplyPlan, GeneratePlan, SubmitRequest
 from astraforge.bootstrap import container, repository
-from astraforge.domain.models.request import Request, RequestPayload
+from astraforge.domain.models.request import Attachment, Request, RequestPayload
 from astraforge.integrations.models import RepositoryLink
 from astraforge.interfaces.rest import serializers
 from astraforge.interfaces.rest.renderers import EventStreamRenderer
@@ -190,7 +190,8 @@ class RequestViewSet(
             raise PermissionDenied("You do not have access to this workspace.")
         llm_provider = (serializer.validated_data.get("llm_provider") or "").strip().lower()
         llm_model = (serializer.validated_data.get("llm_model") or "").strip()
-        if llm_provider or llm_model:
+        reasoning_effort = (serializer.validated_data.get("reasoning_effort") or "").strip().lower()
+        if llm_provider or llm_model or reasoning_effort:
             llm_config: dict[str, str] = {}
             existing_llm = request_obj.metadata.get("llm")
             if isinstance(existing_llm, dict):
@@ -199,6 +200,8 @@ class RequestViewSet(
                 llm_config["provider"] = llm_provider
             if llm_model:
                 llm_config["model"] = llm_model
+            if reasoning_effort:
+                llm_config["reasoning_effort"] = reasoning_effort
             request_obj.metadata["llm"] = llm_config
             repository.save(request_obj)
         app_tasks.execute_request_task.delay(request_id)
@@ -229,7 +232,19 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         request_id = str(serializer.validated_data["request_id"])
         message_content = serializer.validated_data["message"]
+        attachments_data = serializer.validated_data.get("attachments", [])
         run_log = container.resolve_run_log()
+
+        # Convert raw attachment data to Attachment objects for domain model
+        domain_attachments = [
+            Attachment(
+                uri=att.get("uri", ""),
+                name=att.get("name", ""),
+                content_type=att.get("content_type", ""),
+            )
+            for att in attachments_data
+        ]
+
         try:
             request_obj = repository.get(request_id, user_id=str(request.user.id))
         except KeyError:
@@ -245,7 +260,7 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                 title=message_content.strip() or "User message",
                 description=message_content,
                 context={},
-                attachments=[],
+                attachments=domain_attachments,
             )
             request_obj = Request(
                 id=request_id,
@@ -261,38 +276,30 @@ class ChatViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             allowed_uids = Workspace.allowed_uids_for_user(request.user)
             if request_obj.tenant_id not in allowed_uids:
                 raise PermissionDenied("You do not have access to this workspace.")
+
         messages = list(request_obj.metadata.get("chat_messages", []))
-        messages.append(
-            {
-                "role": "user",
-                "message": message_content,
-                "created_at": timezone.now().isoformat(),
-            }
-        )
+        new_message = {
+            "role": "user",
+            "message": message_content,
+            "created_at": timezone.now().isoformat(),
+        }
+        if attachments_data:
+            new_message["attachments"] = attachments_data
+        messages.append(new_message)
         request_obj.metadata["chat_messages"] = messages
         try:
             repository.save(request_obj)
         except PermissionError as exc:
             raise PermissionDenied(str(exc)) from exc
-        summary = message_content.strip()
-        if summary:
-            title_candidate = summary.split("\n", 1)[0].strip() or summary
-        else:
-            title_candidate = request_obj.payload.title or "Follow-up request"
-        title = (
-            title_candidate
-            if len(title_candidate) <= 72
-            else f"{title_candidate[:69]}..."
-        )
         app_tasks.execute_request_task.delay(request_id)
-        run_log.publish(
-            request_id,
-            {
-                "type": "user_message",
-                "request_id": request_id,
-                "message": message_content,
-            },
-        )
+        run_log_payload = {
+            "type": "user_message",
+            "request_id": request_id,
+            "message": message_content,
+        }
+        if attachments_data:
+            run_log_payload["attachments"] = attachments_data
+        run_log.publish(request_id, run_log_payload)
         return Response({"status": "received"}, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["post"])
@@ -554,13 +561,34 @@ class DeepAgentMessageView(APIView):
             for msg in serializer.validated_data["messages"]
         ]
         stream = serializer.validated_data.get("stream", True)
+        
+        llm_config = {}
+        if serializer.validated_data.get("llm_provider"):
+            llm_config["provider"] = serializer.validated_data["llm_provider"]
+        if serializer.validated_data.get("llm_model"):
+            llm_config["model"] = serializer.validated_data["llm_model"]
+        if serializer.validated_data.get("reasoning_effort"):
+            llm_config["reasoning_effort"] = serializer.validated_data["reasoning_effort"]
+        if serializer.validated_data.get("reasoning_check") is not None:
+            llm_config["reasoning_check"] = serializer.validated_data["reasoning_check"]
+
+        from astraforge.domain.models.request import Request as DomainRequest
+        from astraforge.domain.models.request import RequestPayload
+        
+        dummy_request = DomainRequest(
+            payload=RequestPayload(title="chat", description="chat", context={}),
+            metadata={"llm": llm_config} if llm_config else {},
+            user_id=str(request.user.id),
+            tenant_id="chat",
+        )
+        
         config = {
             "thread_id": str(conversation_id),
             "configurable": {
                 "sandbox_session_id": str(conversation_id),
             },
         }
-        agent = get_deep_agent()
+        agent = get_deep_agent(dummy_request)
 
         if not stream:
             try:

@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from functools import lru_cache
 from typing import Any, List, Mapping, Optional
 from urllib.parse import quote
 
 from deepagents import create_deep_agent
 from langchain_openai import ChatOpenAI
 
+from astraforge.domain.models.request import Request
 from astraforge.sandbox.deepagent_backend import SandboxBackend
 
 
@@ -113,11 +113,23 @@ def _build_checkpointer() -> Optional[Any]:
     return saver
 
 
-def _resolve_deepagent_provider() -> str:
+def _resolve_deepagent_provider(request: Request | None = None) -> str:
+    if request:
+        llm_meta = request.metadata.get("llm")
+        if isinstance(llm_meta, dict):
+            provider = llm_meta.get("provider")
+            if provider:
+                return str(provider).strip().lower()
     return (os.getenv("DEEPAGENT_PROVIDER") or os.getenv("LLM_PROVIDER") or "openai").strip().lower()
 
 
-def _default_deepagent_model(provider: str) -> str:
+def _default_deepagent_model(provider: str, request: Request | None = None) -> str:
+    if request:
+        llm_meta = request.metadata.get("llm")
+        if isinstance(llm_meta, dict):
+            model = llm_meta.get("model")
+            if model:
+                return str(model).strip()
     configured = os.getenv("DEEPAGENT_MODEL")
     if configured:
         return configured
@@ -158,14 +170,33 @@ def _parse_json_env(name: str) -> dict[str, Any] | None:
     return data
 
 
-def _build_ollama_model_kwargs() -> dict[str, Any]:
+def _is_reasoning_model(model: str) -> bool:
+    patterns = ["gpt-oss", "deepseek-r1", "o1-", "o3-"]
+    return any(model.lower().startswith(p) for p in patterns)
+
+
+def _build_ollama_model_kwargs(request: Request | None = None, model_name: str = "") -> dict[str, Any]:
     model_kwargs: dict[str, Any] = {}
-    effort = (
-        os.getenv("DEEPAGENT_REASONING_EFFORT")
-        or os.getenv("OLLAMA_REASONING_EFFORT")
-        or ""
-    ).strip().lower()
-    if effort:
+    
+    effort = ""
+    check = None
+    if request:
+        llm_meta = request.metadata.get("llm")
+        if isinstance(llm_meta, dict):
+            effort = str(llm_meta.get("reasoning_effort") or "").strip().lower()
+            check = llm_meta.get("reasoning_check")
+            
+    if not effort:
+        effort = (
+            os.getenv("DEEPAGENT_REASONING_EFFORT")
+            or os.getenv("OLLAMA_REASONING_EFFORT")
+            or "high"
+        ).strip().lower()
+    
+    if check is None:
+        check = os.getenv("OLLAMA_REASONING_CHECK", "true").lower() in ("true", "1", "yes")
+        
+    if check or _is_reasoning_model(model_name):
         if effort in {"low", "medium", "high"}:
             model_kwargs["think"] = effort
 
@@ -230,9 +261,8 @@ def _build_shell_tools() -> List[Any]:
     return [sandbox_shell]
 
 
-@lru_cache(maxsize=1)
-def get_deep_agent():
-    """Instantiate a singleton deep agent bound to the sandbox backend."""
+def get_deep_agent(request: Request | None = None):
+    """Instantiate a deep agent, optionally configured by a request."""
 
     def backend_factory(rt):
         # Single backend class that can operate either in internal mode
@@ -240,8 +270,8 @@ def get_deep_agent():
         # depending on environment / constructor arguments.
         return SandboxBackend(rt)
 
-    provider = _resolve_deepagent_provider()
-    model_name = _default_deepagent_model(provider)
+    provider = _resolve_deepagent_provider(request)
+    model_name = _default_deepagent_model(provider, request)
     temperature = float(os.getenv("DEEPAGENT_TEMPERATURE", "0.3"))
     if provider == "ollama":
         try:
@@ -251,7 +281,7 @@ def get_deep_agent():
                 "langchain-ollama is required for DEEPAGENT_PROVIDER=ollama"
             ) from exc
         base_url = os.getenv("OLLAMA_BASE_URL") or None
-        model_kwargs = _build_ollama_model_kwargs()
+        model_kwargs = _build_ollama_model_kwargs(request, model_name)
         ollama_kwargs: dict[str, Any] = {
             "model": model_name,
             "temperature": temperature,
@@ -264,7 +294,16 @@ def get_deep_agent():
     else:
         api_key = os.getenv("OPENAI_API_KEY")
         base_url = os.getenv("OPENAI_BASE_URL") or None
-        reasoning_effort = os.getenv("DEEPAGENT_REASONING_EFFORT")
+        
+        reasoning_effort = ""
+        if request:
+            llm_meta = request.metadata.get("llm")
+            if isinstance(llm_meta, dict):
+                reasoning_effort = str(llm_meta.get("reasoning_effort") or "").strip().lower()
+        
+        if not reasoning_effort:
+            reasoning_effort = os.getenv("DEEPAGENT_REASONING_EFFORT")
+            
         openai_kwargs: dict[str, Any] = {
             "model": model_name,
             "temperature": temperature,

@@ -1,16 +1,29 @@
-import React, { type HTMLAttributes, type MouseEvent } from "react";
+import React, { type HTMLAttributes, type MouseEvent, useState } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+interface ChatAttachment {
+  uri: string;
+  name: string;
+  content_type: string;
+}
 
 interface ChatMessage {
   id: string;
   role: string;
   content: string;
   created_at: string;
+  attachments?: ChatAttachment[];
 }
 
 interface ChatTimelineProps {
@@ -192,9 +205,25 @@ export function ChatTimeline({
   messages = [],
   onLinkClick,
 }: ChatTimelineProps & { onLinkClick?: (href: string, label: string) => void }) {
+  const [selectedImage, setSelectedImage] = useState<ChatAttachment | null>(null);
+
   if (messages.length === 0) {
     return <Card className="p-6 text-sm text-muted-foreground">No messages yet.</Card>;
   }
+
+  const handleAttachmentClick = (attachment: ChatAttachment) => {
+    if (attachment.content_type.startsWith("image/")) {
+      setSelectedImage(attachment);
+    } else {
+      // For non-images, try to download or open safely
+      const link = document.createElement("a");
+      link.href = attachment.uri;
+      link.download = attachment.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
 
   const components: Components = {
     ...markdownComponents,
@@ -275,12 +304,71 @@ export function ChatTimeline({
                 remarkPlugins={[remarkGfm]}
                 components={components}
               >
-                {message.content}
+                {message.content || (message.attachments?.length ? "_Image attached_" : "")}
               </ReactMarkdown>
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-3 pt-2 pb-1 min-h-[40px]">
+                  {message.attachments.map((attachment, index) => {
+                    const isImage = attachment.content_type.startsWith("image/");
+                    return (
+                      <div
+                        key={index}
+                        className={cn(
+                          "group relative overflow-hidden rounded-xl border border-border/40 bg-muted/20 transition-all hover:border-primary/40 shadow-sm",
+                          isImage ? "h-32 w-32" : "h-20 w-40"
+                        )}
+                      >
+                        {isImage ? (
+                          <>
+                            <img
+                              src={attachment.uri}
+                              alt={attachment.name}
+                              className="block h-full w-full object-cover transition-transform group-hover:scale-110 cursor-pointer"
+                              onClick={() => handleAttachmentClick(attachment)}
+                            />
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
+                              <p className="truncate text-[10px] font-medium text-white">{attachment.name}</p>
+                            </div>
+                          </>
+                        ) : (
+                          <div 
+                            className="flex h-full w-full flex-col items-center justify-center p-3 text-center cursor-pointer"
+                            onClick={() => handleAttachmentClick(attachment)}
+                          >
+                            <span className="truncate text-[10px] font-medium text-foreground w-full">
+                              {attachment.name}
+                            </span>
+                            <span className="text-[8px] text-muted-foreground uppercase mt-1">
+                              {attachment.content_type.split("/")[1] || "file"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
       ))}
+
+      <Dialog open={!!selectedImage} onOpenChange={(open) => !open && setSelectedImage(null)}>
+        <DialogContent className="max-w-4xl border-none bg-transparent p-0 shadow-none sm:rounded-none">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{selectedImage?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="relative flex items-center justify-center overflow-hidden rounded-lg bg-background/10 backdrop-blur-sm">
+            {selectedImage && (
+              <img
+                src={selectedImage.uri}
+                alt={selectedImage.name}
+                className="max-h-[85vh] max-w-full object-contain shadow-2xl"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

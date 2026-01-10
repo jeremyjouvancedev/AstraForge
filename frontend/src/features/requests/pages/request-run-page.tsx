@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DiffPreview } from "@/components/diff-preview";
 import { cn } from "@/lib/cn";
+import { Attachment } from "@/lib/api-client";
 import { useRequestDetail } from "@/features/requests/hooks/use-request-detail";
 import {
   RunLogEvent,
@@ -482,6 +483,7 @@ export default function RequestRunPage() {
               requestPrompt
                 ? {
                     content: requestPrompt,
+                    attachments: (requestPayload?.["attachments"] as Attachment[]) ?? undefined,
                     createdAt:
                       (typeof data?.created_at === "string" ? data.created_at : null) ??
                       selectedRun?.started_at ??

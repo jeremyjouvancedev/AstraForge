@@ -36,7 +36,7 @@ services:
     ports:
       - "5433:5433"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-astraforge} -d ${POSTGRES_DB:-astraforge}"]
+      test: ["CMD-SHELL", "pg_isready -p 5433 -U ${POSTGRES_USER:-astraforge} -d ${POSTGRES_DB:-astraforge}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -64,7 +64,7 @@ services:
     ports:
       - "9001:9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://minio:9000/minio/health/live"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -121,6 +121,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-astraforge123}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-high}
+      OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/auth/csrf/"]
       interval: 5s
@@ -177,6 +179,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-astraforge123}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-high}
+      OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -207,6 +211,8 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:20b}
+      OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-high}
+      OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
       LOG_LEVEL: DEBUG
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]

@@ -45,6 +45,8 @@ class SpecRequest(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict)
     repository: str = "unknown"
     branch: str = "main"
+    reasoning_effort: str | None = None
+    reasoning_check: bool | None = None
 
 
 class SpecResponse(BaseModel):
@@ -63,6 +65,10 @@ class MergeRequestRequest(BaseModel):
     source_branch: str
     diff: str
     reports: Dict[str, Any] = Field(default_factory=dict)
+    reasoning_effort: str | None = None
+    reasoning_check: bool | None = None
+    reasoning_effort: str | None = None
+    reasoning_check: bool | None = None
 
 
 class MergeRequestResponse(BaseModel):
@@ -101,6 +107,26 @@ def _ollama_base_url() -> str:
 
 def _ollama_chat_url() -> str:
     return f"{_ollama_base_url()}/api/chat"
+
+
+def _is_reasoning_model(model: str) -> bool:
+    patterns = ["gpt-oss", "deepseek-r1", "o1-", "o3-"]
+    return any(model.lower().startswith(p) for p in patterns)
+
+
+def _should_check_reasoning() -> bool:
+    return os.getenv("OLLAMA_REASONING_CHECK", "true").lower() in ("true", "1", "yes")
+
+
+def _get_reasoning_effort() -> str:
+    effort = (
+        os.getenv("DEEPAGENT_REASONING_EFFORT")
+        or os.getenv("OLLAMA_REASONING_EFFORT")
+        or "high"
+    ).strip().lower()
+    if effort not in {"low", "medium", "high"}:
+        return "high"
+    return effort
 
 
 def _openai_base_url() -> str:
@@ -172,7 +198,11 @@ def _normalize_proxy_path(path: str) -> str:
 
 
 async def _invoke_chat(
-    messages: Iterable[Dict[str, str]], *, response_format: Dict[str, str]
+    messages: Iterable[Dict[str, str]],
+    *,
+    response_format: Dict[str, str],
+    reasoning_effort: str | None = None,
+    reasoning_check: bool | None = None,
 ) -> str:
     provider = _llm_provider()
     model = _default_model()
@@ -184,6 +214,12 @@ async def _invoke_chat(
             "stream": False,
             "options": {"temperature": 0.2},
         }
+        effort = reasoning_effort or _get_reasoning_effort()
+        check = (
+            reasoning_check if reasoning_check is not None else _should_check_reasoning()
+        )
+        if check or _is_reasoning_model(model):
+            payload["options"]["think"] = effort
         if response_format.get("type") == "json_object":
             payload["format"] = "json"
         async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
@@ -403,6 +439,15 @@ async def _ollama_stream_iterator(
     temperature = payload.get("temperature")
     if isinstance(temperature, (int, float)):
         chat_payload["options"]["temperature"] = temperature
+    
+    effort = payload.get("reasoning_effort") or _get_reasoning_effort()
+    check = payload.get("reasoning_check")
+    if check is None:
+        check = _should_check_reasoning()
+
+    if check or _is_reasoning_model(model):
+        chat_payload["options"]["think"] = effort
+
     response_format = payload.get("response_format") or {}
     if (
         isinstance(response_format, dict)
@@ -499,6 +544,15 @@ async def _proxy_ollama_responses(
     temperature = payload.get("temperature")
     if isinstance(temperature, (int, float)):
         chat_payload["options"]["temperature"] = temperature
+    
+    effort = payload.get("reasoning_effort") or _get_reasoning_effort()
+    check = payload.get("reasoning_check")
+    if check is None:
+        check = _should_check_reasoning()
+
+    if check or _is_reasoning_model(model):
+        chat_payload["options"]["think"] = effort
+
     response_format = payload.get("response_format") or {}
     if (
         isinstance(response_format, dict)

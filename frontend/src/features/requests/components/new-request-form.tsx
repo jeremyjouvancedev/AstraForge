@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import type { AxiosError } from "axios";
 
@@ -11,23 +11,30 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   createRequest,
   CreateRequestInput,
   CreateRequestResponse,
-  RepositoryLink
+  RepositoryLink,
+  Attachment
 } from "@/lib/api-client";
 import { extractApiErrorMessage } from "@/lib/api-error";
-import { ArrowUp, Cpu, Layers, Monitor } from "lucide-react";
+import { ArrowUp, Cpu, Layers, Monitor, BrainCircuit } from "lucide-react";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
+import { ImageUpload } from "@/components/image-upload";
 
 const llmProviders = ["openai", "ollama"] as const;
+const reasoningEfforts = ["low", "medium", "high"] as const;
 
 const schema = z.object({
   projectId: z.string().uuid({ message: "Selectionnez un projet" }),
   prompt: z.string().min(10, "Decrivez brievement votre besoin"),
   llmProvider: z.union([z.literal(""), z.enum(llmProviders)]),
   llmModel: z.string().max(120, "Le modele est trop long").optional(),
+  reasoningEffort: z.enum(reasoningEfforts).default("high"),
+  reasoningCheck: z.boolean().default(true),
 }).superRefine((data, ctx) => {
   if (data.llmModel?.trim() && !data.llmProvider) {
     ctx.addIssue({
@@ -50,10 +57,21 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
   const navigate = useNavigate();
   const defaultProjectId = projects[0]?.id ?? "";
   const form = useForm<FormValues>({
-    defaultValues: { projectId: defaultProjectId, prompt: "", llmProvider: "", llmModel: "" },
+    defaultValues: {
+      projectId: defaultProjectId,
+      prompt: "",
+      llmProvider: "",
+      llmModel: "",
+      reasoningEffort: "high",
+      reasoningCheck: true
+    },
     resolver: zodResolver(schema)
   });
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [images, setImages] = useState<Attachment[]>([]);
+
+  const selectedProvider = form.watch("llmProvider");
+  const isReasoning = form.watch("reasoningCheck");
 
   useEffect(() => {
     if (projects.length > 0) {
@@ -73,8 +91,9 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
         });
       }
       setSubmissionError(null);
+      setImages([]);
       const resetProjectId = projects[0]?.id ?? "";
-      form.reset({ projectId: resetProjectId, prompt: "", llmProvider: "", llmModel: "" });
+      form.reset({ projectId: resetProjectId, prompt: "", llmProvider: "", llmModel: "", reasoningEffort: "high", reasoningCheck: true });
       navigate(`/app/requests/${response.id}/run`);
     },
     onError: (error) => {
@@ -100,13 +119,17 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
     }
     const llmProvider = values.llmProvider || undefined;
     const llmModel = values.llmModel?.trim() || undefined;
+    const reasoningEffort = values.reasoningEffort;
+    const reasoningCheck = values.reasoningCheck;
 
     mutation.mutate({
       prompt: rawPrompt,
       projectId: values.projectId,
       tenantId: activeWorkspace?.uid,
+      attachments: images.length > 0 ? images : undefined,
       ...(llmProvider ? { llmProvider } : {}),
-      ...(llmModel ? { llmModel } : {})
+      ...(llmModel ? { llmModel } : {}),
+      ...(llmProvider === "ollama" ? { reasoningEffort, reasoningCheck } : {})
     });
   });
 
@@ -129,6 +152,9 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
             placeholder="Describe the feature, constraints, test coverage, and any artifacts we should reference…"
             {...form.register("prompt")}
           />
+          <div className="px-8 pb-4">
+            <ImageUpload images={images} setImages={setImages} disabled={mutation.isPending} />
+          </div>
           {form.formState.errors.prompt && (
             <p className="px-8 pb-1 text-sm text-destructive">
               {form.formState.errors.prompt.message}
@@ -173,6 +199,51 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
                     </select>
                   </div>
                 </div>
+                {selectedProvider === "ollama" && (
+                  <div className="flex w-full items-center gap-4 sm:w-auto">
+                    <div className="flex items-center gap-2">
+                      <Controller
+                        name="reasoningCheck"
+                        control={form.control}
+                        render={({ field }) => (
+                          <Checkbox
+                            id="reasoning-check"
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            disabled={mutation.isPending}
+                            className="h-5 w-5 rounded-md"
+                          />
+                        )}
+                      />
+                      <Label
+                        htmlFor="reasoning-check"
+                        className="flex items-center gap-1.5 text-sm font-medium text-foreground cursor-pointer"
+                      >
+                        <BrainCircuit size={14} className="text-primary" />
+                        Reasoning
+                      </Label>
+                    </div>
+                    {isReasoning && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
+                          <Layers size={16} />
+                        </div>
+                        <div className="relative">
+                          <select
+                            aria-label="Reasoning effort"
+                            className="w-full max-w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60 sm:min-w-[140px] sm:w-auto"
+                            {...form.register("reasoningEffort")}
+                            disabled={mutation.isPending}
+                          >
+                            <option value="low">Low effort</option>
+                            <option value="medium">Medium effort</option>
+                            <option value="high">High effort</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex w-full items-center gap-2 sm:min-w-[240px] sm:flex-1">
                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
                     <Layers size={16} />

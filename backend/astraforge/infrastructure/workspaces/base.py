@@ -9,7 +9,6 @@ import os
 import shlex
 import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Tuple, TYPE_CHECKING
 from urllib.parse import quote, urlparse, urlunparse
 
