@@ -17,6 +17,8 @@ def api_client():
 
 def test_register_waitlists_user_by_default(settings, api_client):
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    settings.AUTH_REQUIRE_APPROVAL = True
+    settings.AUTH_WAITLIST_ENABLED = True
     response = api_client.post(
         reverse("auth-register"),
         {
@@ -39,7 +41,9 @@ def test_register_waitlists_user_by_default(settings, api_client):
     assert "sessionid" not in response.cookies
 
 
-def test_login_rejects_when_access_pending(api_client):
+def test_login_rejects_when_access_pending(settings, api_client):
+    settings.AUTH_REQUIRE_APPROVAL = True
+    settings.AUTH_WAITLIST_ENABLED = True
     user_model = get_user_model()
     user_model.objects.create_user(username="alice", password="strongpass123")
     UserAccess.for_user(user_model.objects.get(username="alice"))
@@ -132,6 +136,7 @@ def test_waitlist_email_sent_once(settings, api_client):
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     settings.AUTH_REQUIRE_APPROVAL = True
     settings.AUTH_ALLOW_ALL_USERS = False
+    settings.AUTH_WAITLIST_ENABLED = True
 
     response = api_client.post(
         reverse("auth-register"),

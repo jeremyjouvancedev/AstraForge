@@ -331,16 +331,24 @@ def test_wrap_exec_includes_namespace_for_k8s():
 
     command = operator._wrap_exec("astraforge-local/workspace-123", "k8s", ["git", "status"])
 
-    assert command[:4] == ["kubectl", "exec", "-n", "astraforge-local"]
-    assert command[4:] == ["workspace-123", "--", "git", "status"]
+    assert command[:5] == ["kubectl", "exec", "-i", "-n", "astraforge-local"]
+    assert command[5:] == ["workspace-123", "--", "git", "status"]
 
 
 def test_codex_command_uses_request_llm_config(monkeypatch):
     operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
+    payload = type(
+        "PayloadStub",
+        (),
+        {"description": "test request", "title": "title", "attachments": []},
+    )()
     request = type(
         "RequestStub",
         (),
-        {"metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:120b"}}},
+        {
+            "metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:120b"}},
+            "payload": payload,
+        },
     )()
     workspace = WorkspaceContext(
         ref="local",
@@ -365,10 +373,18 @@ def test_codex_command_uses_request_llm_config(monkeypatch):
 
 def test_codex_command_defaults_ollama_api_key(monkeypatch):
     operator = CodexWorkspaceOperator(provisioner=_DummyProvisioner())
+    payload = type(
+        "PayloadStub",
+        (),
+        {"description": "test request", "title": "title", "attachments": []},
+    )()
     request = type(
         "RequestStub",
         (),
-        {"metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:20b"}}},
+        {
+            "metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:20b"}},
+            "payload": payload,
+        },
     )()
     workspace = WorkspaceContext(
         ref="local",

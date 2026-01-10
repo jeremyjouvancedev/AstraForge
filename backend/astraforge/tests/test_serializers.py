@@ -81,7 +81,11 @@ def test_request_serializer_includes_llm_config():
     request_obj = serializer.save()
 
     llm_meta = request_obj.metadata.get("llm")
-    assert llm_meta == {"provider": "ollama", "model": "gpt-oss:120b"}
+    assert llm_meta == {
+        "provider": "ollama",
+        "model": "gpt-oss:120b",
+        "reasoning_effort": "high",
+    }
 
 
 class DummySerializer(serializers.Serializer):

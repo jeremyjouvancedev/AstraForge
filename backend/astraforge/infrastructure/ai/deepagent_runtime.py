@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -261,6 +262,7 @@ def _build_shell_tools() -> List[Any]:
     return [sandbox_shell]
 
 
+@functools.cache
 def get_deep_agent(request: Request | None = None):
     """Instantiate a deep agent, optionally configured by a request."""
 
