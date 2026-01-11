@@ -42,9 +42,9 @@ export default function RequestsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">
               AstraForge Workspace
             </p>
-            <h1 className="mt-2 text-3xl font-semibold text-white">Request Inbox</h1>
+            <h1 className="mt-2 text-3xl font-semibold text-white">Software Engineer</h1>
             <p className="mt-3 max-w-2xl text-sm text-zinc-300">
-              Capture product intent, batch automations, and let the Codex Engine land the change safely in your repositories.
+              Land automated changes safely in your repositories. Provide context and let the SWE Agent handle the implementation, testing, and delivery.
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 text-sm text-zinc-300">
@@ -102,9 +102,9 @@ export default function RequestsPage() {
       <section className="home-card home-ring-soft rounded-3xl border border-white/10 bg-black/30 shadow-2xl shadow-indigo-500/15 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
-            <h2 className="text-lg font-semibold text-white">Recent Requests</h2>
+            <h2 className="text-lg font-semibold text-white">Agent Activity</h2>
             <p className="text-sm text-zinc-300">
-              Track requests flowing through the AstraForge orchestration lifecycle.
+              Monitor the progress of automated changes as they flow through the implementation lifecycle.
             </p>
           </div>
           <Button

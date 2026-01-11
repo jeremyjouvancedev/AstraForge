@@ -395,7 +395,7 @@ export function ComputerUseRunView({
                      ) : (
                         <div className="aspect-video rounded-3xl border border-dashed border-white/10 bg-white/5 flex flex-col items-center justify-center text-zinc-600 space-y-2">
                           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500" />
-                          <span className="text-xs italic">Capturing observation...</span>
+                          <span className="text-xs italic">Capturing browser state...</span>
                         </div>
                      )}
                   </div>

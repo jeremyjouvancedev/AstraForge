@@ -117,7 +117,7 @@ export default function ComputerUsePage() {
         <div className="space-y-2">
            <div className="flex items-center gap-2 text-indigo-400 font-semibold uppercase tracking-[0.2em] text-[10px]">
              <LayoutGrid className="h-3 w-3" />
-             Computer Use
+             Browser Use
            </div>
            <h1 className="text-4xl font-bold text-white tracking-tight">Browser Orchestration</h1>
            <p className="text-zinc-400 max-w-xl text-sm leading-relaxed">

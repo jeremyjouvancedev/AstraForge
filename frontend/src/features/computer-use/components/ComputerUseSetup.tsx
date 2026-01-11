@@ -105,9 +105,9 @@ function shortId(value?: string | null) {
   return value.slice(0, 8);
 }
 
-const defaultComputerUseImage = "astraforge/computer-use:latest";
+const defaultBrowserUseImage = "astraforge/computer-use:latest";
 
-function isComputerUseSession(session: SandboxSession) {
+function isBrowserUseSession(session: SandboxSession) {
   const purpose = typeof session.metadata?.purpose === "string" ? session.metadata.purpose : "";
   if (purpose.toLowerCase() === "computer_use") {
     return true;
@@ -116,7 +116,7 @@ function isComputerUseSession(session: SandboxSession) {
   if (image.includes("computer-use")) {
     return true;
   }
-  return session.image === defaultComputerUseImage;
+  return session.image === defaultBrowserUseImage;
 }
 
 interface ComputerUseSetupProps {
@@ -156,7 +156,7 @@ export function ComputerUseSetup({ onSubmit, isPending }: ComputerUseSetupProps)
       if (!status.includes("ready") && !status.includes("starting")) {
         return false;
       }
-      return isComputerUseSession(session);
+      return isBrowserUseSession(session);
     });
   }, [sandboxSessionsQuery.data]);
 
@@ -232,7 +232,7 @@ export function ComputerUseSetup({ onSubmit, isPending }: ComputerUseSetupProps)
   return (
     <Card className="mx-auto w-full max-w-3xl home-card home-ring-soft rounded-3xl border border-white/10 bg-black/30 text-zinc-100 shadow-2xl shadow-indigo-500/15 backdrop-blur">
       <CardHeader>
-        <CardTitle className="text-2xl font-semibold text-white">Start a Computer-Use Run</CardTitle>
+        <CardTitle className="text-2xl font-semibold text-white">Start a Browser-Use Run</CardTitle>
         <p className="text-sm text-zinc-400">Define your goal and choose a model to begin.</p>
       </CardHeader>
       <CardContent>
@@ -240,12 +240,12 @@ export function ComputerUseSetup({ onSubmit, isPending }: ComputerUseSetupProps)
           <div className="space-y-3">
             <label
               className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400"
-              htmlFor="computer-use-goal"
+              htmlFor="browser-use-goal"
             >
               What is your goal?
             </label>
             <Textarea
-              id="computer-use-goal"
+              id="browser-use-goal"
               rows={4}
               className={cn(inputClassName, "text-base py-4")}
               placeholder="e.g., Navigate to example.com and find the contact email..."
