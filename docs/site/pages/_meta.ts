@@ -2,6 +2,8 @@ const meta = {
   index: 'Overview',
   'getting-started': 'Getting Started',
   production: 'Production deployment',
+  'docker-compose': 'Docker Compose',
+  portainer: 'Portainer',
   configuration: 'Configuration & secrets',
   architecture: 'Architecture',
   'sandbox-overview': 'Sandbox overview',

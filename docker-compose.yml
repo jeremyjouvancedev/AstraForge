@@ -228,6 +228,19 @@ services:
     networks:
       - astraforge
       - astraforge-sandbox
+  docs:
+    build:
+      context: ./docs/site
+      dockerfile: Dockerfile.dev
+    command: sh -c "pnpm install --frozen-lockfile && pnpm dev"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docs/site:/app
+      - docs-node-modules:/app/node_modules
+      - docs-next:/app/.next
+    networks:
+      - astraforge
   frontend:
     build:
       context: ./frontend
@@ -250,6 +263,8 @@ services:
 volumes:
   postgres-data:
   frontend-node-modules:
+  docs-node-modules:
+  docs-next:
   minio-data:
 
 networks:

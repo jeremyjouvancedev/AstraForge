@@ -1,26 +1,30 @@
-# AstraForge documentation
+# AstraForge Documentation
 
-Welcome to the Nextra-powered docs site for AstraForge. This space explains how to run the platform locally, how the monorepo is organized, and how to contribute changes confidently.
+**AstraForge is a sandboxed execution engine for AI agents that can safely run real code.**
 
-## What you will find
+AstraForge provides isolated, ephemeral execution environments that allow LLM-based agents to run Python, shell commands, and workflows securely, without risking the host system. Agents need to execute real workloads to debug, test, and remediate systems; running that code directly on the host is a security and stability risk. AstraForge solves this by providing real execution with auditable logs, diffs, and guardrails.
 
-- Quick setup steps for local development.
-- Production deployment guidance (Compose or Kubernetes) plus configuration tips.
-- Architecture overview and sandbox behavior.
-- Sandbox Python client examples and operational runbooks.
-- Guidance for extending the backend, frontend, and docs.
+## Core Features
 
-## Quick links
+- **Secure Sandboxing:** Coding agents run in isolated Codex workspaces with auto-MR guardrails, while LangChain DeepAgents use managed sandboxes (network guards, ephemeral secrets) for safe debugging.
+- **Auto-remediation to Merge:** Glitchtip/Sentry alerts forward stack traces and metadata into Codex workspaces, allowing agents to produce patches, tests, and merge requests automatically.
+- **Shared Workspaces:** Human reviewers and LLM executors can attach to the same streamed workspace, replaying runs and resuming conversations.
+- **Reviewability:** Diff previews, run logs, and chat summaries keep reviewers in the loop before changes land.
+- **Flexible Deployment:** Supports Docker (single host) for local dev and Kubernetes (standard, gVisor, or Kata/Firecracker) for production isolation.
 
-- [Getting started](/getting-started) walks through installing dependencies and running services.
-- [Production deployment](/production) covers hardened settings, migrations, and image pulls.
-- [Configuration & secrets](/configuration) documents the key environment variables.
-- [Architecture](/architecture) summarizes the system design and points to the full diagrams.
-- [Sandbox overview](/sandbox-overview) explains lifecycle, security, and APIs.
-- [Sandbox Python client](/sandbox-python-client) shows how to drive the sandbox from Python.
-- [Operations & testing](/operations) lists lint/test commands, reaper behavior, and health checks.
-- [Contributing](/contributing) captures conventions for code and documentation updates.
+## Explore the Docs
 
-## Using this site
+- [Getting Started](/getting-started): Quickest way to run the full stack with Docker Compose.
+- [Production Deployment](/production): Hardened settings, migrations, and image management for production.
+- [Configuration & Secrets](/configuration): comprehensive reference for environment variables.
+- [Architecture](/architecture): Deep dive into the system design, components, and diagrams.
+- [Sandbox Overview](/sandbox-overview): Understand sandbox lifecycle, security levels, and APIs.
+- [Sandbox Python Client](/sandbox-python-client): Learn how to drive the sandbox programmatically from Python apps.
+- [Docker Compose Runbook](/docker-compose): Detailed guide for managing the stack with Docker Compose.
+- [Deploy to Portainer](/portainer): Guide for deploying AstraForge to Portainer.
+- [Operations & Testing](/operations): Linting, testing commands, and health checks.
+- [Contributing](/contributing): Guidelines for contributing code and documentation.
 
-The docs are built with [Nextra](https://nextra.site/) on Next.js and can be served locally with `pnpm dev` from `docs/site`. Pages live under `docs/site/pages` and are written in MDX so you can embed code blocks, callouts, or custom React components as needed.
+## Using this Site
+
+The docs are built with [Nextra](https://nextra.site/) on Next.js. You can run them locally alongside the app using `docker compose up` and access them at `http://localhost:3000`.

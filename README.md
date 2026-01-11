@@ -174,7 +174,7 @@ make workspace-images
 docker compose up
 ```
 
-7) Open `http://localhost:5174` for the app (API at `http://localhost:8001/api`). Stop with `docker compose down`. For details and troubleshooting, see `docs/docker-compose.md`.
+7) Open `http://localhost:5174` for the app (API at `http://localhost:8001/api`). The documentation is available at `http://localhost:3000`. Stop with `docker compose down`. For details and troubleshooting, see `docs/docker-compose.md`.
 
 ## Frontend webapp
 
@@ -329,6 +329,7 @@ See `docs/architecture.md` for the accompanying narrative plus operational consi
 
 - `docs/architecture.md` – canonical mermaid diagram and subsystem explanations.
 - `docs/docker-compose.md` – runbook for starting/stopping the stack with Docker Compose.
+- `docs/deploy/portainer.md` – guide for deploying AstraForge to Portainer.
 - `docs/sandbox.md` – sandbox orchestrator API (Docker + Kubernetes) and lifecycle tips.
 - `infra/` – Dockerfiles, Helm charts, and CI definitions.
 

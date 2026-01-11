@@ -26,8 +26,6 @@ Replace `<namespace>` with your GitHub username or org (lowercase) and keep the 
 
 ## Stack template (no reverse proxy needed)
 
-Use this Portainer stack to keep everything on a private overlay network and expose the bundled app directly on host port `8081` (change as needed). It also wires an internal-only `astraforge-sandbox` network so sandbox containers can reach the AI gateway (`llm-proxy`) without full internet egress. Images live under `ghcr.io/jeremyjouvancedev/astraforge-*`; set hostnames and adjust environment values for your secrets:
-
 ```yaml
 version: "3.9"
 services:
@@ -231,7 +229,7 @@ Notes:
   `SECRET_KEY` explicitly before deploying.
 - Postgres uses `pgvector/pgvector:pg16`, so the `vector` extension is available out of the box; run `CREATE EXTENSION IF NOT EXISTS vector;` in your init scripts if you add embeddings.
 - The bundled `astraforge` image serves both the SPA assets and `/api` on port `8001` via Django + WhiteNoise; no separate frontend container or `BACKEND_ORIGIN` env var is required.
-- Sandbox containers are still created on-demand by the backend (via `SANDBOX_IMAGE`, defaulting to the published `ghcr.io/<namespace>/astraforge-sandbox:latest`). Ensure your hosts/agents can pull from GHCR; you do **not** need to run the sandbox image as a long-lived service in the stack.
+- Sandbox containers are still created on-demand by the backend (via `SANDBOX_IMAGE`, defaulting to the published `ghcr.io/<namespace>/astraforge-sandbox:latest`). Ensure your hosts/agents can pull from GHCR; you do **not** need to run the sandbox image as a longlived service in the stack.
 - The internal `astraforge-sandbox` network is `internal: true`, so sandboxes only reach `llm-proxy` (and DNS) when you set `SANDBOX_DOCKER_NETWORK=astraforge-sandbox`. Leave it unset for default bridge egress, set `SANDBOX_DOCKER_NETWORK=none` for no networking, or point it at another bridge if you need a different AI gateway.
 - For dependency installation inside sandboxes, temporarily relax the hardening: set `SANDBOX_DOCKER_READ_ONLY=0`, optionally `SANDBOX_DOCKER_USER=root` (for `apt-get`), and keep default bridge egress (unset `SANDBOX_DOCKER_NETWORK`) or point it to a non-internal bridge. Revert to the secure defaults afterward.
 - To enforce “internet-only” egress for Docker sandboxes on a NAS, attach them to a routed bridge and add host firewall rules that drop traffic from that bridge’s subnet to RFC1918/link-local ranges while allowing outbound to the internet.
@@ -251,8 +249,3 @@ Notes:
    `OPENAI_API_KEY` or `OLLAMA_BASE_URL`, optional `LLM_MODEL`, and any Django settings you override).
 3. Deploy; Portainer will pull GHCR images, run migrations, and bring up the API/SPA, worker, and LLM proxy.
 4. Update by re-deploying the stack with a new tag (e.g., a specific SHA) or letting it track `latest`.
-
-Notes:
-- Keep `/var/run/docker.sock` mounted for the backend/worker only if you rely on Docker-based workspace execution; remove it on clusters where that access is not allowed.
-- Swap Postgres/Redis for external services if you already host them; update the URLs accordingly.
-- Set DNS for `astraforge.example.com` (or your preferred hostname) to the Portainer host so nginx can route traffic. Add TLS by mounting certs/keys and updating the nginx config with `listen 443 ssl` plus `ssl_certificate` / `ssl_certificate_key`.

@@ -1,46 +1,39 @@
 # Getting started
 
-Follow these steps to run AstraForge locally with the provided Make targets and pnpm tooling.
+Follow these steps to run AstraForge locally using Docker Compose.
 
 ## Prerequisites
 
-- pnpm `9.x`
-- Python 3.11+ with virtualenv support
-- Docker (required for compose-based flows and sandbox containers)
-
-If you are missing dependencies, run the bootstrap target from the repo root:
-
-```bash
-make install-deps
-```
+- Docker Engine and Docker Compose plugin (`v2.20+` recommended)
+- An OpenAI-compatible API key or a local Ollama daemon for the LLM proxy
 
 ## Configure environment
 
-Copy `.env.example` to `.env` and adjust secrets, database URLs, and sandbox options to match your local setup. Keep `PROVISIONER` aligned with your chosen runtime (`docker` or `k8s`).
+Copy `.env.example` to `.env` and adjust secrets, database URLs, and sandbox options to match your local setup.
 
-## Run the stack locally
+## Run with Docker Compose
 
-Start the Django API and workers:
+1. **Build images:**
 
-```bash
-make backend-serve
-```
+   ```bash
+   make workspace-images
+   ```
 
-Launch the Vite frontend in another terminal:
+2. **Start the stack:**
 
-```bash
-make frontend-dev
-```
+   ```bash
+   docker compose up
+   ```
 
-The API listens on `http://localhost:8001` and the frontend dev server on `http://localhost:5174` (with proxies configured by default).
+The services will be available at:
+
+- **Frontend:** `http://localhost:5174`
+- **API:** `http://localhost:8001/api`
+- **Documentation:** `http://localhost:3000`
+
+For more details on managing the stack, see the [Docker Compose Runbook](/docker-compose).
 
 ## Tests
-
-Before pushing changes, run the combined backend and frontend suites:
-
-```bash
-make test
-```
 
 For containerized isolation, use the compose workflow:
 

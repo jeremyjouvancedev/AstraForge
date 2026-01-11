@@ -8,19 +8,21 @@ const config: DocsThemeConfig = {
   },
   docsRepositoryBase: 'https://github.com/AstraForge/AstraForge/tree/main/docs/site',
   footer: {
-    text: 'AstraForge documentation'
+    content: 'AstraForge documentation'
   },
-  useNextSeoProps() {
-    return {
-      titleTemplate: '%s | AstraForge Docs'
-    };
-  },
+  head: (
+    <>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <meta property="og:title" content="AstraForge Docs" />
+      <meta property="og:description" content="AstraForge documentation" />
+    </>
+  ),
   banner: {
     key: 'astra-docs-alpha',
-    text: 'Docs are new—share feedback in issues or pull requests.'
+    content: 'Docs are new—share feedback in issues or pull requests.'
   },
   editLink: {
-    text: 'Suggest changes to this page'
+    content: 'Suggest changes to this page'
   },
   feedback: {
     content: 'Question? Open an issue.'
