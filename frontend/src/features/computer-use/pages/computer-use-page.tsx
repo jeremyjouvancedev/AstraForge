@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Download,
   MousePointerClick,
   ShieldAlert
 } from "lucide-react";
@@ -12,6 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -31,12 +36,11 @@ import {
   useCreateComputerUseRun
 } from "@/features/computer-use/hooks/use-computer-use";
 import { useSandboxSessions } from "@/features/sandbox/hooks/use-sandbox-sessions";
-import type {
-  ComputerUseRun,
-  ComputerUseTimelineItem,
-  CreateComputerUseRunInput,
-  SandboxSession
-} from "@/lib/api-client";
+import {
+  LLMSelectionFields,
+  LLMProvider,
+  ReasoningEffort
+} from "@/features/chat/components/llm-selection-fields";
 
 type ApprovalMode = "auto" | "on_risk" | "always";
 type SandboxStrategy = "new" | "existing";
@@ -284,9 +288,11 @@ function buildTimelineEntries(items: ComputerUseTimelineItem[]): TimelineEntry[]
 
     if (type === "computer_call") {
       const action = (item.action ?? {}) as Record<string, unknown>;
+      const meta = (item.meta ?? {}) as Record<string, unknown>;
+      const reasoning = normalizeString(meta.reasoning_summary);
       const actionType = normalizeString(action.type).replace(/_/g, " ") || "action";
       title = `Step ${step} Action · ${actionType}`;
-      subtitle = formatActionSummary(action);
+      subtitle = reasoning || formatActionSummary(action);
       kind = "call";
     } else if (type === "computer_call_output") {
       stepCounter += 1;
@@ -343,20 +349,24 @@ function timelineTone(kind: TimelineEntry["kind"]) {
 
 export default function ComputerUsePage() {
   const runsQuery = useComputerUseRuns();
-  const runs = runsQuery.data ?? [];
+  const runs = useMemo(() => runsQuery.data ?? [], [runsQuery.data]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const runDetailQuery = useComputerUseRun(selectedRunId);
   const createRun = useCreateComputerUseRun();
   const acknowledgeRun = useAcknowledgeComputerUseRun();
   const sandboxSessionsQuery = useSandboxSessions();
   const [goal, setGoal] = useState("");
-  const [allowedDomainsInput, setAllowedDomainsInput] = useState("");
+  const [allowedDomainsInput, setAllowedDomainsInput] = useState("*");
   const [blockedDomainsInput, setBlockedDomainsInput] = useState("");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("on_risk");
   const [maxSteps, setMaxSteps] = useState("");
   const [maxRuntimeSeconds, setMaxRuntimeSeconds] = useState("");
   const [failureThreshold, setFailureThreshold] = useState("");
-  const [decisionProvider, setDecisionProvider] = useState("scripted");
+  const [decisionProvider, setDecisionProvider] = useState("deepagent");
+  const [llmProvider, setLlmProvider] = useState<LLMProvider>("ollama");
+  const [llmModel, setLlmModel] = useState("devstral-small-2:24b");
+  const [reasoningCheck, setReasoningCheck] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [decisionScript, setDecisionScript] = useState("");
   const [sandboxStrategy, setSandboxStrategy] = useState<SandboxStrategy>("new");
   const [sandboxSessionId, setSandboxSessionId] = useState("");
@@ -366,6 +376,7 @@ export default function ComputerUsePage() {
   const [scriptError, setScriptError] = useState<string | null>(null);
   const [acknowledgedChecks, setAcknowledgedChecks] = useState<string[]>([]);
   const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
+  const [isFullscreenScreenshotOpen, setIsFullscreenScreenshotOpen] = useState(false);
   const lastOutputIndexRef = useRef<number | null>(null);
 
   const allowedDomains = useMemo(
@@ -386,7 +397,7 @@ export default function ComputerUsePage() {
     includeScreenshots: true,
     runStatus: activeRun?.status
   });
-  const timelineItems = timelineQuery.data ?? [];
+  const timelineItems = useMemo(() => timelineQuery.data ?? [], [timelineQuery.data]);
   const timelineEntries = useMemo(
     () => buildTimelineEntries(timelineItems),
     [timelineItems]
@@ -465,6 +476,7 @@ export default function ComputerUsePage() {
 
     if (selectedItem.type === "computer_call") {
       const action = (selectedItem.action ?? {}) as Record<string, unknown>;
+      const meta = (selectedItem.meta ?? {}) as Record<string, unknown>;
       const actionType = normalizeString(action.type).replace(/_/g, " ");
       if (actionType) {
         rows.push({ label: "Action", value: actionType });
@@ -472,6 +484,18 @@ export default function ComputerUsePage() {
       const summary = formatActionSummary(action);
       if (summary) {
         rows.push({ label: "Action detail", value: summary });
+      }
+      
+      // Add all non-empty action parameters
+      Object.entries(action).forEach(([key, value]) => {
+        if (key !== "type" && value !== null && value !== undefined && value !== "") {
+          rows.push({ label: `Param: ${key}`, value: String(Array.isArray(value) ? value.join(", ") : value) });
+        }
+      });
+
+      const reasoning = normalizeString(meta.reasoning_summary);
+      if (reasoning) {
+        rows.push({ label: "Reasoning", value: reasoning });
       }
     }
     if (selectedItem.type === "computer_call_output" && selectedOutput) {
@@ -577,7 +601,12 @@ export default function ComputerUsePage() {
       ...(maxRuntimeParsed.value ? { maxRuntimeSeconds: maxRuntimeParsed.value } : {}),
       ...(failureParsed.value ? { failureThreshold: failureParsed.value } : {}),
       ...(decisionProvider.trim() ? { decisionProvider: decisionProvider.trim() } : {}),
-      ...(scriptParsed.script ? { decisionScript: scriptParsed.script } : {})
+      ...(scriptParsed.script ? { decisionScript: scriptParsed.script } : {}),
+      config: {
+        ...(llmProvider ? { llm_provider: llmProvider } : {}),
+        ...(llmModel.trim() ? { llm_model: llmModel.trim() } : {}),
+        ...(llmProvider === "ollama" ? { reasoning_check: reasoningCheck, reasoning_effort: reasoningEffort } : {})
+      }
     };
 
     if (sandboxStrategy === "existing") {
@@ -648,6 +677,23 @@ export default function ComputerUsePage() {
         }
       }
     );
+  };
+
+  const handleExportJson = () => {
+    if (!timelineItems || timelineItems.length === 0) {
+      toast.error("No timeline items to export.");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(timelineItems, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `run-${selectedRunId}-timeline.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("Timeline exported as JSON");
   };
 
   return (
@@ -864,19 +910,52 @@ export default function ComputerUsePage() {
                 >
                   Decision provider
                 </label>
-                <Input
-                  id="decision-provider"
-                  placeholder="scripted"
-                  className={inputClassName}
+                <Select
                   value={decisionProvider}
-                  onChange={(event) => setDecisionProvider(event.target.value)}
-                  disabled={createRun.isPending}
-                />
+                  onValueChange={(value) => setDecisionProvider(value)}
+                >
+                  <SelectTrigger id="decision-provider" className={selectTriggerClassName}>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent className={selectContentClassName}>
+                    <SelectItem
+                      value="scripted"
+                      className="rounded-lg px-2 py-2.5 text-sm text-zinc-100 data-[highlighted]:bg-indigo-500/20 data-[highlighted]:text-white"
+                    >
+                      Scripted (JSON)
+                    </SelectItem>
+                    <SelectItem
+                      value="deepagent"
+                      className="rounded-lg px-2 py-2.5 text-sm text-zinc-100 data-[highlighted]:bg-indigo-500/20 data-[highlighted]:text-white"
+                    >
+                      DeepAgent (LLM)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-zinc-400">
-                  Scripted is the only provider bundled today.
+                  {decisionProvider === "deepagent" 
+                    ? "Uses an LLM to decide actions based on browser state." 
+                    : "Executes a pre-defined sequence of actions."}
                 </p>
               </div>
             </div>
+
+            {decisionProvider === "deepagent" && (
+              <div className="rounded-2xl border border-white/5 bg-white/5 p-4 animate-in fade-in slide-in-from-top-2">
+                <LLMSelectionFields
+                  provider={llmProvider}
+                  onProviderChange={(val) => setLlmProvider(val as LLMProvider)}
+                  model={llmModel}
+                  onModelChange={setLlmModel}
+                  reasoningCheck={reasoningCheck}
+                  onReasoningCheckChange={setReasoningCheck}
+                  reasoningEffort={reasoningEffort}
+                  onReasoningEffortChange={setReasoningEffort}
+                  disabled={createRun.isPending}
+                  compact
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <label
@@ -1065,9 +1144,22 @@ export default function ComputerUsePage() {
           <CardHeader className="space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <CardTitle className="text-lg font-semibold text-white">
-                  Conversation history
-                </CardTitle>
+                <div className="flex items-center gap-3">
+                  <CardTitle className="text-lg font-semibold text-white">
+                    Conversation history
+                  </CardTitle>
+                  {timelineItems.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-zinc-400 hover:text-white"
+                      onClick={handleExportJson}
+                    >
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      Export JSON
+                    </Button>
+                  )}
+                </div>
                 <p className="text-xs text-zinc-400">
                   Timeline events for the selected run, including past requests.
                 </p>
@@ -1306,15 +1398,28 @@ export default function ComputerUsePage() {
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-zinc-400">
-                    Screenshot
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-zinc-400">
+                      Screenshot
+                    </p>
+                    {selectedScreenshot && (
+                      <button 
+                        onClick={() => setIsFullscreenScreenshotOpen(true)}
+                        className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors uppercase tracking-wider font-medium"
+                      >
+                        Fullscreen
+                      </button>
+                    )}
+                  </div>
                   {selectedEntry?.kind === "output" && selectedScreenshot ? (
-                    <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/40">
+                    <div 
+                      className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/40 cursor-zoom-in group"
+                      onClick={() => setIsFullscreenScreenshotOpen(true)}
+                    >
                       <img
                         src={`data:image/png;base64,${selectedScreenshot}`}
                         alt="Run step screenshot"
-                        className="h-auto w-full"
+                        className="h-auto w-full transition-opacity group-hover:opacity-90"
                       />
                     </div>
                   ) : (
@@ -1323,6 +1428,19 @@ export default function ComputerUsePage() {
                     </p>
                   )}
                 </div>
+
+                <Dialog open={isFullscreenScreenshotOpen} onOpenChange={setIsFullscreenScreenshotOpen}>
+                  <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-full p-0 overflow-hidden bg-black/95 border-white/10 shadow-2xl">
+                    <div className="relative w-full h-full flex items-center justify-center p-2 sm:p-6 overflow-auto">
+                      <img
+                        src={`data:image/png;base64,${selectedScreenshot}`}
+                        alt="Fullscreen screenshot"
+                        className="max-w-none w-auto h-auto min-w-0 min-h-0 object-contain"
+                        style={{ maxHeight: 'calc(95vh - 4rem)' }}
+                      />
+                    </div>
+                  </DialogContent>
+                </Dialog>
 
                 {activeRun.status === "awaiting_ack" ? (
                   <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-4">

@@ -25,8 +25,6 @@ class PolicyConfig:
     allow_irreversible: bool = False
     allow_credentials: bool = False
     default_deny: bool = True
-    search_base_url: str = "https://duckduckgo.com/"
-    search_param: str = "q"
     prompt_injection_detection: bool = True
 
 
@@ -65,6 +63,7 @@ def _domain_matches(hostname: str, domain: str) -> bool:
 
 def is_domain_allowed(url: str, config: PolicyConfig) -> bool:
     parsed = urlparse(url)
+
     scheme = (parsed.scheme or "").lower()
     if scheme in _SAFE_SCHEMES:
         return True
@@ -86,12 +85,6 @@ def is_domain_allowed(url: str, config: PolicyConfig) -> bool:
     if "*" in allowed:
         return True
     return any(_domain_matches(hostname, domain) for domain in allowed)
-
-
-def _build_search_url(query: str, config: PolicyConfig) -> str:
-    base = config.search_base_url or "https://duckduckgo.com/"
-    params = {config.search_param or "q": query}
-    return f"{base}?{urlencode(params)}"
 
 
 def _looks_like_credential(text: str) -> bool:
@@ -136,10 +129,8 @@ def evaluate_policy(call: ComputerCall, config: PolicyConfig) -> PolicyDecision:
     action_type = action.type
     meta_summary = call.meta.reasoning_summary
 
-    if action_type in {"visit_url", "web_search"}:
+    if action_type == "visit_url":
         url = action.url or ""
-        if action_type == "web_search":
-            url = _build_search_url(action.query or "", config)
         if url and not is_domain_allowed(url, config):
             checks.append(
                 PendingSafetyCheck(
@@ -161,10 +152,8 @@ def evaluate_policy(call: ComputerCall, config: PolicyConfig) -> PolicyDecision:
                 )
             )
 
-    if action_type in {"visit_url", "web_search"}:
+    if action_type == "visit_url":
         url = action.url or ""
-        if action_type == "web_search":
-            url = _build_search_url(action.query or "", config)
         if url and _contains_sensitive_hint(url, ["login", "signin", "auth", "oauth"]):
             checks.append(
                 PendingSafetyCheck(

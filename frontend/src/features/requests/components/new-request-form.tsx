@@ -8,11 +8,8 @@ import type { AxiosError } from "axios";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import {
   createRequest,
   CreateRequestInput,
@@ -21,12 +18,11 @@ import {
   Attachment
 } from "@/lib/api-client";
 import { extractApiErrorMessage } from "@/lib/api-error";
-import { ArrowUp, Cpu, Layers, Monitor, BrainCircuit } from "lucide-react";
+import { ArrowUp, Monitor } from "lucide-react";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
-import { ImageUpload } from "@/components/image-upload";
-
-const llmProviders = ["openai", "ollama"] as const;
-const reasoningEfforts = ["low", "medium", "high"] as const;
+import {
+  LLMSelectionFields
+} from "@/features/chat/components/llm-selection-fields";
 
 const schema = z.object({
   projectId: z.string().uuid({ message: "Selectionnez un projet" }),
@@ -60,8 +56,8 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
     defaultValues: {
       projectId: defaultProjectId,
       prompt: "",
-      llmProvider: "",
-      llmModel: "",
+      llmProvider: "ollama",
+      llmModel: "gpt-oss:20b",
       reasoningEffort: "high",
       reasoningCheck: true
     },
@@ -69,9 +65,6 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
   });
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [images, setImages] = useState<Attachment[]>([]);
-
-  const selectedProvider = form.watch("llmProvider");
-  const isReasoning = form.watch("reasoningCheck");
 
   useEffect(() => {
     if (projects.length > 0) {
@@ -182,80 +175,24 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
                     </select>
                   </div>
                 </div>
-                <div className="flex w-full items-center gap-2 sm:w-auto">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
-                    <Cpu size={16} />
-                  </div>
-                  <div className="relative">
-                    <select
-                      aria-label="LLM provider"
-                      className="w-full max-w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60 sm:min-w-[180px] sm:w-auto"
-                      {...form.register("llmProvider")}
+
+                <Controller
+                  name="llmProvider"
+                  control={form.control}
+                  render={({ field }) => (
+                    <LLMSelectionFields
+                      provider={field.value}
+                      onProviderChange={field.onChange}
+                      model={form.watch("llmModel") || "gpt-oss:20b"}
+                      onModelChange={(val) => form.setValue("llmModel", val)}
+                      reasoningCheck={form.watch("reasoningCheck")}
+                      onReasoningCheckChange={(val) => form.setValue("reasoningCheck", val)}
+                      reasoningEffort={form.watch("reasoningEffort")}
+                      onReasoningEffortChange={(val) => form.setValue("reasoningEffort", val)}
                       disabled={mutation.isPending}
-                    >
-                      <option value="">Default provider</option>
-                      <option value="openai">OpenAI</option>
-                      <option value="ollama">Ollama</option>
-                    </select>
-                  </div>
-                </div>
-                {selectedProvider === "ollama" && (
-                  <div className="flex w-full items-center gap-4 sm:w-auto">
-                    <div className="flex items-center gap-2">
-                      <Controller
-                        name="reasoningCheck"
-                        control={form.control}
-                        render={({ field }) => (
-                          <Checkbox
-                            id="reasoning-check"
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            disabled={mutation.isPending}
-                            className="h-5 w-5 rounded-md"
-                          />
-                        )}
-                      />
-                      <Label
-                        htmlFor="reasoning-check"
-                        className="flex items-center gap-1.5 text-sm font-medium text-foreground cursor-pointer"
-                      >
-                        <BrainCircuit size={14} className="text-primary" />
-                        Reasoning
-                      </Label>
-                    </div>
-                    {isReasoning && (
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
-                          <Layers size={16} />
-                        </div>
-                        <div className="relative">
-                          <select
-                            aria-label="Reasoning effort"
-                            className="w-full max-w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60 sm:min-w-[140px] sm:w-auto"
-                            {...form.register("reasoningEffort")}
-                            disabled={mutation.isPending}
-                          >
-                            <option value="low">Low effort</option>
-                            <option value="medium">Medium effort</option>
-                            <option value="high">High effort</option>
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="flex w-full items-center gap-2 sm:min-w-[240px] sm:flex-1">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/70 text-muted-foreground">
-                    <Layers size={16} />
-                  </div>
-                  <Input
-                    aria-label="Model"
-                    placeholder="Model (optional)"
-                    className="h-10 w-full flex-1 rounded-2xl border border-border/60 bg-background/70 px-4 py-2 text-sm font-medium text-foreground shadow-inner focus-visible:ring-1 focus-visible:ring-primary/60"
-                    {...form.register("llmModel")}
-                    disabled={mutation.isPending}
-                  />
-                </div>
+                    />
+                  )}
+                />
               </div>
               <p className="text-xs text-muted-foreground">
                 Optionally choose a provider and model for this request.

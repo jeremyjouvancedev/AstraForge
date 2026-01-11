@@ -10,7 +10,7 @@ from astraforge.sandbox.models import SandboxSession
 from astraforge.sandbox.services import SandboxOrchestrator, SandboxProvisionError
 
 from .browser import BrowserConfig, SandboxPlaywrightAdapter
-from .decision_providers import ScriptedDecisionProvider, normalize_script
+from .decision_providers import DecisionProvider, DeepAgentDecisionProvider, ScriptedDecisionProvider, normalize_script
 from .policy import PolicyConfig
 from .protocol import AcknowledgedSafetyChecks
 from .runner import ComputerUseRunner, RunResult, RunState, RunnerConfig
@@ -73,11 +73,6 @@ def _build_policy_config(config: dict[str, Any]) -> PolicyConfig:
             config.get("allow_credentials", _env_bool("COMPUTER_USE_ALLOW_CREDENTIALS", False))
         ),
         default_deny=bool(config.get("default_deny", _env_bool("COMPUTER_USE_DEFAULT_DENY", True))),
-        search_base_url=str(
-            config.get("search_base_url")
-            or os.getenv("COMPUTER_USE_SEARCH_BASE_URL", "https://duckduckgo.com/")
-        ),
-        search_param=str(config.get("search_param") or os.getenv("COMPUTER_USE_SEARCH_PARAM", "q")),
         prompt_injection_detection=bool(
             config.get(
                 "prompt_injection_detection",
@@ -130,9 +125,18 @@ def _trace_root() -> Path:
     return Path(raw)
 
 
-def _resolve_provider(provider_key: str, script: list[dict[str, Any]] | None) -> ScriptedDecisionProvider:
+def _resolve_provider(
+    provider_key: str, script: list[dict[str, Any]] | None, config: dict[str, Any]
+) -> DecisionProvider:
     if provider_key == "scripted":
         return ScriptedDecisionProvider(script=normalize_script(script))
+    if provider_key == "deepagent":
+        return DeepAgentDecisionProvider(
+            provider=str(config.get("llm_provider") or os.getenv("LLM_PROVIDER") or "ollama").strip().lower(),
+            model_name=str(config.get("llm_model") or os.getenv("LLM_MODEL") or "devstral-small-2:24b").strip(),
+            reasoning_effort=str(config.get("reasoning_effort") or "high").strip().lower(),
+            reasoning_check=bool(config.get("reasoning_check", True)),
+        )
     raise ValueError(f"Unsupported decision provider '{provider_key}'")
 
 
@@ -165,10 +169,11 @@ class ComputerUseService:
         if not run.trace_dir:
             trace = trace_store.start_run(str(run.id), _build_config_snapshot(run, decision_provider))
             run.trace_dir = str(trace.run_dir)
+            run.save(update_fields=["trace_dir"])
         else:
             trace = trace_store.open_run(str(run.id))
 
-        provider = _resolve_provider(decision_provider, decision_script)
+        provider = _resolve_provider(decision_provider, decision_script, config)
         browser = SandboxPlaywrightAdapter(session, policy=policy_config, config=browser_config) if session else None
         if browser is None:
             raise ValueError("Sandbox session is required for computer-use mode")
@@ -211,6 +216,7 @@ class ComputerUseService:
         trace.append_item(AcknowledgedSafetyChecks(acknowledged=acknowledged, decision=decision).to_dict())
 
         if decision == "deny":
+            # ... (omitting for brevity in thought, but must include in replace)
             run_state = RunState.from_dict(run.state)
             run_state.pending_call = None
             run_state.pending_checks = []

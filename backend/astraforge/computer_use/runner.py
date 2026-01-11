@@ -241,7 +241,7 @@ class StubBrowserAdapter:
         )
 
     def act(self, call: ComputerCall) -> ComputerCallOutput:
-        if call.action.type == "visit_url" and call.action.url:
+        if call.action.type in ("visit_url", "navigate") and call.action.url:
             self._last_url = call.action.url
         return ComputerCallOutput(
             call_id=call.call_id,
@@ -250,3 +250,4 @@ class StubBrowserAdapter:
             screenshot_b64="",
             execution=ExecutionResult.ok(),
         )
+

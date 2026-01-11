@@ -13,10 +13,26 @@ ACTION_TYPES = {
     "scroll",
     "keypress",
     "visit_url",
-    "web_search",
+    "tavily_search",
     "back",
     "wait",
     "terminate",
+    "navigate",
+    "go_back",
+    "input",
+    "upload_file",
+    "find_text",
+    "send_keys",
+    "evaluate",
+    "switch",
+    "close",
+    "extract",
+    "screenshot",
+    "dropdown_options",
+    "select_dropdown",
+    "write_file",
+    "read_file",
+    "replace_file",
 }
 
 
@@ -66,6 +82,7 @@ class ComputerCallAction:
     type: str
     x: int | None = None
     y: int | None = None
+    index: int | None = None
     button: str | None = None
     text: str | None = None
     url: str | None = None
@@ -74,32 +91,40 @@ class ComputerCallAction:
     scroll_dy: int | None = None
     keys: list[str] | None = None
     seconds: float | None = None
+    path: str | None = None
+    script: str | None = None
 
     def validate(self) -> None:
         if self.type not in ACTION_TYPES:
             raise ValueError(f"Unsupported action type '{self.type}'")
-        if self.type in {"click", "double_click", "type"}:
-            if self.x is None or self.y is None:
-                raise ValueError(f"{self.type} requires x and y")
-        if self.type == "type" and not self.text:
-            raise ValueError("type action requires text")
-        if self.type == "visit_url" and not self.url:
-            raise ValueError("visit_url action requires url")
-        if self.type == "web_search" and not self.query:
-            raise ValueError("web_search action requires query")
+        if self.type in {"click", "double_click", "type", "input"}:
+            if self.index is None and (self.x is None or self.y is None):
+                raise ValueError(f"{self.type} requires index or (x and y)")
+        if self.type in {"type", "input"} and not self.text:
+            raise ValueError(f"{self.type} action requires text")
+        if self.type in {"visit_url", "navigate"} and not self.url:
+            raise ValueError(f"{self.type} action requires url")
+        if self.type in {"web_search", "search"} and not self.query:
+            raise ValueError(f"{self.type} action requires query")
         if self.type == "scroll":
-            if self.scroll_dx is None or self.scroll_dy is None:
-                raise ValueError("scroll action requires scroll_dx and scroll_dy")
-        if self.type == "keypress" and not self.keys:
-            raise ValueError("keypress action requires keys")
+            if self.scroll_dx is None and self.scroll_dy is None:
+                # scroll can be up/down/left/right without dx/dy if using browser_use style
+                pass
+        if self.type in {"keypress", "send_keys"} and not self.keys:
+            raise ValueError(f"{self.type} action requires keys")
         if self.type == "wait" and self.seconds is None:
             raise ValueError("wait action requires seconds")
+        if self.type == "upload_file" and (self.index is None or not self.path):
+            raise ValueError("upload_file requires index and path")
+        if self.type == "evaluate" and not self.script:
+            raise ValueError("evaluate requires script")
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {"type": self.type}
         for key in (
             "x",
             "y",
+            "index",
             "button",
             "text",
             "url",
@@ -108,6 +133,8 @@ class ComputerCallAction:
             "scroll_dy",
             "keys",
             "seconds",
+            "path",
+            "script",
         ):
             value = getattr(self, key)
             if value is not None:
@@ -120,6 +147,7 @@ class ComputerCallAction:
             type=str(raw.get("type") or ""),
             x=raw.get("x"),
             y=raw.get("y"),
+            index=raw.get("index"),
             button=raw.get("button"),
             text=raw.get("text"),
             url=raw.get("url"),
@@ -128,7 +156,10 @@ class ComputerCallAction:
             scroll_dy=raw.get("scroll_dy"),
             keys=list(raw.get("keys")) if raw.get("keys") is not None else None,
             seconds=raw.get("seconds"),
+            path=raw.get("path"),
+            script=raw.get("script"),
         )
+
 
 
 @dataclass(slots=True)
@@ -197,6 +228,7 @@ class ExecutionResult:
     status: str
     error_type: str | None = None
     error_message: str | None = None
+    captcha_detected: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"status": self.status}
@@ -204,6 +236,8 @@ class ExecutionResult:
             payload["error_type"] = self.error_type
         if self.error_message:
             payload["error_message"] = self.error_message
+        if self.captcha_detected:
+            payload["captcha_detected"] = True
         return payload
 
     @classmethod
@@ -211,8 +245,8 @@ class ExecutionResult:
         return cls(status="ok")
 
     @classmethod
-    def error(cls, error_type: str, message: str) -> "ExecutionResult":
-        return cls(status="error", error_type=error_type, error_message=message)
+    def error(cls, error_type: str, message: str, captcha_detected: bool = False) -> "ExecutionResult":
+        return cls(status="error", error_type=error_type, error_message=message, captcha_detected=captcha_detected)
 
 
 @dataclass(slots=True)
@@ -235,17 +269,21 @@ class ComputerCallOutput:
     viewport: Viewport
     screenshot_b64: str
     execution: ExecutionResult
+    dom_tree: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "url": self.url,
+            "viewport": self.viewport.to_dict(),
+            "screenshot_b64": self.screenshot_b64,
+            "execution": self.execution.to_dict(),
+        }
+        if self.dom_tree is not None:
+            payload["dom_tree"] = self.dom_tree
         return {
             "type": "computer_call_output",
             "call_id": self.call_id,
-            "output": {
-                "url": self.url,
-                "viewport": self.viewport.to_dict(),
-                "screenshot_b64": self.screenshot_b64,
-                "execution": self.execution.to_dict(),
-            },
+            "output": payload,
         }
 
     @classmethod
@@ -260,8 +298,11 @@ class ComputerCallOutput:
                 status=str((output.get("execution") or {}).get("status") or "ok"),
                 error_type=(output.get("execution") or {}).get("error_type"),
                 error_message=(output.get("execution") or {}).get("error_message"),
+                captcha_detected=bool((output.get("execution") or {}).get("captcha_detected", False)),
             ),
+            dom_tree=output.get("dom_tree"),
         )
+
 
 
 @dataclass(slots=True)
