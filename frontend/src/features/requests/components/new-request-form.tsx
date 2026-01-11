@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
+import { ImageUpload } from "@/components/image-upload";
 import {
   createRequest,
   CreateRequestInput,
@@ -21,7 +22,9 @@ import { extractApiErrorMessage } from "@/lib/api-error";
 import { ArrowUp, Monitor } from "lucide-react";
 import { useWorkspace } from "@/features/workspaces/workspace-context";
 import {
-  LLMSelectionFields
+  LLMSelectionFields,
+  llmProviders,
+  reasoningEfforts
 } from "@/features/chat/components/llm-selection-fields";
 
 const schema = z.object({
