@@ -78,6 +78,7 @@ class RunResult:
     status: str
     stop_reason: str | None = None
     pending_checks: list[dict[str, Any]] = field(default_factory=list)
+    final_response: str | None = None
 
 
 class ComputerUseRunner:
@@ -125,6 +126,8 @@ class ComputerUseRunner:
                 call.meta.reasoning_summary = decision.reasoning_summary
 
             call_dict = call.to_dict(redact_action=self._runner_config.redact_typed_text)
+            if decision.debug_info:
+                call_dict["debug_info"] = decision.debug_info
             self._trace.append_item(call_dict)
 
             policy = evaluate_policy(call, self._policy_config)
@@ -156,6 +159,7 @@ class ComputerUseRunner:
                 output=output,
                 response_id=response_id,
                 redact_action=self._runner_config.redact_typed_text,
+                debug_info=decision.debug_info,
             )
 
             state.step_index += 1
@@ -171,7 +175,12 @@ class ComputerUseRunner:
                 return RunResult(status="execution_error", stop_reason="execution_error"), state
 
             if call.action.type == "terminate" or call.meta.done:
-                return RunResult(status="completed", stop_reason="completed"), state
+                final_response = call.action.final_response or call.meta.reasoning_summary
+                return RunResult(
+                    status="completed", 
+                    stop_reason="completed",
+                    final_response=final_response
+                ), state
 
             if output.url and not is_domain_allowed(output.url, self._policy_config):
                 return RunResult(status="blocked_policy", stop_reason="blocked_policy"), state
@@ -212,6 +221,7 @@ class ComputerUseRunner:
             output=output,
             response_id=response_id,
             redact_action=self._runner_config.redact_typed_text,
+            debug_info=None,
         )
         state.step_index += 1
         state.previous_response_id = response_id

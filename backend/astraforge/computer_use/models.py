@@ -43,6 +43,7 @@ class ComputerUseRun(models.Model):
         blank=True,
     )
     goal = models.TextField()
+    final_response = models.TextField(blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.RUNNING)
     stop_reason = models.CharField(max_length=64, blank=True)
     config = models.JSONField(default=dict, blank=True)

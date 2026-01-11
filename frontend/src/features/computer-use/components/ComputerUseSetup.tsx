@@ -201,10 +201,8 @@ export function ComputerUseSetup({ onSubmit, isPending }: ComputerUseSetupProps)
     const allowedDomains = parseDomainList(allowedDomainsInput);
     const blockedDomains = parseDomainList(blockedDomainsInput);
 
-    const enhancedGoal = `${trimmedGoal}\n\nNote: Change strategy if an action is twice executed with the same behavior on the same url.`;
-
     const payload: CreateComputerUseRunInput = {
-      goal: enhancedGoal,
+      goal: trimmedGoal,
       ...(allowedDomains.length ? { allowedDomains } : {}),
       ...(blockedDomains.length ? { blockedDomains } : {}),
       approvalMode,

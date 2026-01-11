@@ -73,6 +73,7 @@ class TerminateAction(BaseModel):
     reasoning: str = Field(..., description="The reasoning for this action.")
     tool_name: Literal["TerminateAction"] = "TerminateAction"
     type: Literal["terminate"] = Field(..., description="Terminate the task when the goal is achieved or if it's impossible.")
+    final_response: Optional[str] = Field(None, description="The final answer or summary of the completed task. MUST be provided when the task is successful.")
 
 class BackAction(BaseModel):
     reasoning: str = Field(..., description="The reasoning for this action.")
@@ -175,10 +176,11 @@ class DeepAgentDecisionProvider:
             "- KeypressAction: Send specific key presses.\n"
             "- BackAction: Navigate back in history.\n"
             "- WaitAction: Wait for a specified duration.\n"
-            "- TerminateAction: Signals that the task is complete.\n\n"
+            "- TerminateAction: Signals that the task is complete. When the task is successful, provide the final answer or summary in the 'final_response' field.\n\n"
             "STRATEGY:\n"
             "1. If the current URL is 'about:blank' or empty, you MUST start by using 'TavilySearchAction' to find relevant information.\n"
-            "2. Always prefer 'TavilySearchAction' over browsing search engine UIs (Google, Bing, etc.) to avoid CAPTCHAs.\n\n"
+            "2. Always prefer 'TavilySearchAction' over browsing search engine UIs (Google, Bing, etc.) to avoid CAPTCHAs.\n"
+            "3. Change strategy if an action is twice executed with the same behavior on the same URL.\n\n"
             "CAPTCHA HANDLING:\n"
             "If a CAPTCHA or bot detection is identified, you MUST find an alternative URL or different search query to get the information using TavilySearchAction. Avoid getting stuck on bot-protected pages.\n\n"
             "CRITICAL: You MUST respond ONLY with a tool call. Do not provide conversational text."
@@ -186,6 +188,10 @@ class DeepAgentDecisionProvider:
 
         messages = [SystemMessage(content=system_prompt)]
         
+        # We might need to carry over the last screenshot if the current observation is empty (e.g. after a search)
+        last_screenshot_b64 = None
+        last_url = None
+
         # Reconstruct conversation history from trace
         for item in request.history:
             if item.get("type") == "computer_call":
@@ -210,6 +216,11 @@ class DeepAgentDecisionProvider:
                 status = exec_data.get("status")
                 url = output.get("url")
                 
+                # Track latest valid screenshot and URL in history
+                if output.get("screenshot_b64"):
+                    last_screenshot_b64 = output["screenshot_b64"]
+                    last_url = url
+
                 text_content = f"URL: {url}\nStatus: {status}"
                 if exec_data.get("captcha_detected"):
                     text_content += "\nCRITICAL: CAPTCHA or Bot Detection identified on this page."
@@ -218,11 +229,8 @@ class DeepAgentDecisionProvider:
                 
                 content_blocks.append({"type": "text", "text": text_content})
                 
-                if output.get("screenshot_b64"):
-                    content_blocks.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{output['screenshot_b64']}"}
-                    })
+                # NOTE: We skip historical screenshots to keep the context size manageable.
+                # Only the latest screenshot from request.observation is included below.
                 
                 messages.append(ToolMessage(content=content_blocks, tool_call_id=call_id))
 
@@ -233,16 +241,30 @@ class DeepAgentDecisionProvider:
         if request.observation.dom_tree:
             content.append({"type": "text", "text": f"DOM Tree:\n{request.observation.dom_tree}"})
         
-        if request.observation.screenshot_b64:
+        # Use current screenshot, or fallback to the last one if URL is the same and current is missing
+        screenshot_to_send = request.observation.screenshot_b64
+        if not screenshot_to_send and last_screenshot_b64 and request.observation.url == last_url:
+            screenshot_to_send = last_screenshot_b64
+
+        if screenshot_to_send:
             content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{request.observation.screenshot_b64}"}
+                "image_url": {"url": f"data:image/png;base64,{screenshot_to_send}"}
             })
 
         messages.append(HumanMessage(content=content))
 
         # Bind all action tools flattened
         tool_model = model.bind_tools(ACTION_TOOLS)
+        
+        # Capture debug info before invocation
+        from langchain_core.messages import message_to_dict
+        debug_info = {
+            "messages": [message_to_dict(m) for m in messages],
+            "model": self.model_name,
+            "provider": self.provider
+        }
+
         try:
             response = tool_model.invoke(messages)
             # DEBUG LOGGING
@@ -256,7 +278,8 @@ class DeepAgentDecisionProvider:
                     call_id=new_call_id(),
                     action=ComputerCallAction(type="terminate"),
                     meta=ComputerCallMeta(done=True, reasoning_summary=f"LLM invocation failed: {str(e)}")
-                )
+                ),
+                debug_info=debug_info
             )
         
         action_data = {}
@@ -265,6 +288,7 @@ class DeepAgentDecisionProvider:
         if response.tool_calls:
             tool_call = response.tool_calls[0]
             action_data = tool_call.get("args", {})
+            action_data["tool_name"] = tool_call.get("name")
             print(f"DEBUG: Tool Call Args: {action_data}", flush=True)
             
             # Extract reasoning
@@ -306,7 +330,8 @@ class DeepAgentDecisionProvider:
                     call_id=new_call_id(),
                     action=ComputerCallAction(type="terminate"),
                     meta=ComputerCallMeta(done=True, reasoning_summary=f"Tool call failed. LLM said: {reasoning_fallback}")
-                )
+                ),
+                debug_info=debug_info
             )
 
         # Alias search -> tavily_search for robustness
@@ -332,13 +357,15 @@ class DeepAgentDecisionProvider:
                     call_id=new_call_id(),
                     action=ComputerCallAction(type="terminate"),
                     meta=ComputerCallMeta(done=True, reasoning_summary=f"Generated invalid action: {str(e)}")
-                )
+                ),
+                debug_info=debug_info
             )
 
         return DecisionResponse(
             response_id=ensure_response_id(None),
             computer_call=call,
-            reasoning_summary=reasoning
+            reasoning_summary=reasoning,
+            debug_info=debug_info
         )
 
 

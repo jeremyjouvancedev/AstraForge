@@ -528,6 +528,7 @@ class ComputerUseRunCreateSerializer(serializers.Serializer):
 class ComputerUseRunSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     goal = serializers.CharField()
+    final_response = serializers.CharField(allow_blank=True, required=False)
     status = serializers.CharField()
     stop_reason = serializers.CharField(allow_blank=True, required=False)
     trace_dir = serializers.CharField(allow_blank=True, required=False)

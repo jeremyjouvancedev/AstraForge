@@ -191,8 +191,10 @@ class ComputerUseService:
         run.state = updated_state.to_dict()
         run.status = result.status
         run.stop_reason = result.stop_reason or ""
+        if result.final_response:
+            run.final_response = result.final_response
         run.updated_at = timezone.now()
-        run.save(update_fields=["state", "status", "stop_reason", "trace_dir", "updated_at"])
+        run.save(update_fields=["state", "status", "stop_reason", "trace_dir", "updated_at", "final_response"])
 
         if result.status not in {"awaiting_ack", "running"}:
             trace.write_report(

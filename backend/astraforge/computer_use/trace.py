@@ -50,6 +50,7 @@ class TraceWriter:
         output: ComputerCallOutput,
         response_id: str,
         redact_action: bool = False,
+        debug_info: dict[str, Any] | None = None,
     ) -> None:
         filename = f"{step_index:04d}"
         screenshot_path = self.steps_dir / f"{filename}.png"
@@ -73,6 +74,7 @@ class TraceWriter:
             "output_viewport": output.viewport.to_dict(),
             "execution": output.execution.to_dict(),
             "screenshot_path": str(screenshot_path.name),
+            "debug_info": debug_info,
         }
         json_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 

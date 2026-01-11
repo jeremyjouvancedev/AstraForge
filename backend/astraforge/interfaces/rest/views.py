@@ -576,6 +576,7 @@ class ComputerUseRunViewSet(viewsets.ViewSet):
         return {
             "id": run.id,
             "goal": run.goal,
+            "final_response": run.final_response,
             "status": run.status,
             "stop_reason": run.stop_reason or "",
             "trace_dir": run.trace_dir or "",

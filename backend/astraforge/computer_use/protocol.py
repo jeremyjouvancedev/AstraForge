@@ -80,6 +80,7 @@ class PendingSafetyCheck:
 @dataclass(slots=True)
 class ComputerCallAction:
     type: str
+    tool_name: str | None = None
     x: int | None = None
     y: int | None = None
     index: int | None = None
@@ -93,6 +94,7 @@ class ComputerCallAction:
     seconds: float | None = None
     path: str | None = None
     script: str | None = None
+    final_response: str | None = None
 
     def validate(self) -> None:
         if self.type not in ACTION_TYPES:
@@ -121,6 +123,8 @@ class ComputerCallAction:
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {"type": self.type}
+        if self.tool_name:
+            data["tool_name"] = self.tool_name
         for key in (
             "x",
             "y",
@@ -135,6 +139,7 @@ class ComputerCallAction:
             "seconds",
             "path",
             "script",
+            "final_response",
         ):
             value = getattr(self, key)
             if value is not None:
@@ -145,6 +150,7 @@ class ComputerCallAction:
     def from_dict(cls, raw: dict[str, Any]) -> "ComputerCallAction":
         return cls(
             type=str(raw.get("type") or ""),
+            tool_name=raw.get("tool_name"),
             x=raw.get("x"),
             y=raw.get("y"),
             index=raw.get("index"),
@@ -158,6 +164,7 @@ class ComputerCallAction:
             seconds=raw.get("seconds"),
             path=raw.get("path"),
             script=raw.get("script"),
+            final_response=raw.get("final_response"),
         )
 
 
@@ -333,6 +340,7 @@ class DecisionResponse:
     response_id: str
     computer_call: ComputerCall
     reasoning_summary: str | None = None
+    debug_info: dict[str, Any] | None = None
 
 
 def ensure_call_id(call: ComputerCall) -> ComputerCall:
