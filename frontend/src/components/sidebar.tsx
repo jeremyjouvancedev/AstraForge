@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Link2,
   LogOut,
+  MousePointerClick,
   Network,
   Sparkles,
   Zap
@@ -174,7 +175,8 @@ const navItems = [
   { to: "/app/requests", label: "Requests", icon: Inbox },
   { to: "/app/repositories", label: "Repositories", icon: Link2 },
   { to: "/app/api-keys", label: "API Keys", icon: KeyRound },
-  { to: "/app/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain }
+  { to: "/app/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain },
+  { to: "/app/computer-use", label: "Computer Use", icon: MousePointerClick }
 ];
 
 export function Sidebar() {

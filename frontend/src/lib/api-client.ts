@@ -411,6 +411,7 @@ export async function fetchActivityEvents(params: {
 export interface SandboxSession {
   id: string;
   mode: string;
+  image?: string;
   status: string;
   created_at?: string;
   updated_at?: string;
@@ -450,6 +451,168 @@ export async function uploadSandboxFile(sessionId: string, path: string, content
     }
   );
   return response.data;
+}
+
+// Computer-use runs -----------------------------------------------------------
+export interface ComputerUseSafetyCheck {
+  id: string;
+  category: string;
+  severity: "low" | "medium" | "high";
+  message: string;
+}
+
+export interface ComputerUseRun {
+  id: string;
+  goal: string;
+  status: string;
+  stop_reason?: string;
+  trace_dir?: string;
+  sandbox_session_id?: string | null;
+  pending_checks?: ComputerUseSafetyCheck[];
+  step_index?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateComputerUseRunInput {
+  goal: string;
+  allowedDomains?: string[];
+  blockedDomains?: string[];
+  approvalMode?: "auto" | "on_risk" | "always";
+  maxSteps?: number;
+  maxRuntimeSeconds?: number;
+  failureThreshold?: number;
+  sandboxSessionId?: string;
+  sandboxMode?: "docker" | "k8s";
+  sandboxImage?: string;
+  decisionProvider?: string;
+  decisionScript?: Array<Record<string, unknown>>;
+}
+
+export async function fetchComputerUseRuns() {
+  const response = await apiClient.get<
+    ComputerUseRun[] | { results?: ComputerUseRun[] | null }
+  >("/computer-use/runs/");
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  const results = response.data?.results;
+  if (Array.isArray(results)) {
+    return results;
+  }
+  return [];
+}
+
+export async function fetchComputerUseRun(id: string) {
+  const response = await apiClient.get<ComputerUseRun>(
+    `/computer-use/runs/${encodeURIComponent(id)}/`
+  );
+  return response.data;
+}
+
+export async function createComputerUseRun(payload: CreateComputerUseRunInput) {
+  const config: Record<string, unknown> = {};
+  if (payload.allowedDomains?.length) {
+    config.allowed_domains = payload.allowedDomains;
+  }
+  if (payload.blockedDomains?.length) {
+    config.blocked_domains = payload.blockedDomains;
+  }
+  if (payload.approvalMode) {
+    config.approval_mode = payload.approvalMode;
+  }
+  if (payload.maxSteps) {
+    config.max_steps = payload.maxSteps;
+  }
+  if (payload.maxRuntimeSeconds) {
+    config.max_runtime_seconds = payload.maxRuntimeSeconds;
+  }
+  if (payload.failureThreshold) {
+    config.failure_threshold = payload.failureThreshold;
+  }
+
+  const body: Record<string, unknown> = {
+    goal: payload.goal,
+    config
+  };
+
+  if (payload.decisionProvider) {
+    body.decision_provider = payload.decisionProvider;
+  }
+  if (payload.decisionScript) {
+    body.decision_script = payload.decisionScript;
+  }
+
+  if (payload.sandboxSessionId) {
+    body.sandbox_session_id = payload.sandboxSessionId;
+  } else {
+    body.sandbox = {
+      mode: payload.sandboxMode ?? "docker",
+      ...(payload.sandboxImage ? { image: payload.sandboxImage } : {})
+    };
+  }
+
+  const response = await apiClient.post<ComputerUseRun>("/computer-use/runs/", body);
+  return response.data;
+}
+
+export async function acknowledgeComputerUseRun(payload: {
+  id: string;
+  decision: "approve" | "deny";
+  acknowledged: string[];
+}) {
+  const response = await apiClient.post<ComputerUseRun>(
+    `/computer-use/runs/${encodeURIComponent(payload.id)}/acknowledge/`,
+    {
+      decision: payload.decision,
+      acknowledged: payload.acknowledged
+    }
+  );
+  return response.data;
+}
+
+export type ComputerUseTimelineItem = {
+  type: string;
+  call_id?: string;
+  action?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+  pending_safety_checks?: ComputerUseSafetyCheck[];
+  output?: {
+    url?: string;
+    viewport?: { w: number; h: number };
+    screenshot_b64?: string;
+    execution?: {
+      status?: string;
+      error_type?: string;
+      error_message?: string;
+    };
+  };
+  decision?: string;
+  reason?: string;
+  checks?: ComputerUseSafetyCheck[];
+  acknowledged?: string[];
+};
+
+export async function fetchComputerUseTimeline(
+  id: string,
+  options?: { limit?: number; includeScreenshots?: boolean }
+) {
+  const response = await apiClient.get<
+    { items?: ComputerUseTimelineItem[] | null } | ComputerUseTimelineItem[]
+  >(`/computer-use/runs/${encodeURIComponent(id)}/timeline/`, {
+    params: {
+      ...(options?.limit ? { limit: options.limit } : {}),
+      ...(options?.includeScreenshots ? { include_screenshots: 1 } : {})
+    }
+  });
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  const items = response.data?.items;
+  if (Array.isArray(items)) {
+    return items;
+  }
+  return [];
 }
 
 // Workspace usage -------------------------------------------------------------

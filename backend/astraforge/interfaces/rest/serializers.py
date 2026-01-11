@@ -512,3 +512,32 @@ class ActivityEventSerializer(serializers.Serializer):
     timestamp = serializers.CharField()
     href = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     consumption = ActivityConsumptionSerializer(required=False, allow_null=True)
+
+
+class ComputerUseRunCreateSerializer(serializers.Serializer):
+    goal = serializers.CharField()
+    sandbox_session_id = serializers.UUIDField(required=False, allow_null=True)
+    sandbox = serializers.JSONField(required=False, default=dict)
+    decision_provider = serializers.CharField(required=False, allow_blank=True)
+    decision_script = serializers.ListField(
+        child=serializers.JSONField(), required=False, allow_empty=True
+    )
+    config = serializers.JSONField(required=False, default=dict)
+
+
+class ComputerUseRunSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    goal = serializers.CharField()
+    status = serializers.CharField()
+    stop_reason = serializers.CharField(allow_blank=True, required=False)
+    trace_dir = serializers.CharField(allow_blank=True, required=False)
+    sandbox_session_id = serializers.UUIDField(required=False, allow_null=True)
+    pending_checks = serializers.ListField(child=serializers.JSONField(), required=False)
+    step_index = serializers.IntegerField(required=False)
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
+class ComputerUseRunAckSerializer(serializers.Serializer):
+    acknowledged = serializers.ListField(child=serializers.CharField(), allow_empty=True)
+    decision = serializers.ChoiceField(choices=["approve", "deny"])
