@@ -487,6 +487,10 @@ export interface CreateComputerUseRunInput {
   sandboxImage?: string;
   decisionProvider?: string;
   decisionScript?: Array<Record<string, unknown>>;
+  llmProvider?: string;
+  llmModel?: string;
+  reasoningCheck?: boolean;
+  reasoningEffort?: string;
 }
 
 export async function fetchComputerUseRuns() {
@@ -529,6 +533,18 @@ export async function createComputerUseRun(payload: CreateComputerUseRunInput) {
   }
   if (payload.failureThreshold) {
     config.failure_threshold = payload.failureThreshold;
+  }
+  if (payload.llmProvider) {
+    config.llm_provider = payload.llmProvider;
+  }
+  if (payload.llmModel) {
+    config.llm_model = payload.llmModel;
+  }
+  if (payload.reasoningCheck !== undefined) {
+    config.reasoning_check = payload.reasoningCheck;
+  }
+  if (payload.reasoningEffort) {
+    config.reasoning_effort = payload.reasoningEffort;
   }
 
   const body: Record<string, unknown> = {
