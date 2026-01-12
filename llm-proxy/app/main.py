@@ -96,7 +96,7 @@ def _create_client() -> OpenAI:
 def _default_model() -> str:
     provider = _llm_provider()
     if provider == "ollama":
-        return os.getenv("OLLAMA_MODEL") or "gpt-oss:20b"
+        return os.getenv("OLLAMA_MODEL") or "devstral-small-2:24b"
     return os.getenv("LLM_MODEL") or "gpt-4o-mini"
 
 
@@ -110,7 +110,7 @@ def _ollama_chat_url() -> str:
 
 
 def _is_reasoning_model(model: str) -> bool:
-    patterns = ["gpt-oss", "deepseek-r1", "o1-", "o3-"]
+    patterns = ["gpt-oss", "devstral", "deepseek-r1", "o1-", "o3-"]
     return any(model.lower().startswith(p) for p in patterns)
 
 

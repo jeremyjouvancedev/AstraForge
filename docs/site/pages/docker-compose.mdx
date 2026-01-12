@@ -23,7 +23,7 @@ LLM credentials (or Ollama settings); you can override any other values shown in
 cat <<'ENV' > .env
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://host.docker.internal:11434
-OLLAMA_MODEL=gpt-oss:20b
+OLLAMA_MODEL=devstral-small-2:24b
 DEEPAGENT_PROVIDER=ollama
 DEEPAGENT_REASONING_EFFORT=high
 UNSAFE_DISABLE_AUTH=1   # keep this to skip login locally

@@ -662,3 +662,45 @@ export async function fetchWorkspaceUsage(workspaceUid: string) {
   );
   return response.data;
 }
+
+export interface AstraControlSession {
+  id: string;
+  goal: string;
+  status: "created" | "running" | "paused" | "completed" | "failed";
+  sandbox_session_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createAstraControlSession(payload: { 
+  goal: string; 
+  model?: string;
+  provider?: string;
+  reasoning_check?: boolean;
+  reasoning_effort?: string;
+}) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<AstraControlSession>("/astra-control/sessions/", payload);
+  return response.data;
+}
+
+export async function resumeAstraControlSession(id: string) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<{ status: string }>(
+    `/astra-control/sessions/${encodeURIComponent(id)}/resume/`,
+    {}
+  );
+  return response.data;
+}
+
+export async function fetchAstraControlSession(id: string) {
+  const response = await apiClient.get<AstraControlSession & { state: { events?: Record<string, unknown>[] } }>(
+    `/astra-control/sessions/${encodeURIComponent(id)}/`
+  );
+  return response.data;
+}
+
+export async function fetchAstraControlSessions() {
+  const response = await apiClient.get<AstraControlSession[]>("/astra-control/sessions/");
+  return response.data;
+}

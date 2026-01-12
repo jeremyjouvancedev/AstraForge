@@ -60,7 +60,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
       projectId: defaultProjectId,
       prompt: "",
       llmProvider: "ollama",
-      llmModel: "gpt-oss:20b",
+      llmModel: "devstral-small-2:24b",
       reasoningEffort: "high",
       reasoningCheck: true
     },
@@ -186,7 +186,7 @@ export function NewRequestForm({ projects }: NewRequestFormProps) {
                     <LLMSelectionFields
                       provider={field.value}
                       onProviderChange={field.onChange}
-                      model={form.watch("llmModel") || "gpt-oss:20b"}
+                      model={form.watch("llmModel") || "devstral-small-2:24b"}
                       onModelChange={(val) => form.setValue("llmModel", val)}
                       reasoningCheck={form.watch("reasoningCheck")}
                       onReasoningCheckChange={(val) => form.setValue("reasoningCheck", val)}

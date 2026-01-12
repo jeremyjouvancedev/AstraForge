@@ -135,7 +135,7 @@ def _default_deepagent_model(provider: str, request: Request | None = None) -> s
     if configured:
         return configured
     if provider == "ollama":
-        return os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
+        return os.getenv("OLLAMA_MODEL", "devstral-small-2:24b")
     return "gpt-4o"
 
 
@@ -172,7 +172,7 @@ def _parse_json_env(name: str) -> dict[str, Any] | None:
 
 
 def _is_reasoning_model(model: str) -> bool:
-    patterns = ["gpt-oss", "deepseek-r1", "o1-", "o3-"]
+    patterns = ["gpt-oss", "devstral", "deepseek-r1", "o1-", "o3-"]
     return any(model.lower().startswith(p) for p in patterns)
 
 

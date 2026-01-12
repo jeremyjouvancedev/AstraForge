@@ -1,4 +1,14 @@
 services:
+  computer-use-image:
+    build:
+      context: ./computer_use
+    image: astraforge/computer-use:latest
+
+  astra-control-image:
+    build:
+      context: ./astra_control_sandbox
+    image: astraforge/astra-control:latest
+
   backend-migrate:
     build:
       context: ./backend
@@ -259,6 +269,40 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - astraforge
+  astra-control-worker:
+    build:
+      context: ./backend
+    command: celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.astra_control
+    privileged: true
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROXY_URL: http://llm-proxy:8080
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-devstral-small-2:24b}
+      INTERNAL_API_URL: http://backend:8001/api
+      SANDBOX_DOCKER_SECCOMP: ""
+      SANDBOX_DOCKER_READ_ONLY: "1"
+      SANDBOX_DOCKER_USER: "sandbox"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      llm-proxy:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - astraforge
   llm-proxy:
     build:
       context: ./llm-proxy
@@ -270,7 +314,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:20b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-devstral-small-2:24b}
       OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-high}
       OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
       LOG_LEVEL: DEBUG
@@ -301,6 +345,7 @@ services:
       - docs-next:/app/.next
     networks:
       - astraforge
+
   frontend:
     build:
       context: ./frontend

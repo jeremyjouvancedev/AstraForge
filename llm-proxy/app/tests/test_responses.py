@@ -161,10 +161,10 @@ def test_proxy_ollama_responses_non_stream(monkeypatch: pytest.MonkeyPatch) -> N
 def test_default_model_prefers_ollama_over_llm_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("LLM_MODEL", "gpt-4o-mini")
-    monkeypatch.setenv("OLLAMA_MODEL", "gpt-oss:20b")
+    monkeypatch.setenv("OLLAMA_MODEL", "devstral-small-2:24b")
     main._llm_provider.cache_clear()
 
-    assert main._default_model() == "gpt-oss:20b"
+    assert main._default_model() == "devstral-small-2:24b"
 
 
 def test_ollama_stream_iterator(monkeypatch: pytest.MonkeyPatch) -> None:

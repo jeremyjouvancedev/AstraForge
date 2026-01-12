@@ -10,6 +10,9 @@ ROOT_IMAGE ?= astraforge:local
 CODEX_IMAGE ?= astraforge/codex-cli:latest
 SANDBOX_IMAGE ?= astraforge/sandbox-daemon:latest
 COMPUTER_USE_IMAGE ?= astraforge/computer-use:latest
+ASTRA_CONTROL_IMAGE ?= astra-control:local
+
+# Helper targets for local dev, container builds, and packaging.
 
 # Run the Django dev server on 0.0.0.0:8001 (local code, no container).
 backend-serve:
@@ -38,7 +41,10 @@ sandbox-image:
 computer-use-image:
 	docker build -t $(COMPUTER_USE_IMAGE) computer_use
 
-workspace-images: codex-image sandbox-image computer-use-image
+astra-control-image:
+	docker build -t $(ASTRA_CONTROL_IMAGE) astra_control
+
+workspace-images: codex-image sandbox-image computer-use-image astra-control-image
 
 # Run backend unit tests via pytest.
 backend-test:

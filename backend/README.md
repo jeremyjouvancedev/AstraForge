@@ -17,9 +17,9 @@ Then run `python manage.py runserver` (or `make backend-serve` from the repo roo
 
 If you're running Ollama on your laptop and need containers to reach it, install
 it from https://ollama.com/download, pull the model you plan to use (default
-`gpt-oss:20b`), then start the server:
+`devstral-small-2:24b`), then start the server:
 
 ```bash
-ollama pull gpt-oss:20b
+ollama pull devstral-small-2:24b
 OLLAMA_HOST=0.0.0.0 ollama serve
 ```
