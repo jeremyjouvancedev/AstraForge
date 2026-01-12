@@ -527,8 +527,8 @@ export function ComputerUseRunView({
                     {selectedStep?.debugInfo ? (
                       <div className="space-y-4 min-w-0">
                         <div className="flex items-center justify-between px-2 gap-2">
-                           <div className="text-[10px] text-zinc-500 truncate">Model: <span className="text-zinc-300 font-mono">{selectedStep.debugInfo.model}</span></div>
-                           <div className="text-[10px] text-zinc-500 truncate">Provider: <span className="text-zinc-300 font-mono">{selectedStep.debugInfo.provider}</span></div>
+                           <div className="text-[10px] text-zinc-500 truncate">Model: <span className="text-zinc-300 font-mono">{selectedStep.debugInfo.model as string}</span></div>
+                           <div className="text-[10px] text-zinc-500 truncate">Provider: <span className="text-zinc-300 font-mono">{selectedStep.debugInfo.provider as string}</span></div>
                         </div>
                         
                         <div className="space-y-4">

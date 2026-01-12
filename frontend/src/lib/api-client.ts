@@ -469,6 +469,7 @@ export interface ComputerUseRun {
   trace_dir?: string;
   sandbox_session_id?: string | null;
   pending_checks?: ComputerUseSafetyCheck[];
+  final_response?: string | null;
   step_index?: number;
   created_at: string;
   updated_at: string;
@@ -590,6 +591,7 @@ export async function acknowledgeComputerUseRun(payload: {
 export type ComputerUseTimelineItem = {
   type: string;
   call_id?: string;
+  debug_info?: Record<string, unknown>;
   action?: Record<string, unknown>;
   meta?: Record<string, unknown>;
   pending_safety_checks?: ComputerUseSafetyCheck[];

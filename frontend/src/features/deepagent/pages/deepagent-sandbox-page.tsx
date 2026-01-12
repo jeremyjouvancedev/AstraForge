@@ -28,6 +28,7 @@ import { useSandboxSessions, sandboxSessionsQueryKey } from "@/features/sandbox/
 import { useStopSandboxSession } from "@/features/sandbox/hooks/use-stop-sandbox-session";
 import { uploadSandboxFile } from "@/lib/api-client";
 import { extractApiErrorMessage } from "@/lib/api-error";
+import { buildSandboxUploadPath } from "@/features/deepagent/lib/sandbox-upload";
 import {
   LLMSelectionFields,
   LLMProvider,
