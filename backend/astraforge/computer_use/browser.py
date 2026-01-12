@@ -666,6 +666,8 @@ def execute_action(payload):
             else:
                 # If no pages, open new one
                 PAGE = BROWSER_CONTEXT.new_page()
+            # Update local handle for post-action observation
+            page = PAGE
         elif action_type == "dropdown_options":
             idx = action.get("index")
             el = get_element_by_index(idx)
