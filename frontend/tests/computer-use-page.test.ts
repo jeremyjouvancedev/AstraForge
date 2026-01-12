@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDomainList } from "@/features/computer-use/pages/computer-use-page";
+import { parseDomainList } from "@/features/computer-use/components/ComputerUseSetup";
 
 describe("parseDomainList", () => {
   it("splits and normalizes domains", () => {
