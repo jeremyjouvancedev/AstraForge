@@ -24,6 +24,7 @@
 - Align shared DTOs with OpenAPI field casing and keep backend serializers and frontend clients in sync.
 - Always use the OpenAI developer documentation MCP server if you need to work with the OpenAI API, ChatGPT Apps SDK, Codex,… without me having to explicitly ask.
 - Always use langchain MCP server if you need to work with Langchain, Langgraph
+- For Frontend Development Always use Shadcn MCP server to see base frontend components available
 
 ## Testing Guidelines
 - Backend tests sit in `backend/astraforge/tests/` and follow `test_*.py`; extend fixtures instead of hitting live services.

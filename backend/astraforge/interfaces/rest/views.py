@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+from pathlib import Path
 from datetime import datetime
 
 import logging
@@ -18,7 +20,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -36,6 +38,8 @@ from astraforge.accounts.models import (
 from astraforge.application import tasks as app_tasks
 from astraforge.application.use_cases import ApplyPlan, GeneratePlan, SubmitRequest
 from astraforge.bootstrap import container, repository
+from astraforge.computer_use.models import ComputerUseRun
+from astraforge.computer_use.trace import read_timeline_items
 from astraforge.domain.models.request import Attachment, Request, RequestPayload
 from astraforge.integrations.models import RepositoryLink
 from astraforge.interfaces.rest import serializers
@@ -46,6 +50,7 @@ from astraforge.quotas.models import WorkspaceQuotaLedger
 from astraforge.quotas.services import QuotaExceeded, get_quota_service
 from astraforge.requests.models import RequestRecord
 from astraforge.sandbox.models import SandboxSession
+from astraforge.sandbox.serializers import SandboxSessionCreateSerializer
 from django.http import StreamingHttpResponse
 from langchain_core.messages import message_to_dict
 
@@ -386,6 +391,201 @@ class RunLogStreamView(APIView):
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
+
+
+class ComputerUseRunViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        runs = ComputerUseRun.objects.filter(user=request.user).order_by("-created_at")
+        data = [self._serialize_run(run) for run in runs]
+        serializer = serializers.ComputerUseRunSerializer(data, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        run = self._get_run_or_404(request, pk)
+        serializer = serializers.ComputerUseRunSerializer(self._serialize_run(run))
+        return Response(serializer.data)
+
+    def create(self, request):
+        serializer = serializers.ComputerUseRunCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+
+        goal = str(payload.get("goal") or "").strip()
+        if not goal:
+            return Response({"detail": "goal is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        decision_provider = (
+            (payload.get("decision_provider") or "").strip().lower() or "scripted"
+        )
+        decision_script = payload.get("decision_script") or []
+        config = dict(payload.get("config") or {})
+        config.setdefault("decision_provider", decision_provider)
+        if decision_script:
+            config["decision_script"] = decision_script
+
+        session = self._resolve_sandbox_session(request, payload)
+
+        run = ComputerUseRun.objects.create(
+            user=request.user,
+            workspace=session.workspace if session else None,
+            sandbox_session=session,
+            goal=goal,
+            config=config,
+        )
+        try:
+            app_tasks.computer_use_run_task.delay(str(run.id))
+        except Exception as exc:  # noqa: BLE001
+            run.status = ComputerUseRun.Status.FAILED
+            run.stop_reason = "failed"
+            run.save(update_fields=["status", "stop_reason", "updated_at"])
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        output = self._serialize_run(run)
+        response_serializer = serializers.ComputerUseRunSerializer(output)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="acknowledge")
+    def acknowledge(self, request, pk=None):
+        run = self._get_run_or_404(request, pk)
+        if run.status != ComputerUseRun.Status.AWAITING_ACK:
+            return Response(
+                {"detail": "Run is not awaiting approval."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = serializers.ComputerUseRunAckSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        decision = serializer.validated_data["decision"]
+        acknowledged = serializer.validated_data.get("acknowledged") or []
+        pending_checks = (run.state or {}).get("pending_checks") or []
+        pending_ids = {str(item.get("id")) for item in pending_checks if item.get("id")}
+        if decision == "approve" and pending_ids and not pending_ids.issubset(set(acknowledged)):
+            return Response(
+                {"detail": "All pending safety checks must be acknowledged."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            app_tasks.computer_use_ack_task.delay(
+                str(run.id),
+                decision=decision,
+                acknowledged=acknowledged,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if decision == "approve":
+            run.status = ComputerUseRun.Status.RUNNING
+            run.stop_reason = ""
+        else:
+            run.status = ComputerUseRun.Status.DENIED_APPROVAL
+            run.stop_reason = "denied_approval"
+        run.updated_at = timezone.now()
+        run.save(update_fields=["status", "stop_reason", "updated_at"])
+
+        output = self._serialize_run(run)
+        response_serializer = serializers.ComputerUseRunSerializer(output)
+        return Response(response_serializer.data)
+
+    @action(detail=True, methods=["get"], url_path="timeline")
+    def timeline(self, request, pk=None):
+        run = self._get_run_or_404(request, pk)
+        trace_dir = str(run.trace_dir or "").strip()
+        if not trace_dir:
+            return Response({"items": []})
+
+        trace_root = Path(
+            os.getenv("COMPUTER_USE_TRACE_DIR", "/var/lib/astraforge/computer-use")
+        ).resolve()
+        trace_path = Path(trace_dir).resolve()
+        allowed_roots = {trace_root, Path("/tmp/astraforge-computer-use").resolve()}
+        if not any(
+            trace_path == root or root in trace_path.parents for root in allowed_roots
+        ):
+            return Response(
+                {"detail": "Trace directory is outside the allowed root."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_limit = request.query_params.get("limit")
+        limit: int | None = None
+        if raw_limit:
+            try:
+                limit = int(raw_limit)
+            except ValueError:
+                return Response(
+                    {"detail": "limit must be an integer"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if limit <= 0:
+                return Response({"items": []})
+
+        include_screenshots = str(
+            request.query_params.get("include_screenshots", "")
+        ).strip().lower() in {"1", "true", "yes"}
+
+        items = read_timeline_items(
+            trace_path, limit=limit, include_screenshots=include_screenshots
+        )
+        return Response({"items": items})
+
+    def _get_run_or_404(self, request, pk=None) -> ComputerUseRun:
+        try:
+            return ComputerUseRun.objects.get(id=pk, user=request.user)
+        except ComputerUseRun.DoesNotExist as exc:
+            raise NotFound("Computer-use run not found") from exc
+
+    def _resolve_sandbox_session(self, request, payload) -> SandboxSession:
+        expected_image = os.getenv("COMPUTER_USE_IMAGE", "astraforge/computer-use:latest").strip()
+        session_id = payload.get("sandbox_session_id")
+        if session_id:
+            session = SandboxSession.objects.filter(id=session_id, user=request.user).first()
+            if not session:
+                raise NotFound("Sandbox session not found")
+            if expected_image and session.image != expected_image:
+                raise ValidationError(
+                    {
+                        "sandbox_session_id": [
+                            f"Sandbox session image must match {expected_image} for computer-use."
+                        ]
+                    }
+                )
+            return session
+
+        sandbox_payload = dict(payload.get("sandbox") or {})
+        if not sandbox_payload.get("image"):
+            sandbox_payload["image"] = expected_image
+        metadata = dict(sandbox_payload.get("metadata") or {})
+        metadata.setdefault("purpose", "computer_use")
+        sandbox_payload["metadata"] = metadata
+        create_serializer = SandboxSessionCreateSerializer(
+            data=sandbox_payload,
+            context={"request": request},
+        )
+        create_serializer.is_valid(raise_exception=True)
+        session = create_serializer.save()
+        return session
+
+    def _serialize_run(self, run: ComputerUseRun, *, result=None) -> dict[str, object]:
+        state = dict(run.state or {})
+        pending_checks = state.get("pending_checks") or []
+        if result is not None and getattr(result, "pending_checks", None):
+            pending_checks = result.pending_checks
+        if run.status != ComputerUseRun.Status.AWAITING_ACK:
+            pending_checks = []
+        return {
+            "id": run.id,
+            "goal": run.goal,
+            "final_response": run.final_response,
+            "status": run.status,
+            "stop_reason": run.stop_reason or "",
+            "trace_dir": run.trace_dir or "",
+            "sandbox_session_id": run.sandbox_session_id,
+            "pending_checks": pending_checks,
+            "step_index": state.get("step_index", 0),
+            "created_at": run.created_at,
+            "updated_at": run.updated_at,
+        }
 
 
 class DeepAgentConversationView(APIView):

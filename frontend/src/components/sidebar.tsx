@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Link2,
   LogOut,
+  MousePointerClick,
   Network,
   Sparkles,
   Zap
@@ -167,14 +168,30 @@ function formatResetLabel(period?: string | null) {
   return `Resets in ${days} days`;
 }
 
-const navItems = [
-  { to: "/app", label: "Overview", icon: LayoutDashboard, exact: true },
-  { to: "/app/activity-logs", label: "Activity logs", icon: History },
-  { to: "/app/usage", label: "Usage", icon: BarChart3 },
-  { to: "/app/requests", label: "Requests", icon: Inbox },
-  { to: "/app/repositories", label: "Repositories", icon: Link2 },
-  { to: "/app/api-keys", label: "API Keys", icon: KeyRound },
-  { to: "/app/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain }
+const navSections = [
+  {
+    title: "Platform",
+    items: [
+      { to: "/app", label: "Overview", icon: LayoutDashboard, exact: true },
+      { to: "/app/activity-logs", label: "Activity logs", icon: History },
+      { to: "/app/usage", label: "Usage", icon: BarChart3 }
+    ]
+  },
+  {
+    title: "Agents",
+    items: [
+      { to: "/app/requests", label: "Software Engineer", icon: Inbox },
+      { to: "/app/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain },
+      { to: "/app/computer-use", label: "Browser Use", icon: MousePointerClick }
+    ]
+  },
+  {
+    title: "Configuration",
+    items: [
+      { to: "/app/repositories", label: "Repositories", icon: Link2 },
+      { to: "/app/api-keys", label: "API Keys", icon: KeyRound }
+    ]
+  }
 ];
 
 export function Sidebar() {
@@ -283,31 +300,35 @@ export function Sidebar() {
         <WorkspaceSwitcher />
       </div>
 
-      <nav className="relative mt-2 flex flex-1 flex-col gap-1 px-3">
-        <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-sidebar-foreground/60">
-          Navigate
-        </p>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.exact}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-inner shadow-sidebar-border/40"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-                )
-              }
-            >
-              <Icon className="h-4 w-4" />
-              {item.label}
-            </NavLink>
-          );
-        })}
+      <nav className="relative mt-2 flex flex-1 flex-col gap-5 px-3">
+        {navSections.map((section) => (
+          <div key={section.title} className="flex flex-col gap-1">
+            <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.3em] text-sidebar-foreground/50">
+              {section.title}
+            </p>
+            {section.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.exact}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-inner shadow-sidebar-border/40"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+                    )
+                  }
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </NavLink>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="relative mt-4 px-3">

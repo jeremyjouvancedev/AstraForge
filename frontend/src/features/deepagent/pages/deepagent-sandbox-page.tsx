@@ -29,9 +29,18 @@ import { useStopSandboxSession } from "@/features/sandbox/hooks/use-stop-sandbox
 import { uploadSandboxFile } from "@/lib/api-client";
 import { extractApiErrorMessage } from "@/lib/api-error";
 import { buildSandboxUploadPath } from "@/features/deepagent/lib/sandbox-upload";
+import {
+  LLMSelectionFields,
+  LLMProvider,
+  ReasoningEffort
+} from "@/features/chat/components/llm-selection-fields";
 
 export default function DeepAgentSandboxPage() {
   const [conversation, setConversation] = useState<DeepAgentConversation | null>(null);
+  const [llmProvider, setLlmProvider] = useState<LLMProvider>("ollama");
+  const [llmModel, setLlmModel] = useState("gpt-oss:20b");
+  const [reasoningCheck, setReasoningCheck] = useState(true);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [messages, setMessages] = useState<DeepAgentMessage[]>([]);
   const [input, setInput] = useState("");
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -132,7 +141,14 @@ export default function DeepAgentSandboxPage() {
 
   const triggerConversation = useCallback(
     (options?: { silent?: boolean }) => {
-      createConversation.mutate({}, {
+      const metadata: Record<string, unknown> = {
+        llm: {
+          provider: llmProvider,
+          model: llmModel || (llmProvider === "ollama" ? "gpt-oss:20b" : "gpt-4o"),
+          ...(llmProvider === "ollama" ? { reasoning_effort: reasoningEffort, reasoning_check: reasoningCheck } : {})
+        }
+      };
+      createConversation.mutate({ metadata }, {
         onSuccess: (conv) => {
           setProvisionError(null);
           setConversation(conv);
@@ -148,7 +164,7 @@ export default function DeepAgentSandboxPage() {
         }
       });
     },
-    [createConversation]
+    [createConversation, llmProvider, llmModel, reasoningEffort, reasoningCheck, queryClient]
   );
 
   const handleRetrySandbox = useCallback(() => {
@@ -738,7 +754,19 @@ export default function DeepAgentSandboxPage() {
                   <p className="text-sm text-zinc-400">Choose your environment settings before starting the deep agent.</p>
                 </div>
 
-                <div className="w-full max-w-sm space-y-6 rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur-sm">
+                <div className="w-full max-w-xl space-y-6 rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur-sm">
+                  <LLMSelectionFields
+                    provider={llmProvider}
+                    onProviderChange={(val) => setLlmProvider(val as LLMProvider)}
+                    model={llmModel}
+                    onModelChange={setLlmModel}
+                    reasoningCheck={reasoningCheck}
+                    onReasoningCheckChange={setReasoningCheck}
+                    reasoningEffort={reasoningEffort}
+                    onReasoningEffortChange={setReasoningEffort}
+                    disabled={createConversation.isPending}
+                    compact
+                  />
                   <div className="pt-4">
                     <Button 
                       className="w-full rounded-xl py-6 text-base font-semibold"

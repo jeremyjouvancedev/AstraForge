@@ -9,6 +9,7 @@ from astraforge.interfaces.rest.views import (
     ApiKeyViewSet,
     ActivityLogViewSet,
     ChatViewSet,
+    ComputerUseRunViewSet,
     MergeRequestViewSet,
     CsrfTokenView,
     AuthSettingsView,
@@ -37,6 +38,7 @@ router.register(r"activity", ActivityLogViewSet, basename="activity-log")
 router.register(r"repository-links", RepositoryLinkViewSet, basename="repository-link")
 router.register(r"runs", RunViewSet, basename="run")
 router.register(r"merge-requests", MergeRequestViewSet, basename="merge-request")
+router.register(r"computer-use/runs", ComputerUseRunViewSet, basename="computer-use-run")
 router.register(r"sandbox/sessions", SandboxSessionViewSet, basename="sandbox-session")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 

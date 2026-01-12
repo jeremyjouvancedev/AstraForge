@@ -123,6 +123,8 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-high}
       OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
+      COMPUTER_USE_IMAGE: ${COMPUTER_USE_IMAGE:-astraforge/computer-use:latest}
+      COMPUTER_USE_TRACE_DIR: /var/lib/astraforge/computer-use
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/auth/csrf/"]
       interval: 5s
@@ -144,6 +146,7 @@ services:
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
+      - computer-use-traces:/var/lib/astraforge/computer-use
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -181,6 +184,8 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-high}
       OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
+      COMPUTER_USE_IMAGE: ${COMPUTER_USE_IMAGE:-astraforge/computer-use:latest}
+      COMPUTER_USE_TRACE_DIR: /var/lib/astraforge/computer-use
     depends_on:
       postgres:
         condition: service_healthy
@@ -195,6 +200,61 @@ services:
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
+      - computer-use-traces:/var/lib/astraforge/computer-use
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - astraforge
+  computer-use-worker:
+    build:
+      context: ./backend
+    command: celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.computer_use
+    privileged: true
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://astraforge:astraforge@postgres:5433/astraforge
+      REDIS_URL: redis://redis:6379/0
+      EXECUTOR: codex
+      RUN_LOG_STREAMER: redis
+      CELERY_TASK_ALWAYS_EAGER: "0"
+      ASTRAFORGE_EXECUTE_COMMANDS: "1"
+      UNSAFE_DISABLE_AUTH: "1"
+      LOG_LEVEL: DEBUG
+      CODEX_CLI_SKIP_PULL: "1"
+      CODEX_WORKSPACE_NETWORK: astraforge
+      CODEX_WORKSPACE_PROXY_URL: http://llm-proxy:8080
+      SANDBOX_DOCKER_READ_ONLY: "1"
+      SANDBOX_DOCKER_SECCOMP: ""
+      SANDBOX_DOCKER_PIDS_LIMIT: "512"
+      SANDBOX_DOCKER_HOST_GATEWAY: "0"
+      SANDBOX_S3_BUCKET: ${SANDBOX_S3_BUCKET:-astraforge-snapshots}
+      SANDBOX_S3_ENDPOINT_URL: ${SANDBOX_S3_ENDPOINT_URL:-http://minio:9000}
+      SANDBOX_S3_REGION: ${SANDBOX_S3_REGION:-us-east-1}
+      SANDBOX_S3_USE_SSL: ${SANDBOX_S3_USE_SSL:-0}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-astraforge}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-astraforge123}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-high}
+      OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
+      COMPUTER_USE_IMAGE: ${COMPUTER_USE_IMAGE:-astraforge/computer-use:latest}
+      COMPUTER_USE_TRACE_DIR: /var/lib/astraforge/computer-use
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      backend-migrate:
+        condition: service_completed_successfully
+      llm-proxy:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - computer-use-traces:/var/lib/astraforge/computer-use
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -266,6 +326,7 @@ volumes:
   docs-node-modules:
   docs-next:
   minio-data:
+  computer-use-traces:
 
 networks:
   astraforge:

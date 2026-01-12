@@ -160,6 +160,7 @@ INSTALLED_APPS = [
     "astraforge.interfaces.rest",
     "astraforge.sandbox",
     "astraforge.quotas",
+    "astraforge.computer_use",
 ]
 
 MIDDLEWARE = [
@@ -290,6 +291,8 @@ CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
 CELERY_TASK_EAGER_PROPAGATES = env.bool("CELERY_TASK_EAGER_PROPAGATES", default=True)
 CELERY_TASK_DEFAULT_QUEUE = "astraforge.default"
 CELERY_TASK_ROUTES = {
+    "astraforge.application.tasks.computer_use_run_task": {"queue": "astraforge.computer_use"},
+    "astraforge.application.tasks.computer_use_ack_task": {"queue": "astraforge.computer_use"},
     "astraforge.application.tasks.*": {"queue": "astraforge.core"},
 }
 SANDBOX_REAP_INTERVAL_SEC = env.int("SANDBOX_REAP_INTERVAL_SEC", default=60)

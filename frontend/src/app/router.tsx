@@ -25,6 +25,9 @@ const ApiKeysPage = lazy(() => import("@/features/api-keys/pages/api-keys-page")
 const DeepAgentSandboxPage = lazy(
   () => import("@/features/deepagent/pages/deepagent-sandbox-page")
 );
+const ComputerUsePage = lazy(
+  () => import("@/features/computer-use/pages/computer-use-page")
+);
 
 function ProtectedShell() {
   const { isAuthenticated, loading } = useAuth();
@@ -78,7 +81,8 @@ const routes: RouteObject[] = [
       { path: "merge-requests", element: <Navigate to="/app" replace /> },
       { path: "repositories", element: <RepositoryLinksPage /> },
       { path: "api-keys", element: <ApiKeysPage /> },
-      { path: "deep-sandbox", element: <DeepAgentSandboxPage /> }
+      { path: "deep-sandbox", element: <DeepAgentSandboxPage /> },
+      { path: "computer-use", element: <ComputerUsePage /> }
     ]
   },
   { path: "/requests", element: <Navigate to="/app/requests" replace /> },
@@ -88,6 +92,7 @@ const routes: RouteObject[] = [
   { path: "/repositories", element: <Navigate to="/app/repositories" replace /> },
   { path: "/api-keys", element: <Navigate to="/app/api-keys" replace /> },
   { path: "/deep-sandbox", element: <Navigate to="/app/deep-sandbox" replace /> },
+  { path: "/computer-use", element: <Navigate to="/app/computer-use" replace /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
   { path: "*", element: <Navigate to="/" replace /> }

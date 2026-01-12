@@ -16,8 +16,13 @@ flowchart TD
         AccessCtrl["Access Control & Waitlist"]
         ActivityFeed["Activity Log Feed<br/>Paginated timeline"]
         SandboxAPI["Sandbox Orchestrator"]
+        ComputerUseRunner["Computer-Use Runner"]
+        ComputerUsePolicy["Computer-Use Policy Gate"]
+        DecisionProviders["Decision Provider Registry"]
+        TraceStore["Computer-Use Trace Store<br/>timeline.jsonl + replay"]
         Beat["Celery Beat Scheduler"]
         Worker["Celery Worker"]
+        ComputerUseWorker["Computer-Use Worker"]
         Registry["Provider Registry"]
         WorkspaceStore["Workspace Registry<br/>UID + Memberships"]
         RepoLinks["Repository Links<br/>Workspace scoped"]
@@ -58,6 +63,7 @@ flowchart TD
     API --> ActivityFeed
     API --> WorkspaceStore
     API --> RepoLinks
+    ComputerUseWorker --> ComputerUseRunner
     PySDK -->|HTTPS + X-Api-Key| API
     API -->|SSE| FE
     API --> PG
@@ -67,12 +73,18 @@ flowchart TD
     Worker --> PG
     Worker --> RedisStore
     Worker --> DeepAgentCP
+    ComputerUseWorker --> PG
+    ComputerUseWorker --> RedisStore
     API --> Worker
     Beat --> Worker
     Worker --> Reaper
     Reaper --> SandboxMgr
     Worker --> Registry
     API --> SandboxAPI
+    ComputerUseRunner --> ComputerUsePolicy
+    ComputerUseRunner --> DecisionProviders
+    ComputerUseRunner --> SandboxAPI
+    ComputerUseRunner --> TraceStore
     SandboxAPI --> SandboxMgr
     SandboxMgr --> DockerSandboxes
     SandboxMgr --> K8sSandboxes
@@ -83,6 +95,7 @@ flowchart TD
     SandboxNet --> PublicNet
     NetPolicy --> PublicNet
     Daemon --> Artifacts
+    TraceStore --> Artifacts
     API -->|publish prompt| RunLog
     Worker -->|emit events| RunLog
     Registry --> Provisioner
@@ -169,6 +182,34 @@ switching provisioners (`PROVISIONER=docker` vs `PROVISIONER=k8s`) is frictionle
 - Snapshots now write archives into `/tmp/astraforge-snapshots/{session_id}/{snapshot_id}.tar.gz` by default (override with `SANDBOX_SNAPSHOT_DIR`); both manual captures and auto-stop/auto-reap flows pin a `latest_snapshot_id` in session metadata so new sessions can restore via `restore_snapshot_id`. When `SANDBOX_S3_BUCKET` is set, archives are streamed out of the sandbox and uploaded to S3/MinIO (endpoint configurable via `SANDBOX_S3_ENDPOINT_URL`), and restores download from the same bucket before extracting into the workspace. If a user returns to a non-ready sandbox, API calls auto-provision a fresh runtime and apply the `latest_snapshot_id` so the session transparently resumes.
 - Artifacts and snapshots are tracked with UUID metadata, and download URLs are derived from `SANDBOX_ARTIFACT_BASE_URL` when available; GUI controls/streaming are stubbed until the sandbox daemon is integrated.
 - **Sandbox isolation hardening**: Docker sandboxes now start with `--read-only`, tmpfs mounts for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `seccomp=default`, and PID limits. They use the Docker default bridge for internet egress unless `SANDBOX_DOCKER_NETWORK` is set; point it at an internal bridge like `astraforge-sandbox` to block LAN/internet or at a routed bridge with host firewall rules if you need internet-only egress. The host gateway stays disabled by default. Kubernetes sandboxes run non-root with read-only root filesystems, dropped capabilities, runtime-default seccomp, and service account token auto-mount disabled; the `workspace-networkpolicy.yaml` overlay allows DNS + public internet egress while blocking RFC1918/link-local ranges (so the NAS/LAN stays unreachable), and Codex workspaces layer an additional `codex-egress-llm-proxy` policy so the LLM proxy remains a Codex-only dependency.
+
+## Computer-Use Mode (Browser Automation)
+
+- A model-agnostic runner executes the observe -> decide -> safety/approval -> act loop inside sandboxed browsers.
+- Decision providers emit provider-neutral `computer_call` items with `response_id` continuity and `call_id` correlation.
+- The policy gate enforces domain allowlists, sensitive action checks, and explicit acknowledgements.
+- The trace store writes `timeline.jsonl`, per-step artifacts, `report.md`, and a replay package; the API serves timeline items for UI replay and expects the trace directory to be shared between API/worker (`COMPUTER_USE_TRACE_DIR`).
+- Runs execute asynchronously on a dedicated Celery queue/worker (`astraforge.computer_use`), and the browser sandbox uses a dedicated image (`COMPUTER_USE_IMAGE`).
+
+```mermaid
+flowchart LR
+    Runner["Computer-Use Runner"]
+    Browser["Browser Adapter</br>(Playwright)"]
+    Provider["Decision Provider"]
+    Policy["Policy + Safety Gate"]
+    Trace["Trace Store"]
+    Ack["Human Approval"]
+
+    Runner -->|observe| Browser
+    Browser -->|computer_call_output| Runner
+    Runner -->|decision request| Provider
+    Provider -->|computer_call| Runner
+    Runner -->|safety checks| Policy
+    Policy -->|approve| Runner
+    Policy -->|ack required| Ack
+    Runner -->|act| Browser
+    Runner -->|items + artifacts| Trace
+```
 
 ### DeepAgent Sandbox SDK
 
