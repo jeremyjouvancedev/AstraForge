@@ -118,12 +118,17 @@ def create_graph(
 
     def should_continue(state: AgentState):
         messages = state["messages"]
+        if not messages:
+            return "agent"
         last_message = messages[-1]
-        if last_message.tool_calls:
+        if isinstance(last_message, AIMessage) and last_message.tool_calls:
             return "tools"
-        if "FINAL ANSWER" in last_message.content:
+        if isinstance(last_message, AIMessage) and "FINAL ANSWER" in (last_message.content or ""):
             return END
-        # If no tool calls and no final answer, we wait for user to respond to the text.
+        # If no tool calls and no final answer, or if it's not an AIMessage (e.g. HumanMessage from resume),
+        # we wait for user or go to agent.
+        if isinstance(last_message, HumanMessage):
+            return "agent"
         return "wait_for_user"
 
     def check_takeover(state: AgentState):
