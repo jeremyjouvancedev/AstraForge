@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 from langchain_core.messages import HumanMessage, AIMessage
+from langgraph.types import Command
 
 from .graph import create_graph
 from .state import AgentState
@@ -110,21 +111,22 @@ def run_astra_control_session(self, task_data: dict):
         await update_session_state(session_id, status=AstraControlSession.Status.RUNNING)
         
         # Start or Resume the graph
-        # If it's the first time, we pass initial_state. 
-        # On resume, we pass None as state to continue from checkpointer.
         current_input = initial_state
         
         while True:
             is_waiting = False
             async for event in app.astream(current_input, config=config):
                 for node_name, node_output in event.items():
+                    # ... (rest of the processing)
+                    # (I'll just replace the whole loop for safety)
                     logger.info(f"DEBUG: [Node: {node_name}] Processing event for session {session_id}")
                     
                     if not isinstance(node_output, dict):
                         logger.info(f"DEBUG: Node {node_name} output is not a dict, skipping processing: {type(node_output)}")
                         continue
 
-                    if node_name == "wait_for_user":
+                    # If we see 'wait_for_user' in output (legacy) or if it's the interrupt_node
+                    if node_name == "interrupt_node":
                         is_waiting = True
                     
                     processed_output = {}
@@ -151,13 +153,30 @@ def run_astra_control_session(self, task_data: dict):
                     # Update DB and Publish to Redis per node
                     await update_session_state(session_id, event={node_name: processed_output})
 
+            # After polling, we clear the input so it doesn't get repeated
+            current_input = None
+
             # Check if we hit an interrupt
             snapshot = await app.aget_state(config)
-            if snapshot.next and "wait_for_user" in snapshot.next:
+            
+            # Dynamic interrupts via interrupt() surface in snapshot.values['__interrupt__']
+            # or in snapshot.next if they are static breakpoints.
+            interrupts = snapshot.values.get("__interrupt__", [])
+            if interrupts or snapshot.next:
                 is_waiting = True
 
             if is_waiting:
-                logger.info(f"Session {session_id} is waiting for user intervention...")
+                # Extract details from dynamic interrupt if present
+                interrupt_reason = "Manual approval required"
+                if interrupts:
+                    # interrupts is typically a list of Interrupt objects
+                    last_interrupt = interrupts[-1]
+                    # The value is what we passed to interrupt()
+                    if hasattr(last_interrupt, "value") and isinstance(last_interrupt.value, dict):
+                        interrupt_reason = last_interrupt.value.get("description", interrupt_reason)
+                        action_type = last_interrupt.value.get("action")
+                        logger.info(f"DEBUG: Graph interrupted for {action_type}: {interrupt_reason}")
+
                 await update_session_state(session_id, status=AstraControlSession.Status.PAUSED)
                 resume_key = f"astra_control_resume_{session_id}"
                 r.delete(resume_key)
@@ -167,16 +186,24 @@ def run_astra_control_session(self, task_data: dict):
                 user_msg = msg.decode("utf-8")
                 logger.info(f"Session {session_id} received resume signal: {user_msg}")
                 
-                # Update state with user message
-                # If the user just clicked "Done" without typing, we use a default message
+                # Normalize user message
                 if user_msg == "user_done":
-                    user_msg = "User has finished manual intervention. Please observe the environment and continue."
+                    # For shell/file approval, 'user_done' means 'approve'
+                    user_msg = "approve"
                 
-                await app.aupdate_state(config, {"messages": [HumanMessage(content=user_msg)]})
+                # If we are resuming from a dynamic interrupt, we use Command(resume=...)
+                if interrupts:
+                    current_input = Command(resume=user_msg)
+                    # We also inject a HumanMessage to the state for conversation history 
+                    # ONLY if it was a generic wait_for_user, not a tool approval.
+                    if any(i.value.get("action") == "wait_for_user" for i in interrupts if hasattr(i, "value") and isinstance(i.value, dict)):
+                        actual_human_text = "User has finished manual intervention." if user_msg == "approve" else user_msg
+                        await app.aupdate_state(config, {"messages": [HumanMessage(content=actual_human_text)]})
+                else:
+                    # Static breakpoint (legacy or tools breakpoint if still active)
+                    current_input = None 
+                
                 await update_session_state(session_id, status=AstraControlSession.Status.RUNNING)
-                
-                # Next iteration of while loop will resume from checkpointer
-                current_input = None
                 continue
             else:
                 # Graph finished naturally

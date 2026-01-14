@@ -68,7 +68,7 @@ class AstraControlSessionViewSet(viewsets.ModelViewSet):
     def resume(self, request, pk=None):
         session = self.get_object()
         r = redis.from_url(settings.REDIS_URL)
-        r.lpush(f"astra_control_resume_{session.id}", "user_done")
+        r.rpush(f"astra_control_resume_{session.id}", "user_done")
         return Response({"status": "resume signal sent"})
 
     @action(detail=True, methods=['post'])
