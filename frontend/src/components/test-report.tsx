@@ -1,4 +1,4 @@
-interface TestReportProps {
+export interface TestReportProps {
   results?: Array<{ name: string; status: "pass" | "fail" }>;
 }
 

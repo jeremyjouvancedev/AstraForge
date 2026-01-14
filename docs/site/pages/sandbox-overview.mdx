@@ -1,0 +1,38 @@
+# Sandbox overview
+
+The sandbox orchestrator provisions disposable workspaces in Docker or Kubernetes with strict isolation, consistent APIs, and snapshot/artifact support.
+
+## Lifecycle
+
+- `POST /api/sandbox/sessions` creates or reuses a session by ID, restoring the latest snapshot when present. Ready sessions return `200`; new ones return `201`.
+- Heartbeats (`/heartbeat`) extend idle timers without running code. Idle and max-lifetime limits are enforced by a scheduled reaper task.
+- Stop or delete endpoints capture best-effort snapshots first (`auto-stop`/`auto-idle_timeout`/`auto-max_lifetime` labels).
+- DeepAgent conversations use the same sandbox IDs, so UI and SDK traffic share a single workspace per conversation.
+
+## Execution surface
+
+- Shell commands: `POST /sandbox/sessions/{id}/shell` (Docker) or `exec` (K8s) with `cwd` support.
+- File upload: `POST /sandbox/sessions/{id}/files/upload` with raw bytes.
+- File content: `GET /sandbox/sessions/{id}/files/content` with optional decoding.
+- Export: `POST /sandbox/sessions/{id}/files/export` returns an artifact descriptor (ID, filename, optional download URL).
+- Snapshots: `POST /sandbox/sessions/{id}/snapshot` writes a tarball; restores happen automatically when `restore_snapshot_id` is provided or metadata includes `latest_snapshot_id`.
+
+## Security defaults
+
+- Docker sandboxes: read-only rootfs, tmpfs for `/workspace`/`/tmp`/`/run`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, seccomp profile (`SANDBOX_DOCKER_SECCOMP`), `--pids-limit`, and three network modes (default bridge egress; `SANDBOX_DOCKER_NETWORK=astraforge-sandbox` for internal-only; `SANDBOX_DOCKER_NETWORK=none` for no networking).
+- Kubernetes sandboxes: non-root users, read-only rootfs, dropped capabilities, `RuntimeDefault` seccomp, service account token disabled, and NetworkPolicy that allows DNS/public internet while blocking RFC1918 ranges.
+- Host gateway blocked by default; enable only if you explicitly need host access.
+
+## Storage
+
+- Snapshots default to `/tmp/astraforge-snapshots/{session_id}/{snapshot_id}.tar.gz`; prefer S3/MinIO via `SANDBOX_S3_BUCKET` for durability.
+- Exported artifacts use `SANDBOX_ARTIFACT_BASE_URL` (or per-session `artifact_base_url`) to mint download links.
+
+## Operational notes
+
+- Reaper cadence is configurable via `SANDBOX_REAP_INTERVAL_SEC` (default 60s); monitor logs to confirm idle/lifetime enforcement.
+- UUID identifiers avoid guessable URLs.
+- If a session restore fails with a `404` due to a corrupted snapshot, the Python toolkit retries without `restore_snapshot_id` to deliver a clean workspace.
+- GUI endpoints exist but are stubbed (`501`) until the sandbox daemon is fully wired.
+
+See `docs/sandbox.md` for the full contract and examples, and keep any changes mirrored in `astraforge-python-package/astraforge_toolkit/backend.py`.

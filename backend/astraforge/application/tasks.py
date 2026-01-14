@@ -8,10 +8,39 @@ from astraforge.application.use_cases import (
     ApplyPlan,
     GeneratePlan,
     ExecuteRequest,
-    ProcessRequest,
     SubmitMergeRequest,
 )
 from astraforge.bootstrap import container, repository
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True)
+def computer_use_run_task(self, run_id: str) -> dict:
+    from astraforge.computer_use.models import ComputerUseRun
+    from astraforge.computer_use.service import ComputerUseService
+
+    run = ComputerUseRun.objects.get(id=run_id)
+    decision_provider = str(run.config.get("decision_provider") or "scripted")
+    decision_script = run.config.get("decision_script")
+    result = ComputerUseService().run_until_pause(
+        run,
+        decision_provider=decision_provider,
+        decision_script=decision_script,
+    )
+    return {"status": result.status}
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True)
+def computer_use_ack_task(self, run_id: str, decision: str, acknowledged: list[str]) -> dict:
+    from astraforge.computer_use.models import ComputerUseRun
+    from astraforge.computer_use.service import ComputerUseService
+
+    run = ComputerUseRun.objects.get(id=run_id)
+    result = ComputerUseService().acknowledge(
+        run,
+        acknowledged=acknowledged,
+        decision=decision,
+    )
+    return {"status": result.status}
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True)
@@ -28,27 +57,17 @@ def apply_plan_task(self, request_id: str, repo: str, branch: str) -> str:
         repository=repository,
         executor=container.resolve_executor(),
         vcs=container.vcs_providers.resolve("gitlab"),
-        provisioner=container.provisioners.resolve("k8s"),
+        provisioner=container.resolve_provisioner(),
     )(request_id=request_id, repo=repo, branch=branch)
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True)
-def generate_spec_task(self, request_id: str) -> dict:
-    spec = ProcessRequest(
-        repository=repository,
-        spec_generator=container.resolve_spec_generator(),
-        run_log=container.resolve_run_log(),
-    )(request_id)
-    return spec.as_dict()
-
-
-@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True)
-def execute_request_task(self, request_id: str, spec: dict | None = None) -> dict:
+def execute_request_task(self, request_id: str) -> dict:
     outcome = ExecuteRequest(
         repository=repository,
         workspace_operator=container.resolve_workspace_operator(),
         run_log=container.resolve_run_log(),
-    )(request_id=request_id, spec_override=spec)
+    )(request_id=request_id)
     return outcome.as_dict()
 
 

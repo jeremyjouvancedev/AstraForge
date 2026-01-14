@@ -5,21 +5,24 @@ import { ChatComposer } from "@/features/chat/components/chat-composer";
 import { ChatTimeline } from "@/features/chat/components/chat-timeline";
 import { useChatThread } from "@/features/chat/hooks/use-chat-thread";
 import { rendererRegistry } from "@/lib/renderers/registry";
+import type { DiffPreviewProps } from "@/components/diff-preview";
+import type { SpecViewerProps } from "@/components/spec-viewer";
+import type { TestReportProps } from "@/components/test-report";
 
 export default function RequestThreadPage() {
   const params = useParams<{ id: string }>();
   const requestId = params.id ?? "";
   const { data, isLoading } = useChatThread(requestId);
-  const DiffRenderer = rendererRegistry.resolve("diff");
-  const SpecRenderer = rendererRegistry.resolve("spec");
-  const TestRenderer = rendererRegistry.resolve("test-report");
+  const DiffRenderer = rendererRegistry.resolve<DiffPreviewProps>("diff");
+  const SpecRenderer = rendererRegistry.resolve<SpecViewerProps>("spec");
+  const TestRenderer = rendererRegistry.resolve<TestReportProps>("test-report");
 
   const handleSend = (message: string) => {
     console.log("send message", message); // placeholder wiring
   };
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
+    <div className="mx-auto flex max-w-[clamp(56rem,72vw,96rem)] flex-col gap-4 p-6">
       <header className="space-y-1">
         <h2 className="text-lg font-semibold">Conversation</h2>
         <p className="text-sm text-muted-foreground">Discuss requirements and approvals for request {requestId}.</p>
@@ -45,7 +48,11 @@ export default function RequestThreadPage() {
           </div>
         </div>
       </section>
-      <ChatComposer onSend={handleSend} />
+      <ChatComposer
+        onSend={handleSend}
+        showContextButton={false}
+        showMicrophoneButton={false}
+      />
     </div>
   );
 }

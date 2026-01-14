@@ -9,10 +9,12 @@ import {
 } from "react";
 
 import {
+  fetchAuthSettings,
   fetchCurrentUser,
   loginUser,
   logoutUser,
   registerUser,
+  type AuthSettings,
   type AuthUser
 } from "@/lib/api-client";
 
@@ -20,9 +22,11 @@ interface AuthContextValue {
   user: AuthUser | null;
   isAuthenticated: boolean;
   loading: boolean;
+  authSettings: AuthSettings | null;
   login: (credentials: { username: string; password: string }) => Promise<AuthUser>;
   register: (payload: { username: string; password: string; email?: string }) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  refreshAuthSettings: () => Promise<AuthSettings | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -30,14 +34,18 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authSettings, setAuthSettings] = useState<AuthSettings | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const result = await fetchCurrentUser();
-        setUser(result);
-      } catch {
-        setUser(null);
+        const [settingsResult, userResult] = await Promise.all([
+          fetchAuthSettings().catch(() => null),
+          fetchCurrentUser().catch(() => null)
+        ]);
+        const resolvedSettings = settingsResult || userResult?.auth || null;
+        setAuthSettings(resolvedSettings);
+        setUser(userResult || null);
       } finally {
         setLoading(false);
       }
@@ -45,24 +53,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadUser();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleUnauthorized = () => {
+      setUser(null);
+    };
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => {
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
+    };
+  }, []);
+
   const login = useCallback(async (credentials: { username: string; password: string }) => {
     const result = await loginUser(credentials);
     setUser(result);
+    if (result.auth) {
+      setAuthSettings(result.auth);
+    }
     return result;
   }, []);
 
   const register = useCallback(
     async (payload: { username: string; password: string; email?: string }) => {
       const result = await registerUser(payload);
-      setUser(result);
+      if (result.auth) {
+        setAuthSettings(result.auth);
+      }
+      if (result.access?.status === "approved") {
+        setUser(result);
+      } else {
+        setUser(null);
+      }
       return result;
     },
     []
   );
 
   const logout = useCallback(async () => {
-    await logoutUser();
-    setUser(null);
+    try {
+      await logoutUser();
+    } finally {
+      setUser(null);
+    }
+  }, []);
+
+  const refreshAuthSettings = useCallback(async () => {
+    try {
+      const settings = await fetchAuthSettings();
+      setAuthSettings(settings);
+      return settings;
+    } catch {
+      setAuthSettings(null);
+      return null;
+    }
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -70,11 +113,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isAuthenticated: Boolean(user),
       loading,
+      authSettings,
       login,
       register,
-      logout
+      logout,
+      refreshAuthSettings
     }),
-    [user, loading, login, register, logout]
+    [user, loading, authSettings, login, register, logout, refreshAuthSettings]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

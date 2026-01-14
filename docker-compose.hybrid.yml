@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  backend:
+    environment:
+      PROVISIONER: k8s
+      KUBECONFIG: /root/.kube/${HYBRID_KUBECONFIG:-config}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro
+  backend-worker:
+    environment:
+      PROVISIONER: k8s
+      KUBECONFIG: /root/.kube/${HYBRID_KUBECONFIG:-config}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro
+  computer-use-worker:
+    environment:
+      PROVISIONER: k8s
+      KUBECONFIG: /root/.kube/${HYBRID_KUBECONFIG:-config}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro

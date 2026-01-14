@@ -6,7 +6,15 @@ import { BrowserRouter } from "react-router-dom";
 
 import AppRouter from "@/app/router";
 import { AuthProvider } from "@/lib/auth";
+import { WorkspaceProvider } from "@/features/workspaces/workspace-context";
 import "@/styles/globals.css";
+import { Toaster } from "@/components/ui/sonner";
+
+if (typeof document !== "undefined") {
+  const rootElement = document.documentElement;
+  rootElement.classList.add("dark");
+  rootElement.style.colorScheme = "dark";
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,11 +29,14 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <BrowserRouter>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Suspense fallback={<div className="p-6">Loading AstraForge...</div>}>
-          <AppRouter />
-        </Suspense>
+        <WorkspaceProvider>
+          <Suspense fallback={<div className="p-6">Loading AstraForge...</div>}>
+            <AppRouter />
+          </Suspense>
+        </WorkspaceProvider>
       </AuthProvider>
-      <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />
+      <Toaster position="top-right" richColors />
+      <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   </BrowserRouter>
 );

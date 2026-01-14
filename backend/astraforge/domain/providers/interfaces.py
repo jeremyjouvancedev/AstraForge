@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Protocol
 
 from astraforge.domain.models.request import ChangeSet, ExecutionPlan, Request
-from astraforge.domain.models.spec import DevelopmentSpec, MergeRequestProposal
+from astraforge.domain.models.spec import MergeRequestProposal
 from astraforge.domain.models.workspace import ExecutionOutcome, WorkspaceContext
 
 
@@ -42,7 +42,13 @@ class VCSProvider(Protocol):
     """Interacts with Git hosting providers to open merge requests and comment on them."""
 
     def open_mr(
-        self, repo: str, branch: str, title: str, body: str, artifacts: Iterable[str]
+        self,
+        repo: str,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        body: str,
+        artifacts: Iterable[str],
     ) -> str:  # pragma: no cover
         ...
 
@@ -66,16 +72,14 @@ class WorkspaceOperator(Protocol):
     def prepare(
         self,
         request: Request,
-        spec: DevelopmentSpec,
         *,
         stream: Callable[[dict[str, Any]], None],
     ) -> WorkspaceContext:  # pragma: no cover
         ...
 
-    def run_codex(
+    def run_agent(
         self,
         request: Request,
-        spec: DevelopmentSpec,
         workspace: WorkspaceContext,
         *,
         stream: Callable[[dict[str, Any]], None],
@@ -93,13 +97,6 @@ class RunLogStreamer(Protocol):
         ...
 
     def stream(self, request_id: str) -> Iterable[dict[str, Any]]:  # pragma: no cover
-        ...
-
-
-class SpecGenerator(Protocol):
-    """Turns a raw request into a structured development spec via LangChain."""
-
-    def generate(self, request: Request) -> DevelopmentSpec:  # pragma: no cover
         ...
 
 

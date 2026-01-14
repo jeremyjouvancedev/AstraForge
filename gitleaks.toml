@@ -3,7 +3,6 @@ title = "AstraForge Gitleaks Config"
 paths = [
   '''backend/astraforge/tests/.*''',
   '''frontend/tests/.*''',
-  '''shared/tests/.*''',
 ]
 regexes = [
   "AstraForge",

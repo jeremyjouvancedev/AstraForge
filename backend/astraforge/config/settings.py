@@ -6,30 +6,49 @@ are suitable for local development and unit tests only.
 
 from __future__ import annotations
 
+import json
 import os
 from importlib import import_module
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+FRONTEND_DIST = BASE_DIR / "frontend_dist"
 
 env = environ.Env(
     DEBUG=(bool, False),
     SECRET_KEY=(str, "unsafe-secret-key"),
     ALLOWED_HOSTS=(list[str], ["*"]),
-    DATABASE_URL=(str, "postgres://postgres:postgres@localhost:5432/astraforge"),
+    DATABASE_URL=(str, "postgres://postgres:postgres@localhost:5433/astraforge"),
     REDIS_URL=(str, "redis://localhost:6379/0"),
     OTEL_EXPORTER_OTLP_ENDPOINT=(str, ""),
     EXECUTOR=(str, "codex"),
     CONNECTOR=(str, "direct_user"),
     VCS_PROVIDER=(str, "gitlab"),
-    PROVISIONER=(str, "k8s"),
+    PROVISIONER=(str, "docker"),
     RUN_LOG_STREAMER=(str, "memory"),
     LLM_PROXY_URL=(str, "http://llm-proxy:8080"),
     LOG_LEVEL=(str, "INFO"),
     REQUEST_REPOSITORY=(str, "database"),
-    CSRF_TRUSTED_ORIGINS=(list[str], ["http://localhost:5173", "http://127.0.0.1:5173"]),
+    CSRF_TRUSTED_ORIGINS=(list[str], ["http://localhost:5174", "http://127.0.0.1:5174"]),
+    EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
+    EMAIL_HOST=(str, ""),
+    EMAIL_PORT=(int, 587),
+    EMAIL_USE_TLS=(bool, True),
+    EMAIL_USE_SSL=(bool, False),
+    EMAIL_HOST_USER=(str, ""),
+    EMAIL_HOST_PASSWORD=(str, ""),
+    DEFAULT_FROM_EMAIL=(str, "AstraForge <noreply@astraforge.dev>"),
+    EARLY_ACCESS_NOTIFICATION_EMAIL=(str, ""),
+    SELF_HOSTED=(bool, True),
+    AUTH_REQUIRE_APPROVAL=(bool, False),
+    AUTH_ALLOW_ALL_USERS=(bool, False),
+    BILLING_ENABLED=(bool, False),
+    DEFAULT_WORKSPACE_PLAN=(str, ""),
+    WORKSPACE_QUOTAS_ENABLED=(bool, True),
+    WORKSPACE_QUOTAS=(str, ""),
 )
 
 environ.Env.read_env(
@@ -41,8 +60,89 @@ DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
-    default=["http://localhost:5173", "http://127.0.0.1:5173"],
+    default=["http://localhost:5174", "http://127.0.0.1:5174"],
 )
+SELF_HOSTED = env.bool("SELF_HOSTED", default=True)
+AUTH_REQUIRE_APPROVAL = env.bool("AUTH_REQUIRE_APPROVAL", default=not SELF_HOSTED)
+AUTH_ALLOW_ALL_USERS = env.bool("AUTH_ALLOW_ALL_USERS", default=False)
+AUTH_WAITLIST_ENABLED = AUTH_REQUIRE_APPROVAL and not AUTH_ALLOW_ALL_USERS
+
+EMAIL_BACKEND = env("EMAIL_BACKEND")
+EMAIL_HOST = env("EMAIL_HOST")
+EMAIL_PORT = env.int("EMAIL_PORT")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS")
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL")
+EMAIL_HOST_USER = env("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
+EARLY_ACCESS_NOTIFICATION_EMAIL = env("EARLY_ACCESS_NOTIFICATION_EMAIL")
+BILLING_ENABLED = env.bool("BILLING_ENABLED", default=not SELF_HOSTED)
+DEFAULT_WORKSPACE_PLAN = env(
+    "DEFAULT_WORKSPACE_PLAN",
+    default="self_hosted" if SELF_HOSTED else "trial",
+)
+WORKSPACE_QUOTAS_ENABLED = env.bool(
+    "WORKSPACE_QUOTAS_ENABLED",
+    default=not SELF_HOSTED,
+)
+
+_DEFAULT_WORKSPACE_PLAN_LIMITS: dict[str, dict[str, int | None]] = {
+    "trial": {
+        "requests_per_month": 50,
+        "sandbox_sessions_per_month": 20,
+        "sandbox_concurrent": 1,
+    },
+    "pro": {
+        "requests_per_month": 500,
+        "sandbox_sessions_per_month": 200,
+        "sandbox_concurrent": 3,
+    },
+    "enterprise": {
+        "requests_per_month": 2000,
+        "sandbox_sessions_per_month": 1000,
+        "sandbox_concurrent": 10,
+    },
+    "self_hosted": {
+        "requests_per_month": None,
+        "sandbox_sessions_per_month": None,
+        "sandbox_concurrent": None,
+    },
+}
+_WORKSPACE_PLAN_LIMITS_RAW = env("WORKSPACE_QUOTAS", default="").strip()
+if _WORKSPACE_PLAN_LIMITS_RAW:
+    try:
+        _WORKSPACE_PLAN_LIMITS_OVERRIDE = json.loads(_WORKSPACE_PLAN_LIMITS_RAW)
+    except json.JSONDecodeError as exc:  # pragma: no cover - invalid operator input
+        raise ImproperlyConfigured("WORKSPACE_QUOTAS must be valid JSON") from exc
+else:
+    _WORKSPACE_PLAN_LIMITS_OVERRIDE = {}
+
+
+def _merge_plan_limits(
+    defaults: dict[str, dict[str, int | None]],
+    overrides: dict[str, dict[str, object]],
+) -> dict[str, dict[str, int | None]]:
+    merged: dict[str, dict[str, int | None]] = {
+        key: dict(value) for key, value in defaults.items()
+    }
+    for plan, values in overrides.items():
+        if not isinstance(values, dict):
+            continue
+        plan_key = str(plan)
+        plan_limits = merged.setdefault(plan_key, {})
+        for limit_key, limit_value in values.items():
+            plan_limits[limit_key] = limit_value  # type: ignore[assignment]
+    return merged
+
+
+WORKSPACE_PLAN_LIMITS = _merge_plan_limits(
+    _DEFAULT_WORKSPACE_PLAN_LIMITS, _WORKSPACE_PLAN_LIMITS_OVERRIDE
+)
+
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        "EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be enabled."
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -58,13 +158,18 @@ INSTALLED_APPS = [
     "astraforge.integrations",
     "astraforge.requests",
     "astraforge.interfaces.rest",
+    "astraforge.sandbox",
+    "astraforge.quotas",
+    "astraforge.computer_use",
 ]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "astraforge.interfaces.api.middleware.ApiKeyCsrfBypassMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -116,7 +221,10 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/assets/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [FRONTEND_DIST / "assets"]
+STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
@@ -183,7 +291,16 @@ CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
 CELERY_TASK_EAGER_PROPAGATES = env.bool("CELERY_TASK_EAGER_PROPAGATES", default=True)
 CELERY_TASK_DEFAULT_QUEUE = "astraforge.default"
 CELERY_TASK_ROUTES = {
+    "astraforge.application.tasks.computer_use_run_task": {"queue": "astraforge.computer_use"},
+    "astraforge.application.tasks.computer_use_ack_task": {"queue": "astraforge.computer_use"},
     "astraforge.application.tasks.*": {"queue": "astraforge.core"},
+}
+SANDBOX_REAP_INTERVAL_SEC = env.int("SANDBOX_REAP_INTERVAL_SEC", default=60)
+CELERY_BEAT_SCHEDULE = {
+    "reap-sandbox-sessions": {
+        "task": "astraforge.sandbox.tasks.reap_sandboxes",
+        "schedule": SANDBOX_REAP_INTERVAL_SEC,
+    },
 }
 
 PROVIDER_FACTORIES = {
@@ -239,5 +356,6 @@ OTEL_EXPORTER_OTLP_ENDPOINT = env("OTEL_EXPORTER_OTLP_ENDPOINT")
 EXECUTOR_PROVIDER = env("EXECUTOR")
 CONNECTOR_PROVIDER = env("CONNECTOR")
 VCS_PROVIDER = env("VCS_PROVIDER")
-PROVISIONER_PROVIDER = env("PROVISIONER")
+PROVISIONER = env("PROVISIONER")
+PROVISIONER_PROVIDER = PROVISIONER
 RUN_LOG_STREAMER = env("RUN_LOG_STREAMER")

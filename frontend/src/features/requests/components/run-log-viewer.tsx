@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/cn";
-import type { RunLogEvent } from "@/features/requests/hooks/use-run-log-stream";
+import type { RunLogEvent } from "@/lib/api-client";
 
 interface RunLogViewerProps {
   events: RunLogEvent[];
   className?: string;
+  fillHeight?: boolean;
 }
 
 const stageLabels: Record<string, string> = {
@@ -18,6 +19,7 @@ const stageLabels: Record<string, string> = {
   execution: "Execution",
   mr: "Merge Request",
   provisioning: "Provisioning",
+  git: "Git",
 };
 
 function formatStage(stage?: string | null) {
@@ -87,7 +89,7 @@ function formatEvent(event: RunLogEvent): Array<{ line: string; tone: ReturnType
   return entries.filter((entry) => Boolean(entry.line?.trim()));
 }
 
-export function RunLogViewer({ events, className }: RunLogViewerProps) {
+export function RunLogViewer({ events, className, fillHeight = false }: RunLogViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lines = useMemo(() => events.flatMap(formatEvent), [events]);
 
@@ -100,7 +102,8 @@ export function RunLogViewer({ events, className }: RunLogViewerProps) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg",
+        "flex flex-col flex-1 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg",
+        fillHeight && "min-h-0 h-full",
         className
       )}
     >
@@ -112,7 +115,10 @@ export function RunLogViewer({ events, className }: RunLogViewerProps) {
       </div>
       <div
         ref={containerRef}
-        className="h-72 overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100"
+        className={cn(
+          "flex-1 overflow-y-auto bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed tracking-tight text-emerald-100",
+          fillHeight ? "min-h-0 h-full" : "max-h-72"
+        )}
       >
         {lines.length === 0 ? (
           <p className="text-emerald-500/70">Connecting to Codex run stream…</p>

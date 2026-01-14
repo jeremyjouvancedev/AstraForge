@@ -4,7 +4,12 @@ from astraforge.domain.models.request import Request, RequestPayload, RequestSta
 def test_request_state_transitions():
     payload = RequestPayload(title="Test", description="", context={})
     request = Request(
-        id="1", tenant_id="tenant", source="direct_user", sender="", payload=payload
+        id="1",
+        user_id="user-1",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="",
+        payload=payload,
     )
 
     request.transition(RequestState.SPEC_READY)
@@ -17,7 +22,12 @@ def test_request_state_transitions():
 def test_request_invalid_transition_raises():
     payload = RequestPayload(title="Test", description="", context={})
     request = Request(
-        id="1", tenant_id="tenant", source="direct_user", sender="", payload=payload
+        id="1",
+        user_id="user-1",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="",
+        payload=payload,
     )
 
     try:
@@ -31,7 +41,12 @@ def test_request_invalid_transition_raises():
 def test_request_transition_allows_reexecution_from_patch_ready():
     payload = RequestPayload(title="Test", description="", context={})
     request = Request(
-        id="1", tenant_id="tenant", source="direct_user", sender="", payload=payload
+        id="1",
+        user_id="user-1",
+        tenant_id="tenant",
+        source="direct_user",
+        sender="",
+        payload=payload,
     )
 
     request.transition(RequestState.SPEC_READY)

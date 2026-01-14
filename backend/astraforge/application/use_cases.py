@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
 import subprocess
+import uuid
 from typing import TYPE_CHECKING, Any, Protocol
 
 from astraforge.domain.models.request import ExecutionPlan, Request, RequestState
-from astraforge.domain.models.spec import DevelopmentSpec
 from astraforge.domain.models.workspace import ExecutionOutcome, WorkspaceContext
 
 if TYPE_CHECKING:
@@ -16,7 +18,6 @@ if TYPE_CHECKING:
         MergeRequestComposer,
         Provisioner,
         RunLogStreamer,
-        SpecGenerator,
         VCSProvider,
         WorkspaceOperator,
     )
@@ -28,7 +29,10 @@ class RequestRepository(Protocol):
     def save(self, request: Request) -> None:  # pragma: no cover
         ...
 
-    def get(self, request_id: str) -> Request:  # pragma: no cover
+    def get(self, request_id: str, *, user_id: str | None = None) -> Request:  # pragma: no cover
+        ...
+
+    def list(self, *, user_id: str | None = None) -> list[Request]:  # pragma: no cover
         ...
 
 
@@ -43,52 +47,6 @@ class SubmitRequest:
 
 
 @dataclass
-class ProcessRequest:
-    repository: RequestRepository
-    spec_generator: "SpecGenerator"
-    run_log: "RunLogStreamer"
-
-    def __call__(self, request_id: str) -> DevelopmentSpec:
-        request = self.repository.get(request_id)
-        self._emit(
-            request,
-            {"type": "status", "stage": "spec", "message": "Generating development spec"},
-        )
-        try:
-            spec = self.spec_generator.generate(request)
-        except Exception as exc:
-            request.transition(RequestState.FAILED)
-            self.repository.save(request)
-            self._emit(
-                request,
-                {
-                    "type": "error",
-                    "stage": "failed",
-                    "message": str(exc),
-                },
-            )
-            raise
-
-        spec_dict = spec.as_dict()
-        request.metadata["spec"] = spec_dict
-        request.transition(RequestState.SPEC_READY)
-        self.repository.save(request)
-        self._emit(
-            request,
-            {
-                "type": "spec_ready",
-                "message": "Specification generated",
-                "spec": spec_dict,
-            },
-        )
-        return spec
-
-    def _emit(self, request: Request, event: dict[str, object]) -> None:
-        payload = {"request_id": request.id, **event}
-        self.run_log.publish(request.id, payload)
-
-
-@dataclass
 class ExecuteRequest:
     repository: RequestRepository
     workspace_operator: "WorkspaceOperator"
@@ -97,25 +55,52 @@ class ExecuteRequest:
     def __call__(
         self,
         request_id: str,
-        *,
-        spec_override: dict[str, Any] | None = None,
     ) -> ExecutionOutcome:
         request = self.repository.get(request_id)
-        current_spec = spec_override or request.metadata.get("spec")
-        if current_spec is None:
-            spec = self._default_spec_from_request(request)
-        else:
-            spec = self._hydrate_spec(current_spec)
-        request.metadata["spec"] = spec.as_dict()
+
+        def _timestamp() -> str:
+            return datetime.now(timezone.utc).isoformat()
+
+        run_record: dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "request_id": request.id,
+            "status": "running",
+            "started_at": _timestamp(),
+            "finished_at": None,
+            "events": [],
+            "diff": None,
+            "reports": {},
+            "artifacts": {},
+        }
+        existing_runs = list(request.metadata.get("runs", []))
+        existing_runs.append(run_record)
+        request.metadata["runs"] = existing_runs
+
+        def publish(event: dict[str, Any]) -> None:
+            created = event.get("created_at")
+            timestamp = (
+                created
+                if isinstance(created, str) and created
+                else datetime.now(timezone.utc).isoformat()
+            )
+            event_payload = dict(event)
+            event_payload["created_at"] = timestamp
+            payload: dict[str, Any] = {
+                "request_id": request.id,
+                "run_id": run_record["id"],
+                **event_payload,
+            }
+            run_record["events"].append(payload)
+            self.run_log.publish(request.id, payload)
+
         self.repository.save(request)
 
-        self._emit(
-            request,
+        publish(
             {
                 "type": "status",
                 "stage": "provisioning",
                 "message": "Provisioning workspace",
-            },
+            }
         )
         request.transition(RequestState.EXECUTING)
         self.repository.save(request)
@@ -124,25 +109,46 @@ class ExecuteRequest:
         try:
             workspace = self.workspace_operator.prepare(
                 request,
-                spec,
-                stream=lambda event: self._emit(request, event),
+                stream=publish,
             )
             request.metadata["workspace"] = workspace.as_dict()
             self.repository.save(request)
 
-            outcome = self.workspace_operator.run_codex(
+            outcome = self.workspace_operator.run_agent(
                 request,
-                spec,
                 workspace,
-                stream=lambda event: self._emit(request, event),
+                stream=publish,
             )
+            history_content = outcome.artifacts.get("history")
+            if history_content:
+                request.metadata["history_jsonl"] = history_content
+            final_message = outcome.artifacts.get("final_message")
+            if not isinstance(final_message, str):
+                derived = self._extract_assistant_message_from_history(history_content)
+                if derived:
+                    final_message = derived
+                    outcome.artifacts["final_message"] = derived
+            if isinstance(final_message, str):
+                publish(
+                    {
+                        "type": "assistant_message",
+                        "stage": "chat",
+                        "message": final_message,
+                    }
+                )
+                self._record_assistant_message(request, final_message, _timestamp())
             request.metadata["execution"] = outcome.as_dict()
+            commit_hash = outcome.artifacts.get("commit")
+            if commit_hash:
+                request.metadata["last_commit"] = commit_hash
             request.transition(RequestState.PATCH_READY)
+            run_record["status"] = "completed"
+            run_record["finished_at"] = _timestamp()
+            run_record["diff"] = outcome.diff
+            run_record["reports"] = outcome.reports
+            run_record["artifacts"] = outcome.artifacts
             self.repository.save(request)
-            self._emit(
-                request,
-                {"type": "completed", "message": "Execution finished"},
-            )
+            publish({"type": "completed", "message": "Execution finished"})
             return outcome
         except subprocess.CalledProcessError as exc:
             request.metadata.setdefault("execution_errors", []).append(
@@ -153,59 +159,41 @@ class ExecuteRequest:
                 }
             )
             request.transition(RequestState.FAILED)
+            run_record["status"] = "failed"
+            run_record["finished_at"] = _timestamp()
             self.repository.save(request)
             message = exc.output.strip() if isinstance(exc.output, str) else str(exc)
-            self._emit(
-                request,
+            run_record["error"] = message or "Command execution failed"
+            publish(
                 {
                     "type": "error",
                     "stage": "failed",
                     "message": message or "Command execution failed",
-                },
+                }
             )
             raise RuntimeError(message or "Command execution failed") from exc
         except Exception as exc:
             request.transition(RequestState.FAILED)
+            run_record["status"] = "failed"
+            run_record["finished_at"] = _timestamp()
+            run_record["error"] = str(exc)
             self.repository.save(request)
-            self._emit(
-                request,
+            publish(
                 {
                     "type": "error",
                     "stage": "failed",
                     "message": str(exc),
-                },
+                }
             )
             raise
         finally:
             if workspace is not None:
                 self.workspace_operator.teardown(workspace)
+            self.repository.save(request)
 
     def _emit(self, request: Request, event: dict[str, object]) -> None:
         payload = {"request_id": request.id, **event}
         self.run_log.publish(request.id, payload)
-
-    def _hydrate_spec(self, data: dict[str, Any]) -> DevelopmentSpec:
-        return DevelopmentSpec(
-            title=str(data.get("title", "")),
-            summary=str(data.get("summary", "")),
-            requirements=list(data.get("requirements", []) or []),
-            implementation_steps=list(data.get("implementation_steps", []) or []),
-            risks=list(data.get("risks", []) or []),
-            acceptance_criteria=list(data.get("acceptance_criteria", []) or []),
-        )
-
-    def _default_spec_from_request(self, request: Request) -> DevelopmentSpec:
-        prompt = request.payload.description or ""
-        title = request.payload.title or self._fallback_title(prompt)
-        summary = prompt or title
-        implementation_steps: list[str] = []
-        if prompt:
-            implementation_steps.append(prompt)
-        return DevelopmentSpec(
-            title=title or "User request",
-            summary=summary or "User request",
-            implementation_steps=implementation_steps,
-        )
 
     @staticmethod
     def _fallback_title(prompt: str) -> str:
@@ -216,6 +204,73 @@ class ExecuteRequest:
         candidate = first_line if first_line else clean
         limit = 72
         return candidate if len(candidate) <= limit else f"{candidate[: limit - 3]}..."
+
+    def _record_assistant_message(self, request: Request, content: str, created_at: str) -> None:
+        message_text = content.strip()
+        if not message_text:
+            return
+        existing = request.metadata.get("chat_messages")
+        messages: list[dict[str, object]] = existing if isinstance(existing, list) else []
+        messages = list(messages)
+        for entry in messages:
+            if (
+                isinstance(entry, dict)
+                and str(entry.get("role", "")).lower() == "assistant"
+                and str(entry.get("message", "")).strip() == message_text
+            ):
+                return
+        messages.append(
+            {
+                "role": "assistant",
+                "message": message_text,
+                "created_at": created_at,
+            }
+        )
+        request.metadata["chat_messages"] = messages
+
+    def _extract_assistant_message_from_history(self, history_content: object) -> str | None:
+        if not isinstance(history_content, str):
+            return None
+        lines = [line.strip() for line in history_content.splitlines() if line.strip()]
+        for raw in reversed(lines):
+            role = "assistant"
+            content: str | None = None
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                content = raw
+            else:
+                role = str(
+                    record.get("role")
+                    or record.get("author")
+                    or record.get("type")
+                    or "assistant"
+                ).lower()
+                content = self._normalize_history_content(record.get("content"))
+                if not content:
+                    content = self._normalize_history_content(record.get("message"))
+            if not content:
+                continue
+            if role in {"assistant", "ai", "model", "codex"}:
+                normalized = content.strip()
+                if normalized:
+                    return normalized
+        return None
+
+    @staticmethod
+    def _normalize_history_content(value: object) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            if parts:
+                return "\n".join(parts)
+        return None
 
 
 @dataclass
@@ -240,9 +295,11 @@ class SubmitMergeRequest:
         repository_slug = project.get("repository")
         if not repository_slug:
             raise ValueError("Request metadata is missing repository information")
+        source_branch = proposal.source_branch or f"astraforge/{request.id}"
         mr_ref = self.vcs.open_mr(
             repo=repository_slug,
-            branch=proposal.target_branch,
+            source_branch=source_branch,
+            target_branch=proposal.target_branch,
             title=proposal.title,
             body=proposal.description,
             artifacts=[outcome.diff],
@@ -363,7 +420,8 @@ class ApplyPlan:
             self.repository.save(request)
             mr_ref = self.vcs.open_mr(
                 repo=repo,
-                branch=branch,
+                source_branch=branch,
+                target_branch=branch,
                 title=request.payload.title,
                 body=request.payload.description,
                 artifacts=[change_set.diff_uri],

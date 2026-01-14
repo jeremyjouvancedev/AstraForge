@@ -14,6 +14,11 @@ class RepositoryLink(models.Model):
     DEFAULT_GITLAB_URL = "https://gitlab.com"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "accounts.Workspace",
+        on_delete=models.CASCADE,
+        related_name="workspace_repository_links",
+    )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -29,12 +34,8 @@ class RepositoryLink(models.Model):
     class Meta:
         verbose_name = "Repository Link"
         verbose_name_plural = "Repository Links"
-        unique_together = ("user", "provider", "repository")
+        unique_together = ("workspace", "provider", "repository")
         ordering = ["created_at"]
-
-    def token_preview(self) -> str:
-        suffix = self.access_token[-4:] if self.access_token else ""
-        return f"***{suffix}" if suffix else ""
 
     def effective_base_url(self) -> str | None:
         if self.provider == self.Provider.GITLAB:

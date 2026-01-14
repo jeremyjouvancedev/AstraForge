@@ -1,0 +1,63 @@
+# Sandbox Python client
+
+Use the published `astraforge-toolkit` package to drive the sandbox API directly from Python. This page shows how to create a sandbox session, push files into it, and retrieve artifacts.
+
+## Prerequisites
+
+- Python 3.11+
+- API base URL (local default: `http://localhost:8001/api`)
+- API key with access to `/api/sandbox/...`
+
+Install the toolkit:
+
+```bash
+pip install astraforge-toolkit
+```
+
+## Create a sandbox session and write files
+
+```python
+import os
+from astraforge_toolkit import DeepAgentClient
+
+BASE_URL = os.getenv("ASTRA_FORGE_API_URL", "http://localhost:8001/api")
+API_KEY = os.getenv("ASTRA_FORGE_API_KEY", "dev-api-key")
+
+client = DeepAgentClient(base_url=BASE_URL, api_key=API_KEY)
+
+# Provision a new sandbox (reuses the same API used by the UI)
+session = client.create_sandbox_session()
+print(f"Sandbox ready: {session.session_id} at {session.workspace_path}")
+
+# Upload a file into the sandbox workspace
+client.upload_file(session.session_id, "/workspace/hello.txt", content="hello from python\n")
+
+# Read it back as text
+text = client.get_file_content(session.session_id, "/workspace/hello.txt", encoding="utf-8")
+print(text)
+```
+
+## Export a file as an artifact
+
+When you need a download URL for a file inside the sandbox, export it:
+
+```python
+artifact = client.export_file(
+    session.session_id,
+    "/workspace/hello.txt",
+    filename="hello.txt",
+    content_type="text/plain",
+)
+
+print("Artifact:", artifact.filename, artifact.download_url)
+```
+
+Artifacts are stored according to your server configuration (local disk or S3/MinIO). The response includes the artifact ID and a download URL when available.
+
+## Manage sandbox lifecycle
+
+- List sessions: `client.list_sandbox_sessions()`
+- Refresh a heartbeat to keep the session alive: `client.heartbeat_sandbox_session(session.session_id)`
+- Stop or delete when you are done: `client.stop_sandbox_session(session.session_id)` or `client.delete_sandbox_session(session.session_id)`
+
+For DeepAgent-powered runs that should execute in the same sandbox, pass the `sandbox_session_id` into your agent configuration or reuse the client above to create conversations and stream messages.

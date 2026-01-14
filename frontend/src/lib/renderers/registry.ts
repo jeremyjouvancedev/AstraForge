@@ -1,18 +1,16 @@
-import { DiffPreview } from "@/components/diff-preview";
-import { SpecViewer } from "@/components/spec-viewer";
-import { TestReport } from "@/components/test-report";
+import { DiffPreview, type DiffPreviewProps } from "@/components/diff-preview";
+import { SpecViewer, type SpecViewerProps } from "@/components/spec-viewer";
+import { TestReport, type TestReportProps } from "@/components/test-report";
 import type { ComponentType } from "react";
 
-type RendererComponent = ComponentType<unknown>;
-
 class RendererRegistry {
-  private readonly items = new Map<string, RendererComponent>();
+  private readonly items = new Map<string, ComponentType<unknown>>();
 
-  register(id: string, component: RendererComponent) {
+  register<TProps>(id: string, component: ComponentType<TProps>) {
     if (this.items.has(id)) {
       throw new Error(`Renderer ${id} already registered`);
     }
-    this.items.set(id, component);
+    this.items.set(id, component as ComponentType<unknown>);
   }
 
   resolve<TProps = unknown>(id: string) {
@@ -22,6 +20,6 @@ class RendererRegistry {
 
 export const rendererRegistry = new RendererRegistry();
 
-rendererRegistry.register("diff", DiffPreview);
-rendererRegistry.register("spec", SpecViewer);
-rendererRegistry.register("test-report", TestReport);
+rendererRegistry.register<DiffPreviewProps>("diff", DiffPreview);
+rendererRegistry.register<SpecViewerProps>("spec", SpecViewer);
+rendererRegistry.register<TestReportProps>("test-report", TestReport);

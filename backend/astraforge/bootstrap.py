@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from astraforge.infrastructure.ai import mr_author, spec_generator
+from astraforge.infrastructure.ai import mr_author
 from astraforge.infrastructure.connectors import base as connector_base
 from astraforge.infrastructure.connectors import email, glitchtip, jira, teams
 from astraforge.infrastructure.event_bus import memory as memory_stream, redis_streams
@@ -30,24 +30,12 @@ container.connectors.register("jira", jira.from_env)
 container.connectors.register("email", email.from_env)
 container.connectors.register("teams", teams.from_env)
 container.connectors.register("glitchtip", glitchtip.from_env)
-container.spec_generators.register("proxy", spec_generator.from_env)
 container.merge_request_composers.register("proxy", mr_author.from_env)
-
-
-def _resolve_provisioner_key() -> str:
-    try:  # pragma: no cover - settings access optional during tests
-        from django.conf import settings
-
-        return getattr(settings, "PROVISIONER", "docker")
-    except Exception:
-        return "docker"
 
 
 container.workspace_operators.register(
     "codex",
-    lambda: codex_workspace.from_env(
-        container.provisioners.resolve(_resolve_provisioner_key())
-    ),
+    lambda: codex_workspace.from_env(container.resolve_provisioner()),
 )
 
 

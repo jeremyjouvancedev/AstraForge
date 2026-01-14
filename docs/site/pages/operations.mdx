@@ -1,0 +1,46 @@
+# Operations & testing
+
+Checklist for keeping AstraForge healthy in development and production.
+
+## Health checks
+
+- Backend API: `GET /api/healthz`
+- LLM proxy: `GET /health`
+- Frontend: load `/` or `http://localhost:5174` (dev) and verify API proxying.
+
+## Testing and quality
+
+- Lint: `make lint` (Ruff + ESLint)
+- Format: `make format` (Ruff formatter + ESLint `--fix`)
+- Unit/integration tests: `make test` (pytest + `pnpm test -- --run`)
+- Containerized tests: `make compose-test` (spins up Postgres/Redis, waits for readiness, runs backend/frontend tests, tears down)
+- Secrets scan: `gitleaks detect --config gitleaks.toml`
+- OpenAPI schema: `make generate-openapi` after API changes
+
+## Logs and observability
+
+- Compose: `docker compose logs -f backend backend-worker llm-proxy`
+- Kubernetes: use your cluster log aggregation (kubectl logs, fluentbit/ELK, etc.).
+- Sandbox reaper: watch worker logs for `reap-sandbox-sessions` to confirm idle/lifetime enforcement.
+- Run logs: stored in Redis (default) and streamed via SSE to the frontend.
+
+## Data lifecycle
+
+- Snapshots: automatic before stop/delete/reaper; stored on disk or S3/MinIO. Restore on next session when `latest_snapshot_id` is present.
+- Artifacts: exported via `/files/export`; download URLs minted when `SANDBOX_ARTIFACT_BASE_URL` is set.
+- Datastore backups: schedule Postgres backups; persist Redis if you rely on run logs across restarts.
+
+## Upgrade checklist
+
+- Pull/publish updated backend, worker, frontend, proxy, workspace, and sandbox images.
+- Run `docker compose run --rm backend-migrate` (or equivalent in Kubernetes) after schema changes.
+- Regenerate OpenAPI (`make generate-openapi`) and align frontend clients if API contracts changed.
+- Keep `docs/architecture.md` mermaid diagram up to date when components or flows change.
+- Verify sandbox parity between `backend/astraforge/sandbox/deepagent_backend.py` and `astraforge-python-package/astraforge_toolkit/backend.py` before releasing.
+
+## Troubleshooting quick hits
+
+- Sandbox exec/upload fails: confirm Docker/Kubernetes access from backend/worker and that `ASTRAFORGE_EXECUTE_COMMANDS=1` is set.
+- Seccomp errors on Docker: set `SANDBOX_DOCKER_SECCOMP=` (empty) or provide a valid profile path.
+- Port conflicts: adjust `ports` in Compose or ingress mappings.
+- Long startup: ensure images are pre-pulled when `CODEX_CLI_SKIP_PULL=1`.

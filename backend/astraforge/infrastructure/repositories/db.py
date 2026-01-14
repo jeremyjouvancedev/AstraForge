@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from typing import Dict, List
 
@@ -7,6 +8,14 @@ from django.apps import apps
 
 from astraforge.application.use_cases import RequestRepository
 from astraforge.domain.models.request import Attachment, Request, RequestPayload, RequestState
+
+
+logger = logging.getLogger(__name__)
+
+_LEGACY_STATE_ALIASES = {
+    "pending": RequestState.RECEIVED,
+    "": RequestState.RECEIVED,
+}
 
 
 class DjangoRequestRepository(RequestRepository):
@@ -17,7 +26,16 @@ class DjangoRequestRepository(RequestRepository):
 
     def save(self, request: Request) -> None:
         payload = self._serialize_payload(request.payload)
+        existing = self.model.objects.filter(id=request.id).first()
+        if (
+            existing
+            and existing.user_id
+            and request.user_id
+            and str(existing.user_id) != str(request.user_id)
+        ):
+            raise PermissionError("Request already exists for a different user.")
         defaults: Dict[str, object] = {
+            "user_id": request.user_id or None,
             "tenant_id": request.tenant_id,
             "source": request.source,
             "sender": request.sender,
@@ -34,15 +52,21 @@ class DjangoRequestRepository(RequestRepository):
         request.created_at = record.created_at
         request.updated_at = record.updated_at
 
-    def get(self, request_id: str) -> Request:
+    def get(self, request_id: str, *, user_id: str | None = None) -> Request:
         try:
-            record = self.model.objects.get(id=request_id)
+            query = self.model.objects
+            if user_id is not None:
+                query = query.filter(user_id=user_id)
+            record = query.get(id=request_id)
         except self.model.DoesNotExist as exc:
             raise KeyError(request_id) from exc
         return self._to_domain(record)
 
-    def list(self) -> List[Request]:
-        return [self._to_domain(record) for record in self.model.objects.order_by("-created_at")]
+    def list(self, *, user_id: str | None = None) -> List[Request]:
+        query = self.model.objects
+        if user_id is not None:
+            query = query.filter(user_id=user_id)
+        return [self._to_domain(record) for record in query.order_by("-created_at")]
 
     # helpers -----------------------------------------------------------
 
@@ -70,14 +94,41 @@ class DjangoRequestRepository(RequestRepository):
         payload = self._deserialize_payload(record.payload)
         request = Request(
             id=str(record.id),
+            user_id=str(record.user_id) if record.user_id else "",
             tenant_id=record.tenant_id,
             source=record.source,
             sender=record.sender,
             payload=payload,
-            state=RequestState(record.state),
+            state=self._coerce_state(record.state),
             created_at=record.created_at,
             updated_at=record.updated_at,
             artifacts=record.artifacts or {},
             metadata=record.metadata or {},
         )
         return request
+
+    def _coerce_state(self, raw_state) -> RequestState:
+        """Gracefully handle legacy string values persisted before enum usage."""
+        if isinstance(raw_state, RequestState):
+            return raw_state
+        if raw_state is None:
+            return RequestState.RECEIVED
+        value = str(raw_state).strip()
+        if not value:
+            return RequestState.RECEIVED
+        try:
+            return RequestState(value)
+        except ValueError:
+            normalized = value.upper()
+            try:
+                return RequestState(normalized)
+            except ValueError:
+                alias = _LEGACY_STATE_ALIASES.get(value.lower())
+                if alias:
+                    return alias
+                logger.warning(
+                    "Unknown request state %s; defaulting to %s",
+                    value,
+                    RequestState.RECEIVED.value,
+                )
+                return RequestState.RECEIVED

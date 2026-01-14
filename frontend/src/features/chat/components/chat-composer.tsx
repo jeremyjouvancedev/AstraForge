@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { ArrowUp, Mic, Plus } from "lucide-react";
+
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/cn";
 
 interface ChatComposerProps {
   onSend: (message: string) => void;
@@ -9,12 +11,23 @@ interface ChatComposerProps {
   value?: string;
   onChange?: (value: string) => void;
   placeholder?: string;
+  showContextButton?: boolean;
+  showMicrophoneButton?: boolean;
 }
 
-export function ChatComposer({ onSend, disabled, value, onChange, placeholder }: ChatComposerProps) {
+export function ChatComposer({
+  onSend,
+  disabled,
+  value,
+  onChange,
+  placeholder,
+  showContextButton = true,
+  showMicrophoneButton = true,
+}: ChatComposerProps) {
   const [uncontrolledValue, setUncontrolledValue] = useState("");
   const isControlled = typeof value === "string" && typeof onChange === "function";
   const message = isControlled ? value : uncontrolledValue;
+  const trimmedMessage = useMemo(() => message.trim(), [message]);
 
   const updateMessage = (next: string) => {
     if (isControlled && onChange) {
@@ -26,25 +39,54 @@ export function ChatComposer({ onSend, disabled, value, onChange, placeholder }:
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!message.trim()) return;
-    onSend(message);
+    if (!trimmedMessage) return;
+    onSend(trimmedMessage);
     updateMessage("");
   };
 
+  const inactiveIcon = trimmedMessage.length === 0;
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-2">
+    <form
+      onSubmit={handleSubmit}
+      className="flex w-full items-center gap-3 rounded-full border border-border/50 bg-background px-4 py-2 text-sm shadow-sm"
+    >
+      {showContextButton && (
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition hover:text-foreground"
+          title="Add context"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      )}
       <Textarea
-        rows={4}
+        rows={1}
         value={message}
         onChange={(event) => updateMessage(event.target.value)}
-        placeholder={placeholder ?? "Ask questions, refine the spec, or provide approvals."}
+        placeholder={placeholder ?? "Request changes or ask a question..."}
         disabled={disabled}
+        className="max-h-28 min-h-0 flex-1 resize-none border-none bg-transparent px-0 py-0 text-sm shadow-none focus-visible:ring-0"
       />
-      <div className="flex justify-end gap-2">
-        <Button type="submit" disabled={disabled || message.length === 0}>
-          Send
-        </Button>
-      </div>
+      {showMicrophoneButton && (
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+          title="Mic"
+        >
+          <Mic className="h-4 w-4" />
+        </button>
+      )}
+      <button
+        type="submit"
+        disabled={disabled || inactiveIcon}
+        className={cn(
+          "flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition disabled:cursor-not-allowed disabled:opacity-60",
+          !inactiveIcon && "bg-primary text-primary-foreground"
+        )}
+      >
+        <ArrowUp className="h-4 w-4" />
+      </button>
     </form>
   );
 }

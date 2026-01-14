@@ -8,14 +8,17 @@ import { deleteRepositoryLink, RepositoryLink } from "@/lib/api-client";
 interface RepositoryLinkListProps {
   links?: RepositoryLink[];
   isLoading: boolean;
+  workspaceUid?: string;
 }
 
-export function RepositoryLinkList({ links, isLoading }: RepositoryLinkListProps) {
+export function RepositoryLinkList({ links, isLoading, workspaceUid }: RepositoryLinkListProps) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: deleteRepositoryLink,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["repository-links"] });
+      queryClient.invalidateQueries({
+        queryKey: ["repository-links", workspaceUid || "none"]
+      });
     }
   });
 
@@ -24,9 +27,9 @@ export function RepositoryLinkList({ links, isLoading }: RepositoryLinkListProps
   };
 
   return (
-    <Card>
+    <Card className="home-card home-ring-soft border-white/10 bg-black/30 text-zinc-100 shadow-lg shadow-indigo-500/15 backdrop-blur">
       <CardHeader>
-        <CardTitle>Linked repositories</CardTitle>
+        <CardTitle className="text-lg font-semibold text-white">Linked repositories</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -36,7 +39,7 @@ export function RepositoryLinkList({ links, isLoading }: RepositoryLinkListProps
             ))}
           </div>
         ) : !links || links.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-zinc-300">
             No repositories linked yet. Add one above to enable automated merge requests.
           </p>
         ) : (
@@ -44,21 +47,22 @@ export function RepositoryLinkList({ links, isLoading }: RepositoryLinkListProps
             {links.map((link) => (
               <li
                 key={link.id}
-                className="flex flex-col gap-2 rounded border px-4 py-3 text-sm md:flex-row md:items-center md:justify-between"
+                className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-100 md:flex-row md:items-center md:justify-between"
               >
                 <div>
-                  <div className="font-medium">
+                  <div className="font-medium text-white">
                     {link.provider === "gitlab" ? "GitLab" : "GitHub"} • {link.repository}
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    Base URL: {link.base_url ? link.base_url : "default"} • Token: {link.token_preview}
+                  <div className="text-xs text-zinc-400">
+                    Base URL: {link.base_url ? link.base_url : "default"}
                   </div>
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="text-rose-200 hover:bg-rose-500/10 hover:text-white"
                   onClick={() => handleDelete(link.id)}
-                  disabled={mutation.isLoading && mutation.variables === link.id}
+                  disabled={mutation.isPending && mutation.variables === link.id}
                 >
                   Remove
                 </Button>

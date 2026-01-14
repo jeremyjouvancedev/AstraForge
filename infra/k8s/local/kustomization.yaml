@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: astraforge-local
+resources:
+  - namespace.yaml
+  - rbac-workspace-operator.yaml
+  - configmap-backend-env.yaml
+  - postgres.yaml
+  - redis.yaml
+  - llm-proxy.yaml
+  - backend.yaml
+  - backend-worker.yaml
+  - workspace-networkpolicy.yaml

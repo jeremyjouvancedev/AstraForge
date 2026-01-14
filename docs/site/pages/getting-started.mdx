@@ -1,0 +1,44 @@
+# Getting started
+
+Follow these steps to run AstraForge locally using Docker Compose.
+
+## Prerequisites
+
+- Docker Engine and Docker Compose plugin (`v2.20+` recommended)
+- An OpenAI-compatible API key or a local Ollama daemon for the LLM proxy
+
+## Configure environment
+
+Copy `.env.example` to `.env` and adjust secrets, database URLs, and sandbox options to match your local setup.
+
+## Run with Docker Compose
+
+1. **Build images:**
+
+   ```bash
+   make workspace-images
+   ```
+
+2. **Start the stack:**
+
+   ```bash
+   docker compose up
+   ```
+
+The services will be available at:
+
+- **Frontend:** `http://localhost:5174`
+- **API:** `http://localhost:8001/api`
+- **Documentation:** `http://localhost:3000`
+
+For more details on managing the stack, see the [Docker Compose Runbook](/docker-compose).
+
+## Tests
+
+For containerized isolation, use the compose workflow:
+
+```bash
+make compose-test
+```
+
+This spins up Postgres/Redis, waits for readiness, runs the tests in containers, and tears everything down afterward.

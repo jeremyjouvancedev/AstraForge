@@ -1,4 +1,4 @@
-interface SpecViewerProps {
+export interface SpecViewerProps {
   spec?: string;
 }
 

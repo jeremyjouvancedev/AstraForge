@@ -1,0 +1,16 @@
+node_modules
+dist
+.pnpm-store
+.turbo
+.git
+.gitignore
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+pnpm-debug.log
+*.tsbuildinfo
+coverage
+tests
+tmp
+.vscode
+.idea
