@@ -119,6 +119,11 @@ def run_astra_control_session(self, task_data: dict):
             async for event in app.astream(current_input, config=config):
                 for node_name, node_output in event.items():
                     logger.info(f"DEBUG: [Node: {node_name}] Processing event for session {session_id}")
+                    
+                    if not isinstance(node_output, dict):
+                        logger.info(f"DEBUG: Node {node_name} output is not a dict, skipping processing: {type(node_output)}")
+                        continue
+
                     if node_name == "wait_for_user":
                         is_waiting = True
                     
