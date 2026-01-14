@@ -222,6 +222,12 @@ class SandboxOrchestrator:
                 self._increment_session_storage(session, size_bytes)
             try:
                 self._upload_snapshot_to_s3(session, snapshot, archive_path)
+                # Cleanup archive INSIDE the sandbox after successful upload
+                try:
+                    self.execute(session, f"rm -f {shlex.quote(archive_path)}")
+                    logger.info(f"Cleaned up remote archive {archive_path} inside sandbox")
+                except:
+                    pass
             except SandboxProvisionError as exc:
                 self._log.warning(
                     "Snapshot upload to object storage failed; keeping local archive only",
@@ -572,7 +578,11 @@ class SandboxOrchestrator:
         if workdir:
             script = f"cd {shlex.quote(workdir)} && {payload}"
         if mode == SandboxSession.Mode.DOCKER:
-            base = ["docker", "exec", identifier]
+            user = os.getenv("SANDBOX_DOCKER_USER", "").strip()
+            base = ["docker", "exec"]
+            if user:
+                base.extend(["--user", user])
+            base.append(identifier)
         else:
             namespace, pod = self._split_k8s_identifier(identifier)
             base = ["kubectl", "exec"]

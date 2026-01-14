@@ -8,8 +8,40 @@ export interface PlanStep {
   status: 'todo' | 'in_progress' | 'completed';
 }
 
+export interface AgentMessage {
+  role: 'assistant' | 'user' | 'tool';
+  content: string;
+  tool_calls?: Array<{
+    name: string;
+    args: Record<string, unknown>;
+  }>;
+}
+
+export interface AgentPayload {
+  messages?: AgentMessage[];
+  plan_steps?: PlanStep[];
+  plan?: string;
+  is_finished?: boolean;
+  summary?: string;
+}
+
+export interface InterruptPayload {
+  action: string;
+  description?: string;
+  timestamp: number;
+  [key: string]: unknown;
+}
+
+export interface HumanInputPayload {
+  message?: string;
+  human_input?: {
+    message: string;
+    timestamp: number;
+  };
+}
+
 export interface AgentEvent {
   type: string;
-  payload: Record<string, unknown> & { plan_steps?: PlanStep[]; plan?: string };
+  payload: AgentPayload | InterruptPayload | HumanInputPayload;
   timestamp: number;
 }

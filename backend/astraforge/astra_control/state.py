@@ -21,6 +21,8 @@ class AgentState(TypedDict):
     terminal_output: Optional[str]
     # File tree
     file_tree: List[str]
+    # Is validation required for tools?
+    validation_required: bool
     # Is the agent waiting for user?
     waiting_for_user: bool
     # Is the agent finished?

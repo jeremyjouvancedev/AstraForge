@@ -25,7 +25,7 @@ RUN useradd -ms /bin/bash sandbox \
     && chown -R sandbox:sandbox "${WORKSPACE_DIR}"
 
 # Install Playwright Python package globally and OS dependencies for Chromium.
-RUN pip install --no-cache-dir playwright \
+RUN pip install --no-cache-dir playwright pandas python-docx openpyxl python-pptx pdfplumber matplotlib Pillow \
     && playwright install-deps chromium
 
 # Switch to sandbox user and install Chromium browser binaries for that user.

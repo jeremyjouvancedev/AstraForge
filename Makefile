@@ -42,7 +42,7 @@ computer-use-image:
 	docker build -t $(COMPUTER_USE_IMAGE) computer_use
 
 astra-control-image:
-	docker build -t $(ASTRA_CONTROL_IMAGE) astra_control
+	docker build -t $(ASTRA_CONTROL_IMAGE) astra_control_sandbox
 
 workspace-images: codex-image sandbox-image computer-use-image astra-control-image
 

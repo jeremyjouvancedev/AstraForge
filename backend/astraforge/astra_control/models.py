@@ -10,6 +10,7 @@ class AstraControlSession(models.Model):
         PAUSED = "paused", "Paused"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
@@ -21,6 +22,7 @@ class AstraControlSession(models.Model):
     sandbox_session = models.ForeignKey(
         "sandbox.SandboxSession", on_delete=models.SET_NULL, null=True, blank=True
     )
+    last_snapshot_id = models.UUIDField(null=True, blank=True)
     state = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

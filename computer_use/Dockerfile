@@ -19,7 +19,7 @@ RUN useradd -ms /bin/bash sandbox \
     && mkdir -p "${WORKSPACE_DIR}"/.local \
     && chown -R sandbox:sandbox "${WORKSPACE_DIR}"
 
-RUN pip install --no-cache-dir playwright pandas \
+RUN pip install --no-cache-dir playwright pandas python-docx openpyxl python-pptx pdfplumber matplotlib Pillow \
     && playwright install-deps chromium
 
 USER sandbox
