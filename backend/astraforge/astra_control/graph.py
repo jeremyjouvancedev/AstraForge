@@ -208,5 +208,5 @@ def create_graph(
     workflow.add_edge("summarizer", "planner")
 
     checkpointer = MemorySaver()
-    return workflow.compile(checkpointer=checkpointer, interrupt_before=["wait_for_user"])
+    return workflow.compile(checkpointer=checkpointer, interrupt_before=["tools", "wait_for_user"])
 
