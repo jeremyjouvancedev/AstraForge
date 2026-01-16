@@ -1,10 +1,9 @@
 import json
 import os
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Protocol, Literal, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Iterable, Protocol, Literal, Optional
 
 from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 

@@ -804,9 +804,11 @@ export function AstraControlPage() {
                               <div className="space-y-1 max-w-[90%]">
                                 <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-tighter italic">Astra Intelligence</div>
                                 <div className="p-4 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none text-sm text-zinc-300 leading-relaxed shadow-sm">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
-                                    {msg.content}
-                                  </ReactMarkdown>
+                                  {typeof msg.content === 'string' && msg.content.trim() !== '' ? (
+                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
+                                      {msg.content}
+                                    </ReactMarkdown>
+                                  ) : null}
                                 </div>
                               </div>
                             </div>
@@ -1487,9 +1489,11 @@ export function AstraControlPage() {
                     ))
                                                                                                                          ) : (
                                                                                                                            <div className="text-zinc-400 font-mono leading-relaxed px-2">
-                                                                                                                             <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
-                                                                                                                               {rawPlan}
-                                                                                                                             </ReactMarkdown>
+                                                                                                                             {typeof rawPlan === 'string' && rawPlan.trim() !== '' ? (
+                                                                                                                               <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
+                                                                                                                                 {rawPlan}
+                                                                                                                               </ReactMarkdown>
+                                                                                                                             ) : null}
                                                                                                                            </div>
                                                           
                                                           )}
@@ -1824,9 +1828,11 @@ export function AstraControlPage() {
                                         ) : (
                                           <div>
                                             {previewFilePath?.endsWith('.md') ? (
-                                              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
-                                                {previewContent || ""}
-                                              </ReactMarkdown>
+                                              typeof previewContent === 'string' && previewContent.trim() !== '' ? (
+                                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
+                                                  {previewContent}
+                                                </ReactMarkdown>
+                                              ) : null
                                             ) : (
                                               <pre className="text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-all text-zinc-300">
                                                 {previewContent}

@@ -20,11 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd -ms /bin/bash sandbox \
     && mkdir -p "${WORKSPACE_DIR}" \
     && mkdir -p "${WORKSPACE_DIR}"/.cache/pip "${WORKSPACE_DIR}"/.cache/npm "${WORKSPACE_DIR}"/.cache/pnpm \
-    && mkdir -p "${WORKSPACE_DIR}"/.local \
-    && chown -R sandbox:sandbox "${WORKSPACE_DIR}"
+    && mkdir -p "${WORKSPACE_DIR}"/.local
 
-RUN pip install --no-cache-dir pandas python-docx openpyxl python-pptx playwright pdfplumber matplotlib Pillow \
-    && playwright install-deps chromium
+RUN pip install --no-cache-dir pandas python-docx openpyxl python-pptx playwright pdfplumber matplotlib Pillow reportlab \
+    && playwright install-deps chromium \
+    && chown -R sandbox:sandbox "${WORKSPACE_DIR}" \
+    && chmod -R 777 "${WORKSPACE_DIR}"
 
 USER sandbox
 RUN playwright install chromium

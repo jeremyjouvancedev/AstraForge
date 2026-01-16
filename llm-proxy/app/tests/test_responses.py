@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+from pathlib import Path
+
 import httpx
 import pytest
-from pathlib import Path
-import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 

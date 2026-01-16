@@ -9,13 +9,14 @@ from astraforge.sandbox.deepagent_backend import SandboxBackend
 
 
 @tool
-def sandbox_python_repl(code: str, runtime: ToolRuntime | Any) -> str:  # pragma: no cover - thin adapter around sandbox exec
+def sandbox_python_repl(code: str, **kwargs: Any) -> str:  # pragma: no cover - thin adapter around sandbox exec
     """Execute Python code inside the sandbox workspace and return its output.
 
     Use this to run short Python snippets that work with files under /workspace.
     The environment is isolated per sandbox session; use the filesystem if you
     need to persist state between calls.
     """
+    runtime = kwargs.get("runtime")
     try:
         backend = SandboxBackend(runtime)
         session = backend._session()

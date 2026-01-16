@@ -21,12 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd -ms /bin/bash sandbox \
     && mkdir -p "${WORKSPACE_DIR}" \
     && mkdir -p "${WORKSPACE_DIR}"/.cache/pip "${WORKSPACE_DIR}"/.cache/npm "${WORKSPACE_DIR}"/.cache/pnpm \
-    && mkdir -p "${WORKSPACE_DIR}"/.local \
-    && chown -R sandbox:sandbox "${WORKSPACE_DIR}"
+    && mkdir -p "${WORKSPACE_DIR}"/.local
 
 # Install Playwright Python package globally and OS dependencies for Chromium.
-RUN pip install --no-cache-dir playwright pandas python-docx openpyxl python-pptx pdfplumber matplotlib Pillow \
-    && playwright install-deps chromium
+RUN pip install --no-cache-dir playwright pandas python-docx openpyxl python-pptx pdfplumber matplotlib Pillow reportlab \
+    && playwright install-deps chromium \
+    && chown -R sandbox:sandbox "${WORKSPACE_DIR}" \
+    && chmod -R 777 "${WORKSPACE_DIR}"
 
 # Switch to sandbox user and install Chromium browser binaries for that user.
 USER sandbox

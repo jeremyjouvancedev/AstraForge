@@ -5,15 +5,11 @@ import logging
 import os
 import re
 import shlex
-import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 import requests
-from requests import Response, Session
-
 from deepagents.backends.protocol import BackendProtocol, EditResult, WriteResult
 from deepagents.backends.utils import (
     FileInfo,
@@ -22,6 +18,7 @@ from deepagents.backends.utils import (
     format_content_with_line_numbers,
     perform_string_replacement,
 )
+from requests import Response, Session
 
 
 @dataclass

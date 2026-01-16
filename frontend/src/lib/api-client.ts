@@ -61,7 +61,7 @@ export interface CreateRequestInput {
   sender?: string;
   source?: string;
   tenantId?: string;
-  llmProvider?: "openai" | "ollama";
+  llmProvider?: "openai" | "ollama" | "google";
   llmModel?: string;
   reasoningEffort?: "low" | "medium" | "high";
   reasoningCheck?: boolean;

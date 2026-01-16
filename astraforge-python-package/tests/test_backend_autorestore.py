@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from astraforge_toolkit.backend import _SandboxBackend
 
 

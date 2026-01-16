@@ -1,23 +1,22 @@
-import json
-import operator
 import logging
-from typing import Annotated, List, Optional, TypedDict, Union, Any
+import os
+from typing import List, Optional, Any
 from pydantic import BaseModel, Field
 
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
-from astraforge.infrastructure.ai.deepagent_runtime import _build_checkpointer
 
 from .state import AgentState
-from .tools import get_tools, SandboxToolset, tavily_web_search
+from .tools import SandboxToolset, tavily_web_search
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +60,22 @@ def create_graph(
                 model=model_name,
                 base_url=ollama_url
             )
+    elif provider == "google":
+        google_api_key = api_key if api_key != "proxy" else (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+        
+        # Use thinking_level for Gemini 3+ models and recommended temperature
+        kwargs = {}
+        if "gemini-3" in model_name.lower() or reasoning_check:
+            kwargs["thinking_level"] = reasoning_effort # minimal, low, medium, high
+            kwargs["temperature"] = 1.0
+        else:
+            kwargs["temperature"] = 0.3
+
+        llm = ChatGoogleGenerativeAI(
+            model=model_name, 
+            google_api_key=google_api_key,
+            **kwargs
+        )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -145,7 +160,8 @@ def create_graph(
                 "The system will pause and wait for their response.\n"
                 "4. Use 'browser_open_url' to research information, read documentation, or inspect websites directly from the sandbox.\n"
                 "5. Use 'tavily_web_search' for general internet searches.\n"
-                "6. When the task is fully complete, wrap your conclusion in <final_answer> tags. "
+                "6. IMPORTANT: Before finishing, verify that ALL steps in your plan are marked as 'completed'. If some are still 'todo' or 'in_progress', you must either complete them or update the plan via the planner.\n"
+                "7. When the task is fully complete, wrap your conclusion in <final_answer> tags. "
                 "For example: <final_answer>Successfully installed nodejs and created the app.</final_answer>"
             )),
             MessagesPlaceholder(variable_name="messages"),
@@ -158,6 +174,18 @@ def create_graph(
         })
         return {"messages": [response]}
 
+    def check_completion(state: AgentState):
+        """Check if the agent tried to finish while steps are still pending."""
+        plan_steps = state.get("plan_steps", [])
+        uncompleted = [s for s in plan_steps if s.get("status") != "completed"]
+        
+        if uncompleted:
+            titles = [s.get("title") for s in uncompleted]
+            msg = f"You attempted to finish the task, but the following plan steps are still not marked as 'completed': {', '.join(titles)}. Please complete them or update the plan if they are no longer relevant."
+            return {"messages": [HumanMessage(content=msg)]}
+        
+        return {"is_finished": True}
+
     def should_continue(state: AgentState):
         messages = state["messages"]
         if not messages:
@@ -168,9 +196,15 @@ def create_graph(
         
         content = last_message.content or ""
         if isinstance(last_message, AIMessage) and ("<final_answer>" in content.lower() or "TASK COMPLETED" in content.upper()):
-            return END
+            return "check_completion"
             
         # If no tool calls and no final answer, proceed to observer (commentary only)
+        return "observer"
+
+    def should_terminate(state: AgentState):
+        """Conditional edge for check_completion node."""
+        if state.get("is_finished"):
+            return END
         return "observer"
 
     def interrupt_node(state: AgentState):
@@ -233,6 +267,7 @@ def create_graph(
     workflow.add_node("interrupt_node", interrupt_node)
     workflow.add_node("observer", observer)
     workflow.add_node("summarizer", summarizer)
+    workflow.add_node("check_completion", check_completion)
 
     workflow.set_entry_point("planner")
     workflow.add_edge("planner", "agent")
@@ -244,7 +279,15 @@ def create_graph(
             "interrupt_node": "interrupt_node",
             "agent": "agent",
             "observer": "observer",
-            END: END
+            "check_completion": "check_completion"
+        }
+    )
+    workflow.add_conditional_edges(
+        "check_completion",
+        should_terminate,
+        {
+            END: END,
+            "observer": "observer"
         }
     )
     workflow.add_edge("tools", "observer")

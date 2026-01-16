@@ -1,7 +1,6 @@
 import json
 import os
 import redis
-import subprocess
 import time
 import logging
 from django.conf import settings

@@ -12,7 +12,6 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.types import Command
 
 from .graph import create_graph
-from .state import AgentState
 from .models import AstraControlSession
 from astraforge.sandbox.services import SandboxOrchestrator
 
@@ -143,10 +142,8 @@ def run_astra_control_session(self, task_data: dict):
 
                 logger.info(f"DEBUG: [Iteration Start] Session {session_id} with input type: {type(current_input)}")
                 is_waiting = False
-                has_yielded = False
                 
                 async for event in app.astream(current_input, config=config):
-                    has_yielded = True
                     # Clear input as soon as we start receiving events for it
                     current_input = None
                     
@@ -245,7 +242,7 @@ def run_astra_control_session(self, task_data: dict):
             # AUTO-SAVE: Capture final snapshot before success
             try:
                 logger.info(f"Taking final auto-snapshot for session {session_id}")
-                snapshot = orchestrator.create_snapshot(sandbox_session, label=f"Auto-save: {goal[:50]}")
+                snapshot = await sync_to_async(orchestrator.create_snapshot)(sandbox_session, label=f"Auto-save: {goal[:50]}")
                 session = await sync_to_async(AstraControlSession.objects.get)(id=session_id)
                 session.last_snapshot_id = snapshot.id
                 await sync_to_async(session.save)(update_fields=["last_snapshot_id", "updated_at"])
@@ -273,11 +270,11 @@ def run_astra_control_session(self, task_data: dict):
         except Exception as e:
             logger.exception(f"Error in AstraControl session {session_id}: {e}")
             try:
-                snapshot = orchestrator.create_snapshot(sandbox_session, label=f"Failure-snapshot: {goal[:50]}")
+                snapshot = await sync_to_async(orchestrator.create_snapshot)(sandbox_session, label=f"Failure-snapshot: {goal[:50]}")
                 session = await sync_to_async(AstraControlSession.objects.get)(id=session_id)
                 session.last_snapshot_id = snapshot.id
                 await sync_to_async(session.save)(update_fields=["last_snapshot_id", "updated_at"])
-            except:
+            except Exception:
                 pass
             await update_session_state(session_id, status=AstraControlSession.Status.FAILED)
             raise

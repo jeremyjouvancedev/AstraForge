@@ -2,7 +2,6 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from .models import AstraControlSession
-from astraforge.sandbox.models import SandboxSession
 
 User = get_user_model()
 

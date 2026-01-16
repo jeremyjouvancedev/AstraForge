@@ -29,6 +29,9 @@ from astraforge.quotas.services import get_quota_service
 from astraforge.sandbox.models import SandboxArtifact, SandboxSession, SandboxSnapshot
 
 
+logger = logging.getLogger(__name__)
+
+
 class SandboxProvisionError(RuntimeError):
     """Raised when a sandbox cannot be provisioned or controlled."""
 
@@ -226,7 +229,7 @@ class SandboxOrchestrator:
                 try:
                     self.execute(session, f"rm -f {shlex.quote(archive_path)}")
                     logger.info(f"Cleaned up remote archive {archive_path} inside sandbox")
-                except:
+                except Exception:
                     pass
             except SandboxProvisionError as exc:
                 self._log.warning(
@@ -424,7 +427,7 @@ class SandboxOrchestrator:
 
     def _docker_tmpfs_args(self) -> list[str]:
         tmpfs_config = os.getenv(
-            "SANDBOX_DOCKER_TMPFS", "/tmp:rw,nosuid,nodev;/run:rw,nosuid,nodev"
+            "SANDBOX_DOCKER_TMPFS", "/tmp:rw,nosuid,nodev,exec;/run:rw,nosuid,nodev"
         )
         args: list[str] = []
         for entry in tmpfs_config.split(";"):
