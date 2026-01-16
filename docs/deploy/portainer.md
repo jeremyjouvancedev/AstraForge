@@ -91,7 +91,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:20b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-devstral-small-2:24b}
     # Optional: expose if Codex workspaces use host-mapped proxy access. If you attach
     # workspaces to the stack network (see CODEX_WORKSPACE_NETWORK), you can omit this.
     ports:

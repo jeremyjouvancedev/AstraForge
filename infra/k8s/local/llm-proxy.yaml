@@ -36,7 +36,7 @@ spec:
             - name: OLLAMA_BASE_URL
               value: ""
             - name: OLLAMA_MODEL
-              value: "gpt-oss:20b"
+              value: "devstral-small-2:24b"
           ports:
             - containerPort: 8080
           readinessProbe:

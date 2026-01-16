@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Iterable
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlparse
 
 from .protocol import (
     ComputerCall,

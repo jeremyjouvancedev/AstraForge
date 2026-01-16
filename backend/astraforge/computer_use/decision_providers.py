@@ -1,7 +1,7 @@
 import json
 import os
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Protocol, Literal, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Iterable, Protocol, Literal, Optional
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
@@ -394,7 +394,7 @@ def _format_history(history: list[dict[str, Any]]) -> str:
 
 
 def _is_reasoning_model(model: str) -> bool:
-    patterns = ["gpt-oss", "deepseek-r1", "o1-", "o3-"]
+    patterns = ["gpt-oss", "devstral", "deepseek-r1", "o1-", "o3-"]
     return any(model.lower().startswith(p) for p in patterns)
 
 

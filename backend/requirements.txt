@@ -11,7 +11,10 @@ kubernetes>=28.1.0
 langchain>=1.1.0,<1.2
 langchain-community>=0.3.0
 langchain-openai>=1.1.0,<1.2
+langchain-anthropic
+langchain-google-genai
 langchain-ollama>=0.1.0
+langgraph
 langgraph-checkpoint-postgres==3.0.1
 opentelemetry-exporter-otlp>=1.24
 opentelemetry-sdk>=1.24

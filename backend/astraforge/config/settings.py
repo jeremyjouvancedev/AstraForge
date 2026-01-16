@@ -49,6 +49,8 @@ env = environ.Env(
     DEFAULT_WORKSPACE_PLAN=(str, ""),
     WORKSPACE_QUOTAS_ENABLED=(bool, True),
     WORKSPACE_QUOTAS=(str, ""),
+    COMPUTER_USE_IMAGE=(str, "astraforge/computer-use:latest"),
+    ASTRA_CONTROL_IMAGE=(str, "astraforge/astra-control:latest"),
 )
 
 environ.Env.read_env(
@@ -62,10 +64,15 @@ CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
     default=["http://localhost:5174", "http://127.0.0.1:5174"],
 )
+DATABASE_URL = env("DATABASE_URL")
+REDIS_URL = env("REDIS_URL")
 SELF_HOSTED = env.bool("SELF_HOSTED", default=True)
 AUTH_REQUIRE_APPROVAL = env.bool("AUTH_REQUIRE_APPROVAL", default=not SELF_HOSTED)
 AUTH_ALLOW_ALL_USERS = env.bool("AUTH_ALLOW_ALL_USERS", default=False)
 AUTH_WAITLIST_ENABLED = AUTH_REQUIRE_APPROVAL and not AUTH_ALLOW_ALL_USERS
+
+COMPUTER_USE_IMAGE = env("COMPUTER_USE_IMAGE")
+ASTRA_CONTROL_IMAGE = env("ASTRA_CONTROL_IMAGE")
 
 EMAIL_BACKEND = env("EMAIL_BACKEND")
 EMAIL_HOST = env("EMAIL_HOST")
@@ -160,6 +167,7 @@ INSTALLED_APPS = [
     "astraforge.interfaces.rest",
     "astraforge.sandbox",
     "astraforge.quotas",
+    "astraforge.astra_control",
     "astraforge.computer_use",
 ]
 
@@ -260,7 +268,9 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = CSRF_TRUSTED_ORIGINS
+CORS_ALLOW_ALL_ORIGINS = False
 
 LLM_PROXY_URL = env("LLM_PROXY_URL")
 LOG_LEVEL = env("LOG_LEVEL")
@@ -285,14 +295,15 @@ LOGGING = {
     },
 }
 
-CELERY_BROKER_URL = env("REDIS_URL")
-CELERY_RESULT_BACKEND = env("REDIS_URL")
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
 CELERY_TASK_EAGER_PROPAGATES = env.bool("CELERY_TASK_EAGER_PROPAGATES", default=True)
 CELERY_TASK_DEFAULT_QUEUE = "astraforge.default"
 CELERY_TASK_ROUTES = {
     "astraforge.application.tasks.computer_use_run_task": {"queue": "astraforge.computer_use"},
     "astraforge.application.tasks.computer_use_ack_task": {"queue": "astraforge.computer_use"},
+    "astraforge.astra_control.run_session": {"queue": "astraforge.astra_control"},
     "astraforge.application.tasks.*": {"queue": "astraforge.core"},
 }
 SANDBOX_REAP_INTERVAL_SEC = env.int("SANDBOX_REAP_INTERVAL_SEC", default=60)

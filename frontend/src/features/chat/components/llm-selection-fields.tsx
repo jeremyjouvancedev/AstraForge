@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-export const llmProviders = ["openai", "ollama"] as const;
+export const llmProviders = ["openai", "ollama", "google"] as const;
 export const reasoningEfforts = ["low", "medium", "high"] as const;
 
 export type LLMProvider = (typeof llmProviders)[number];
@@ -70,12 +70,13 @@ export function LLMSelectionFields({
               <SelectItem value="default">Default provider</SelectItem>
               <SelectItem value="openai">OpenAI</SelectItem>
               <SelectItem value="ollama">Ollama</SelectItem>
+              <SelectItem value="google">Google</SelectItem>
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      {provider === "ollama" && onReasoningCheckChange && (
+      {(provider === "ollama" || provider === "openai" || provider === "google") && onReasoningCheckChange && (
         <div className="flex w-full items-center gap-4 sm:w-auto">
           <div className="flex items-center gap-2">
             <Checkbox

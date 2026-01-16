@@ -37,10 +37,6 @@ def sandbox_shell(command: str, runtime: ToolRuntime | Any) -> str:
         return "No shell command provided to sandbox_shell."
 
     try:
-        timeout_sec = int(os.getenv("SHELL_TOOL_TIMEOUT_SEC", "60"))
-    except (TypeError, ValueError):
-        timeout_sec = 60
-    try:
         max_chars = int(os.getenv("SHELL_TOOL_MAX_CHARS", "4000"))
     except (TypeError, ValueError):
         max_chars = 4000

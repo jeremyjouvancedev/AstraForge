@@ -28,6 +28,9 @@ const DeepAgentSandboxPage = lazy(
 const ComputerUsePage = lazy(
   () => import("@/features/computer-use/pages/computer-use-page")
 );
+const AstraControlPage = lazy(
+  () => import("@/features/astra-control/components/AstraControlPage").then(m => ({ default: m.AstraControlPage }))
+);
 
 function ProtectedShell() {
   const { isAuthenticated, loading } = useAuth();
@@ -82,7 +85,8 @@ const routes: RouteObject[] = [
       { path: "repositories", element: <RepositoryLinksPage /> },
       { path: "api-keys", element: <ApiKeysPage /> },
       { path: "deep-sandbox", element: <DeepAgentSandboxPage /> },
-      { path: "computer-use", element: <ComputerUsePage /> }
+      { path: "computer-use", element: <ComputerUsePage /> },
+      { path: "astra-control", element: <AstraControlPage /> }
     ]
   },
   { path: "/requests", element: <Navigate to="/app/requests" replace /> },

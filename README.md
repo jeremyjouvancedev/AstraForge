@@ -146,7 +146,7 @@ Shortest path to the full stack.
 2) If you're using Ollama locally, install it from https://ollama.com/download, pull the model, and start the daemon:
 
 ```bash
-ollama pull gpt-oss:20b
+ollama pull devstral-small-2:24b
 OLLAMA_HOST=0.0.0.0 ollama serve
 ```
 
@@ -156,7 +156,7 @@ OLLAMA_HOST=0.0.0.0 ollama serve
 cat <<'EOF' > .env
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://host.docker.internal:11434
-OLLAMA_MODEL=gpt-oss:20b
+OLLAMA_MODEL=devstral-small-2:24b
 DEEPAGENT_REASONING_EFFORT=high
 EOF
 ```
@@ -192,7 +192,7 @@ Key environment variables (see `docker-compose.yml` and `docs/docker-compose.md`
 | `REDIS_URL` | Redis connection (default `redis://redis:6379/0`) |
 | `LLM_PROVIDER` | LLM proxy provider (`ollama` or `openai`) |
 | `OPENAI_API_KEY`, `LLM_MODEL` | OpenAI credentials + model name (default `gpt-4o-mini` when `LLM_PROVIDER=openai`) |
-| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Ollama base URL + model name (defaults to `http://localhost:11434` and `gpt-oss:20b`) |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Ollama base URL + model name (defaults to `http://localhost:11434` and `devstral-small-2:24b`) |
 | `DEEPAGENT_PROVIDER` | DeepAgent provider override (`openai` or `ollama`) |
 | `DEEPAGENT_REASONING_EFFORT` | Reasoning effort for DeepAgent (OpenAI passes through; Ollama maps to `think=low|medium|high` unless overridden) |
 | `EXECUTOR` | LLM executor name (default `codex`) |

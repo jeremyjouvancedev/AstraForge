@@ -75,7 +75,7 @@ def _format_provider_base_url(provider_key: str, proxy_url: str) -> str:
     provider_segment = provider_key
     if provider_key == "local-llm":
         provider_segment = "ollama"
-    if provider_segment in {"openai", "ollama"}:
+    if provider_segment in {"openai", "ollama", "google"}:
         if "/providers/" not in path:
             suffix = f"/providers/{provider_segment}"
             path = f"{path}{suffix}" if path else suffix
@@ -101,14 +101,29 @@ def _resolve_provider_config() -> tuple[str, str, str | None, str | None, str, s
     model = _DEFAULT_MODEL
 
     llm_provider = _resolve_llm_provider()
-    if os.getenv("CODEX_WRAPPER_MODEL_PROVIDER_KEY") is None and llm_provider in {"openai", "ollama"}:
+    if os.getenv("CODEX_WRAPPER_MODEL_PROVIDER_KEY") is None and llm_provider in {"openai", "ollama", "google"}:
         provider_key = "local-llm" if llm_provider == "ollama" else llm_provider
         if os.getenv("CODEX_WRAPPER_MODEL_PROVIDER_NAME") is None:
-            provider_name = "OpenAI" if llm_provider == "openai" else "Ollama"
+            if llm_provider == "openai":
+                provider_name = "OpenAI"
+            elif llm_provider == "google":
+                provider_name = "Google"
+            else:
+                provider_name = "Ollama"
         if os.getenv("CODEX_WRAPPER_PROVIDER_ENV_KEY") is None:
-            provider_env_key = "OPENAI_API_KEY" if llm_provider == "openai" else "OLLAMA_API_KEY"
+            if llm_provider == "openai":
+                provider_env_key = "OPENAI_API_KEY"
+            elif llm_provider == "google":
+                provider_env_key = "GOOGLE_API_KEY"
+            else:
+                provider_env_key = "OLLAMA_API_KEY"
         if os.getenv("CODEX_WRAPPER_MODEL_PROVIDER_WIRE_API") is None:
-            provider_wire_api = "responses" if llm_provider == "openai" else None
+            if llm_provider == "openai":
+                provider_wire_api = "responses"
+            elif llm_provider == "google":
+                provider_wire_api = "tool-code"
+            else:
+                provider_wire_api = None
         if llm_provider == "ollama":
             ollama_context_window = os.getenv("OLLAMA_CONTEXT_WINDOW")
             if ollama_context_window:
@@ -348,6 +363,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             child_env["OLLAMA_BASE_URL"] = normalized_proxy
         elif provider_key == "openai":
             child_env["OPENAI_BASE_URL"] = normalized_proxy
+        elif provider_key == "google":
+            child_env["GOOGLE_BASE_URL"] = normalized_proxy
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,

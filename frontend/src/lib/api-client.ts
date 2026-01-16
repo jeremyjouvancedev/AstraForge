@@ -61,7 +61,7 @@ export interface CreateRequestInput {
   sender?: string;
   source?: string;
   tenantId?: string;
-  llmProvider?: "openai" | "ollama";
+  llmProvider?: "openai" | "ollama" | "google";
   llmModel?: string;
   reasoningEffort?: "low" | "medium" | "high";
   reasoningCheck?: boolean;
@@ -453,6 +453,17 @@ export async function uploadSandboxFile(sessionId: string, path: string, content
   return response.data;
 }
 
+export async function readSandboxFile(sessionId: string, path: string) {
+  const response = await apiClient.get(
+    `/sandbox/sessions/${encodeURIComponent(sessionId)}/files/content/`,
+    {
+      params: { path },
+      responseType: 'text'
+    }
+  );
+  return response.data as string;
+}
+
 // Computer-use runs -----------------------------------------------------------
 export interface ComputerUseSafetyCheck {
   id: string;
@@ -659,6 +670,90 @@ export interface WorkspaceUsageSummary {
 export async function fetchWorkspaceUsage(workspaceUid: string) {
   const response = await apiClient.get<WorkspaceUsageSummary>(
     `/workspaces/${encodeURIComponent(workspaceUid)}/usage/`
+  );
+  return response.data;
+}
+
+export interface AstraControlSession {
+  id: string;
+  goal: string;
+  status: "created" | "running" | "paused" | "completed" | "failed";
+  sandbox_session?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createAstraControlSession(payload: { 
+  goal: string; 
+  model?: string;
+  provider?: string;
+  reasoning_check?: boolean;
+  reasoning_effort?: string;
+  validation_required?: boolean;
+}) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<AstraControlSession>("/astra-control/sessions/", payload);
+  return response.data;
+}
+
+export async function resumeAstraControlSession(id: string) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<{ status: string }>(
+    `/astra-control/sessions/${encodeURIComponent(id)}/resume/`,
+    {}
+  );
+  return response.data;
+}
+
+export async function fetchAstraControlSession(id: string) {
+  const response = await apiClient.get<AstraControlSession & { state: { events?: Record<string, unknown>[] } }>(
+    `/astra-control/sessions/${encodeURIComponent(id)}/`
+  );
+  return response.data;
+}
+
+export async function fetchAstraControlSessions() {
+  const response = await apiClient.get<AstraControlSession[]>("/astra-control/sessions/");
+  return response.data;
+}
+
+export async function cancelAstraControlSession(id: string) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<{ status: string }>(
+    `/astra-control/sessions/${encodeURIComponent(id)}/cancel/`,
+    {}
+  );
+  return response.data;
+}
+
+export async function sendAstraControlMessage(id: string, message: string, validation_required?: boolean) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<{ status: string }>(
+    `/astra-control/sessions/${encodeURIComponent(id)}/message/`,
+    { message, validation_required }
+  );
+  return response.data;
+}
+
+export interface SandboxSnapshot {
+  id: string;
+  label: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+export async function fetchSandboxSnapshots(sessionId: string) {
+  const response = await apiClient.get<{ snapshots: SandboxSnapshot[] }>(
+    `/sandbox/sessions/${encodeURIComponent(sessionId)}/snapshots/`
+  );
+  return response.data.snapshots;
+}
+
+export async function createSandboxSnapshot(sessionId: string, label: string) {
+  await ensureCsrfToken();
+  const response = await apiClient.post<SandboxSnapshot>(
+    `/sandbox/sessions/${encodeURIComponent(sessionId)}/snapshots/`,
+    { label }
   );
   return response.data;
 }

@@ -382,7 +382,7 @@ def test_codex_command_defaults_ollama_api_key(monkeypatch):
         "RequestStub",
         (),
         {
-            "metadata": {"llm": {"provider": "ollama", "model": "gpt-oss:20b"}},
+            "metadata": {"llm": {"provider": "ollama", "model": "devstral-small-2:24b"}},
             "payload": payload,
         },
     )()
