@@ -24,11 +24,11 @@ from astraforge.interfaces.rest.views import (
     RequestViewSet,
     RunViewSet,
     RunLogStreamView,
-    DeepAgentConversationView,
-    DeepAgentMessageView,
     WorkspaceViewSet,
 )
 from astraforge.sandbox.views import SandboxSessionViewSet
+
+from astraforge.astra_control.views import AstraControlSessionViewSet
 
 router = DefaultRouter()
 router.register(r"requests", RequestViewSet, basename="request")
@@ -39,6 +39,7 @@ router.register(r"repository-links", RepositoryLinkViewSet, basename="repository
 router.register(r"runs", RunViewSet, basename="run")
 router.register(r"merge-requests", MergeRequestViewSet, basename="merge-request")
 router.register(r"computer-use/runs", ComputerUseRunViewSet, basename="computer-use-run")
+router.register(r"astra-control/sessions", AstraControlSessionViewSet, basename="astra-control-session")
 router.register(r"sandbox/sessions", SandboxSessionViewSet, basename="sandbox-session")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 
@@ -54,16 +55,6 @@ urlpatterns = [
     ),
     path(
         "runs/<uuid:pk>/logs/stream", RunLogStreamView.as_view(), name="run-log-stream"
-    ),
-    path(
-        "deepagent/conversations/",
-        DeepAgentConversationView.as_view(),
-        name="deepagent-conversations",
-    ),
-    path(
-        "deepagent/conversations/<uuid:conversation_id>/messages/",
-        DeepAgentMessageView.as_view(),
-        name="deepagent-messages",
     ),
     path("auth/register/", RegisterView.as_view(), name="auth-register"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),

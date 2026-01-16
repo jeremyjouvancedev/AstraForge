@@ -9,11 +9,12 @@ from astraforge.sandbox.deepagent_backend import SandboxBackend
 
 
 @tool
-def sandbox_open_url_with_playwright(url: str, runtime: ToolRuntime | Any) -> str:
+def sandbox_open_url_with_playwright(url: str, **kwargs: Any) -> str:
     """Open a URL in a headless browser **inside the sandbox** and return a brief preview.
 
     Use this when you need to inspect or summarize a web page.
     """
+    runtime = kwargs.get("runtime")
     try:
         backend = SandboxBackend(runtime)
         session = backend._session()

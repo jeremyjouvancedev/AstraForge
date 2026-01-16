@@ -29,6 +29,9 @@ from astraforge.quotas.services import get_quota_service
 from astraforge.sandbox.models import SandboxArtifact, SandboxSession, SandboxSnapshot
 
 
+logger = logging.getLogger(__name__)
+
+
 class SandboxProvisionError(RuntimeError):
     """Raised when a sandbox cannot be provisioned or controlled."""
 
@@ -222,6 +225,12 @@ class SandboxOrchestrator:
                 self._increment_session_storage(session, size_bytes)
             try:
                 self._upload_snapshot_to_s3(session, snapshot, archive_path)
+                # Cleanup archive INSIDE the sandbox after successful upload
+                try:
+                    self.execute(session, f"rm -f {shlex.quote(archive_path)}")
+                    logger.info(f"Cleaned up remote archive {archive_path} inside sandbox")
+                except Exception:
+                    pass
             except SandboxProvisionError as exc:
                 self._log.warning(
                     "Snapshot upload to object storage failed; keeping local archive only",
@@ -418,7 +427,7 @@ class SandboxOrchestrator:
 
     def _docker_tmpfs_args(self) -> list[str]:
         tmpfs_config = os.getenv(
-            "SANDBOX_DOCKER_TMPFS", "/tmp:rw,nosuid,nodev;/run:rw,nosuid,nodev"
+            "SANDBOX_DOCKER_TMPFS", "/tmp:rw,nosuid,nodev,exec;/run:rw,nosuid,nodev"
         )
         args: list[str] = []
         for entry in tmpfs_config.split(";"):
@@ -572,7 +581,11 @@ class SandboxOrchestrator:
         if workdir:
             script = f"cd {shlex.quote(workdir)} && {payload}"
         if mode == SandboxSession.Mode.DOCKER:
-            base = ["docker", "exec", identifier]
+            user = os.getenv("SANDBOX_DOCKER_USER", "").strip()
+            base = ["docker", "exec"]
+            if user:
+                base.extend(["--user", user])
+            base.append(identifier)
         else:
             namespace, pod = self._split_k8s_identifier(identifier)
             base = ["kubectl", "exec"]

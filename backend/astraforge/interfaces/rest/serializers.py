@@ -18,9 +18,8 @@ class RequestSerializer(serializers.Serializer):
     source = serializers.CharField(default="direct_user")
     sender = serializers.EmailField(required=False, allow_blank=True)
     project_id = serializers.UUIDField()
-    prompt = serializers.CharField(trim_whitespace=False)
     llm_provider = serializers.ChoiceField(
-        choices=["openai", "ollama"],
+        choices=["openai", "ollama", "google"],
         required=False,
         allow_null=True,
     )
@@ -303,9 +302,8 @@ class DeepAgentMessageRequestSerializer(serializers.Serializer):
     messages = serializers.ListField(
         child=DeepAgentChatMessageSerializer(), allow_empty=False
     )
-    stream = serializers.BooleanField(default=True)
     llm_provider = serializers.ChoiceField(
-        choices=["openai", "ollama"],
+        choices=["openai", "ollama", "google"],
         required=False,
         allow_null=True,
     )
@@ -320,7 +318,7 @@ class DeepAgentMessageRequestSerializer(serializers.Serializer):
 
 class ExecuteRequestSerializer(serializers.Serializer):
     llm_provider = serializers.ChoiceField(
-        choices=["openai", "ollama"],
+        choices=["openai", "ollama", "google"],
         required=False,
         allow_null=True,
     )

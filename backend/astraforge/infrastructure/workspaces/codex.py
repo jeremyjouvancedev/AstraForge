@@ -671,7 +671,7 @@ class CodexWorkspaceOperator(WorkspaceOperator):
             llm_model = str(llm_config.get("model") or "").strip()
         if not llm_provider:
             llm_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
-        if llm_provider not in {"openai", "ollama"}:
+        if llm_provider not in {"openai", "ollama", "google"}:
             llm_provider = ""
         overrides: List[str] = []
         if workspace.proxy_url:

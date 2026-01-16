@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain.tools import tool
 
 
 @tool
@@ -12,7 +12,6 @@ def tavily_web_search(
     topic: Literal["general", "news", "finance"] = "general",
     max_results: int = 5,
     include_raw_content: bool = False,
-    runtime: ToolRuntime | Any = None,  # noqa: ARG001 - runtime is injected by DeepAgents
 ) -> str:  # pragma: no cover - thin wrapper
     """Search the web using Tavily and return concise, source-backed results.
 

@@ -96,7 +96,7 @@ def _create_client() -> OpenAI:
 def _default_model() -> str:
     provider = _llm_provider()
     if provider == "ollama":
-        return os.getenv("OLLAMA_MODEL") or "gpt-oss:20b"
+        return os.getenv("OLLAMA_MODEL") or "devstral-small-2:24b"
     return os.getenv("LLM_MODEL") or "gpt-4o-mini"
 
 
@@ -110,7 +110,7 @@ def _ollama_chat_url() -> str:
 
 
 def _is_reasoning_model(model: str) -> bool:
-    patterns = ["gpt-oss", "deepseek-r1", "o1-", "o3-"]
+    patterns = ["gpt-oss", "devstral", "deepseek-r1", "o1-", "o3-"]
     return any(model.lower().startswith(p) for p in patterns)
 
 
@@ -131,6 +131,14 @@ def _get_reasoning_effort() -> str:
 
 def _openai_base_url() -> str:
     return os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+
+
+def _anthropic_base_url() -> str:
+    return os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+
+
+def _google_base_url() -> str:
+    return os.getenv("GOOGLE_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai").rstrip("/")
 
 
 def _build_upstream_url(base_url: str, request_path: str, query: str) -> str:
@@ -159,8 +167,15 @@ async def _proxy_raw_request(
 ) -> StreamingResponse:
     body = await request.body()
     path = request_path if request_path is not None else request.url.path
+    
+    query = request.url.query
+    if "generativelanguage.googleapis.com" in upstream_base_url and "key=" not in query:
+        google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        if google_api_key:
+            query = f"{query}&key={google_api_key}" if query else f"key={google_api_key}"
+
     upstream_url = _build_upstream_url(
-        upstream_base_url, path, request.url.query
+        upstream_base_url, path, query
     )
     headers = _filter_headers(dict(request.headers))
 
@@ -660,6 +675,10 @@ async def proxy_provider_request(
         upstream_base_url = _openai_base_url()
     elif provider_key == "ollama":
         upstream_base_url = _ollama_base_url()
+    elif provider_key == "anthropic":
+        upstream_base_url = _anthropic_base_url()
+    elif provider_key == "google":
+        upstream_base_url = _google_base_url()
     else:
         raise HTTPException(
             status_code=404, detail=f"Unsupported LLM provider '{provider}'"

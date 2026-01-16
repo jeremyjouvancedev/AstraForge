@@ -38,7 +38,7 @@ import {
 export default function DeepAgentSandboxPage() {
   const [conversation, setConversation] = useState<DeepAgentConversation | null>(null);
   const [llmProvider, setLlmProvider] = useState<LLMProvider>("ollama");
-  const [llmModel, setLlmModel] = useState("gpt-oss:20b");
+  const [llmModel, setLlmModel] = useState("devstral-small-2:24b");
   const [reasoningCheck, setReasoningCheck] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [messages, setMessages] = useState<DeepAgentMessage[]>([]);
@@ -144,7 +144,7 @@ export default function DeepAgentSandboxPage() {
       const metadata: Record<string, unknown> = {
         llm: {
           provider: llmProvider,
-          model: llmModel || (llmProvider === "ollama" ? "gpt-oss:20b" : "gpt-4o"),
+          model: llmModel || (llmProvider === "ollama" ? "devstral-small-2:24b" : "gpt-4o"),
           ...(llmProvider === "ollama" ? { reasoning_effort: reasoningEffort, reasoning_check: reasoningCheck } : {})
         }
       };

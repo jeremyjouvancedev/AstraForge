@@ -10,12 +10,13 @@ from astraforge.sandbox.deepagent_backend import SandboxBackend
 
 
 @tool
-def sandbox_shell(command: str, runtime: ToolRuntime | Any) -> str:  # pragma: no cover - thin adapter around sandbox exec
+def sandbox_shell(command: str, **kwargs: Any) -> str:  # pragma: no cover - thin adapter around sandbox exec
     """Run a shell command inside the sandbox workspace and return its output.
 
     Use this to run short, self-contained shell commands that operate on files under /workspace.
     Avoid long-running processes and interactive programs.
     """
+    runtime = kwargs.get("runtime")
     try:
         backend = SandboxBackend(runtime)
         session = backend._session()

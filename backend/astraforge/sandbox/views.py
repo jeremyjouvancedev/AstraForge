@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import base64
 import logging
-import os
 import shlex
 import time
-import requests
 
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import BaseParser

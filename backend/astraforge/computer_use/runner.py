@@ -5,11 +5,12 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from .decision_providers import DecisionProvider, build_policy_summary
-from .policy import PolicyConfig, PolicyDecision, evaluate_policy, is_domain_allowed
+from .policy import PolicyConfig, evaluate_policy, is_domain_allowed
 from .protocol import (
     ComputerCall,
     ComputerCallOutput,
     DecisionRequest,
+    DecisionResponse,
     ExecutionResult,
     Viewport,
     ensure_call_id,

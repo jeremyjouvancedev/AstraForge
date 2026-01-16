@@ -21,12 +21,13 @@ def _guess_mime_type(path: str) -> str:
 
 
 @tool
-def sandbox_view_image(path: str, runtime: ToolRuntime | Any) -> Any:  # pragma: no cover - thin adapter
+def sandbox_view_image(path: str, **kwargs: Any) -> Any:  # pragma: no cover - thin adapter
     """Load an image file from the sandbox and return a LangChain image message.
 
     The message uses an inline data URL so the vision-enabled model can \"see\" the pixels.
     Use this when you want the model to inspect or describe an image stored under /workspace.
     """
+    runtime = kwargs.get("runtime")
     try:
         backend = SandboxBackend(runtime)
         session = backend._session()

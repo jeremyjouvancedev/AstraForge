@@ -182,7 +182,8 @@ const navSections = [
     items: [
       { to: "/app/requests", label: "Software Engineer", icon: Inbox },
       { to: "/app/deep-sandbox", label: "Deep Agent Sandbox", icon: Brain },
-      { to: "/app/computer-use", label: "Browser Use", icon: MousePointerClick }
+      { to: "/app/computer-use", label: "Browser Use", icon: MousePointerClick },
+      { to: "/app/astra-control", label: "Astra Control", icon: Sparkles }
     ]
   },
   {

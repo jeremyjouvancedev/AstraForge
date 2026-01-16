@@ -135,7 +135,9 @@ def _default_deepagent_model(provider: str, request: Request | None = None) -> s
     if configured:
         return configured
     if provider == "ollama":
-        return os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
+        return os.getenv("OLLAMA_MODEL", "devstral-small-2:24b")
+    if provider == "google":
+        return os.getenv("GOOGLE_MODEL", "gemini-3-pro-preview")
     return "gpt-4o"
 
 
@@ -172,7 +174,7 @@ def _parse_json_env(name: str) -> dict[str, Any] | None:
 
 
 def _is_reasoning_model(model: str) -> bool:
-    patterns = ["gpt-oss", "deepseek-r1", "o1-", "o3-"]
+    patterns = ["gpt-oss", "devstral", "deepseek-r1", "o1-", "o3-"]
     return any(model.lower().startswith(p) for p in patterns)
 
 
@@ -293,6 +295,40 @@ def get_deep_agent(request: Request | None = None):
         if model_kwargs:
             ollama_kwargs["model_kwargs"] = model_kwargs
         model = ChatOllama(**ollama_kwargs)
+    elif provider == "google":
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+        except Exception as exc:
+            raise RuntimeError(
+                "langchain-google-genai is required for DEEPAGENT_PROVIDER=google"
+            ) from exc
+        google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        
+        reasoning_effort = ""
+        reasoning_check = None
+        if request:
+            llm_meta = request.metadata.get("llm")
+            if isinstance(llm_meta, dict):
+                reasoning_effort = str(llm_meta.get("reasoning_effort") or "").strip().lower()
+                reasoning_check = llm_meta.get("reasoning_check")
+        
+        if not reasoning_effort:
+            reasoning_effort = os.getenv("DEEPAGENT_REASONING_EFFORT", "high")
+
+        google_kwargs: dict[str, Any] = {
+            "model": model_name,
+            "google_api_key": google_api_key,
+        }
+
+        if "gemini-3" in model_name.lower() or reasoning_check:
+            google_kwargs["thinking_level"] = reasoning_effort
+            google_kwargs["temperature"] = 1.0
+        else:
+            google_kwargs["temperature"] = temperature
+
+        # In Gemini 3.0+, temperature defaults to 1.0, but we use DEEPAGENT_TEMPERATURE if set.
+        # Max tokens, timeout, etc. can be added if needed.
+        model = ChatGoogleGenerativeAI(**google_kwargs)
     else:
         api_key = os.getenv("OPENAI_API_KEY")
         base_url = os.getenv("OPENAI_BASE_URL") or None

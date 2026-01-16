@@ -37,9 +37,9 @@ def __getattr__(name: str):
     }:
         try:
             from .tools import (  # type: ignore
-                sandbox_shell,
-                sandbox_python_repl,
                 sandbox_open_url_with_playwright,
+                sandbox_python_repl,
+                sandbox_shell,
                 sandbox_view_image,
             )
         except Exception as exc:  # noqa: BLE001
