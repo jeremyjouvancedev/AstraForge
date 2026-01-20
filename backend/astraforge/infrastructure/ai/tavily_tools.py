@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import ssl
 from typing import Any, Literal
 
 from langchain.tools import tool
@@ -38,6 +39,14 @@ def tavily_web_search(
 
     try:
         client = TavilyClient(api_key=api_key)
+
+        # Disable SSL verification if explicitly requested via environment variable
+        # This is useful in corporate environments with SSL inspection
+        if os.getenv("TAVILY_DISABLE_SSL_VERIFY", "0").lower() in {"1", "true", "yes"}:
+            import httpx
+            # Create a custom transport with SSL verification disabled
+            transport = httpx.HTTPTransport(verify=False)
+            client._client = httpx.Client(transport=transport)
     except Exception as exc:  # noqa: BLE001
         return f"Failed to initialize Tavily client: {exc}"
 

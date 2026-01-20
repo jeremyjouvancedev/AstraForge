@@ -20,6 +20,32 @@ from .tools import SandboxToolset, tavily_web_search
 
 logger = logging.getLogger(__name__)
 
+def _is_reasoning_model(model: str) -> bool:
+    """Check if the model is a reasoning model (o1, o3, etc.)"""
+    patterns = ["o1-", "o3-", "o1", "o3"]
+    return any(model.lower().startswith(p) for p in patterns)
+
+
+def _should_disable_ssl_verify() -> bool:
+    """Check if SSL verification should be disabled (corporate proxy environments)."""
+    return os.getenv("DISABLE_SSL_VERIFY", "0").lower() in {"1", "true", "yes"}
+
+def _create_http_client():
+    """Create an HTTP client with custom SSL certificates or verification disabled."""
+    import httpx
+    import os
+    
+    # Check if we should disable SSL verification entirely
+    if _should_disable_ssl_verify():
+        return httpx.Client(verify=False)
+    
+    # Use custom CA bundle if available (corporate environment)
+    ca_bundle = os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE")
+    if ca_bundle and os.path.exists(ca_bundle):
+        return httpx.Client(verify=ca_bundle)
+    
+    return None
+
 def create_graph(
     model_name: str, 
     api_key: str, 
@@ -32,15 +58,18 @@ def create_graph(
     validation_required: bool = True,
     checkpointer: Optional[Any] = None
 ):
+    # Create HTTP client with SSL settings
+    http_client = _create_http_client()
+    
     # ... (llm initialization same as before)
     if provider == "openai":
         if proxy_url:
-            llm = ChatOpenAI(model=model_name, api_key=api_key or "proxy", base_url=f"{proxy_url.rstrip('/')}/providers/openai/v1")
+            llm = ChatOpenAI(model=model_name, api_key=api_key or "proxy", base_url=f"{proxy_url.rstrip('/')}/providers/openai/v1", http_client=http_client)
         else:
             llm = ChatOpenAI(model=model_name, api_key=api_key)
     elif provider == "anthropic":
         if proxy_url:
-            llm = ChatOpenAI(model=model_name, api_key=api_key or "proxy", base_url=f"{proxy_url.rstrip('/')}/providers/anthropic/v1")
+            llm = ChatOpenAI(model=model_name, api_key=api_key or "proxy", base_url=f"{proxy_url.rstrip('/')}/providers/anthropic/v1", http_client=http_client)
         else:
             llm = ChatAnthropic(model=model_name, api_key=api_key)
     elif provider == "ollama":
@@ -52,6 +81,7 @@ def create_graph(
                 model=model_name, 
                 api_key=api_key or "proxy", 
                 base_url=f"{proxy_url.rstrip('/')}/providers/ollama/v1",
+                http_client=http_client,
                 **kwargs
             )
         else:
@@ -62,7 +92,7 @@ def create_graph(
             )
     elif provider == "google":
         google_api_key = api_key if api_key != "proxy" else (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
-        
+
         # Use thinking_level for Gemini 3+ models and recommended temperature
         kwargs = {}
         if "gemini-3" in model_name.lower() or reasoning_check:
@@ -72,8 +102,29 @@ def create_graph(
             kwargs["temperature"] = 0.3
 
         llm = ChatGoogleGenerativeAI(
-            model=model_name, 
+            model=model_name,
             google_api_key=google_api_key,
+            **kwargs
+        )
+    elif provider == "azure_openai":
+        # Azure OpenAI always connects directly (no proxy support in llm-proxy)
+        from langchain_openai import AzureChatOpenAI
+        azure_api_key = api_key if api_key != "proxy" else os.getenv("AZURE_OPENAI_API_KEY")
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+
+        kwargs = {}
+        # Only add reasoning_effort for o1/o3 reasoning models
+        if (reasoning_check or reasoning_effort) and _is_reasoning_model(model_name):
+            kwargs["model_kwargs"] = {"reasoning_effort": reasoning_effort}
+
+        llm = AzureChatOpenAI(
+            azure_deployment=model_name,
+            azure_endpoint=azure_endpoint,
+            api_key=azure_api_key,
+            api_version=azure_api_version,
+            temperature=0.3,
+            http_client=http_client,
             **kwargs
         )
     else:

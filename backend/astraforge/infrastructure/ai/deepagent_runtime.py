@@ -138,6 +138,10 @@ def _default_deepagent_model(provider: str, request: Request | None = None) -> s
         return os.getenv("OLLAMA_MODEL", "devstral-small-2:24b")
     if provider == "google":
         return os.getenv("GOOGLE_MODEL", "gemini-3-pro-preview")
+    if provider == "azure_openai":
+        # For Azure OpenAI, the model name is the deployment name
+        # Users should specify it in the frontend model field
+        return "gpt-4o"  # fallback only
     return "gpt-4o"
 
 
@@ -329,6 +333,33 @@ def get_deep_agent(request: Request | None = None):
         # In Gemini 3.0+, temperature defaults to 1.0, but we use DEEPAGENT_TEMPERATURE if set.
         # Max tokens, timeout, etc. can be added if needed.
         model = ChatGoogleGenerativeAI(**google_kwargs)
+    elif provider == "azure_openai":
+        from langchain_openai import AzureChatOpenAI
+
+        azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+
+        reasoning_effort = ""
+        if request:
+            llm_meta = request.metadata.get("llm")
+            if isinstance(llm_meta, dict):
+                reasoning_effort = str(llm_meta.get("reasoning_effort") or "").strip().lower()
+
+        if not reasoning_effort:
+            reasoning_effort = os.getenv("DEEPAGENT_REASONING_EFFORT")
+
+        azure_kwargs: dict[str, Any] = {
+            "azure_deployment": model_name,
+            "temperature": temperature,
+            "azure_endpoint": azure_endpoint,
+            "api_key": azure_api_key,
+            "api_version": azure_api_version,
+        }
+        # Only add reasoning_effort for o1/o3 reasoning models
+        if reasoning_effort and _is_reasoning_model(model_name):
+            azure_kwargs["model_kwargs"] = {"reasoning_effort": reasoning_effort}
+        model = AzureChatOpenAI(**azure_kwargs)
     else:
         api_key = os.getenv("OPENAI_API_KEY")
         base_url = os.getenv("OPENAI_BASE_URL") or None

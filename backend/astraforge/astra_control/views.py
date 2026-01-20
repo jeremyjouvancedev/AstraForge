@@ -58,9 +58,15 @@ class AstraControlSessionViewSet(viewsets.ModelViewSet):
         session = serializer.save(user=self.request.user, sandbox_session=sandbox_session)
         
         provider = self.request.data.get("provider") or os.getenv("LLM_PROVIDER", "openai")
-        # Default model for this module is devstral-small-2:24b when using ollama
-        default_model = "devstral-small-2:24b" if provider == "ollama" else os.getenv("LLM_MODEL", "gpt-4o")
-        
+        # Default model for this module
+        if provider == "ollama":
+            default_model = "devstral-small-2:24b"
+        elif provider == "azure_openai":
+            # For Azure OpenAI, model should come from frontend (deployment name)
+            default_model = None  # Force user to specify deployment in frontend
+        else:
+            default_model = os.getenv("LLM_MODEL", "gpt-4o")
+
         task_data = {
             "session_id": str(session.id),
             "goal": session.goal,
@@ -71,6 +77,17 @@ class AstraControlSessionViewSet(viewsets.ModelViewSet):
             "reasoning_effort": self.request.data.get("reasoning_effort"),
             "validation_required": self.request.data.get("validation_required", True)
         }
+
+        # Store configuration in session state for resume
+        if not isinstance(session.state, dict):
+            session.state = {}
+        session.state["config"] = {
+            "provider": provider,
+            "model": task_data["model"],
+            "reasoning_check": task_data["reasoning_check"],
+            "reasoning_effort": task_data["reasoning_effort"]
+        }
+        session.save()
         
         try:
             from .tasks import run_astra_control_session
@@ -143,13 +160,25 @@ class AstraControlSessionViewSet(viewsets.ModelViewSet):
             
             # Re-trigger task
             from .tasks import run_astra_control_session
+            
+            # Retrieve stored config or use request data
+            stored_config = session.state.get("config", {}) if isinstance(session.state, dict) else {}
+            provider = request.data.get("provider") or stored_config.get("provider") or os.getenv("LLM_PROVIDER", "openai")
+            model = request.data.get("model") or stored_config.get("model")
+            reasoning_check = request.data.get("reasoning_check")
+            if reasoning_check is None:
+                reasoning_check = stored_config.get("reasoning_check")
+            reasoning_effort = request.data.get("reasoning_effort") or stored_config.get("reasoning_effort", "high")
+            
             task_data = {
                 "session_id": str(session.id),
                 "goal": message_text,
                 "is_resume": True,
                 "sandbox_session_id": str(session.sandbox_session.id),
-                "provider": request.data.get("provider"),
-                "model": request.data.get("model"),
+                "provider": provider,
+                "model": model,
+                "reasoning_check": reasoning_check,
+                "reasoning_effort": reasoning_effort,
                 "validation_required": request.data.get("validation_required", True)
             }
             

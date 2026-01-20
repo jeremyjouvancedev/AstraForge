@@ -56,10 +56,20 @@ def run_astra_control_session(self, task_data: dict):
     goal = task_data["goal"]
     sandbox_session_id = task_data["sandbox_session_id"]
     provider = task_data.get("provider") or os.getenv("LLM_PROVIDER", "openai")
-    
-    # Use module-specific default for model name
-    default_model = "devstral-small-2:24b" if provider == "ollama" else os.getenv("LLM_MODEL", "gpt-4o")
-    model_name = task_data.get("model") or default_model
+
+    # Get model name - should come from frontend for Azure OpenAI
+    model_name = task_data.get("model")
+    if not model_name:
+        # Fallback defaults only if not provided
+        if provider == "ollama":
+            model_name = "devstral-small-2:24b"
+        elif provider == "azure_openai":
+            # For Azure OpenAI, deployment name should be specified in frontend
+            # This is a last resort fallback
+            model_name = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+            logger.warning(f"Azure OpenAI deployment not specified, using fallback: {model_name}")
+        else:
+            model_name = os.getenv("LLM_MODEL", "gpt-4o")
     
     proxy_url = os.getenv("LLM_PROXY_URL")
     validation_required = task_data.get("validation_required", True)
@@ -75,9 +85,12 @@ def run_astra_control_session(self, task_data: dict):
         
         # AUTO-RESTORE: If a snapshot was requested, restore it now
         if sandbox_session.restore_snapshot_id:
-            logger.info(f"Restoring sandbox {sandbox_session_id} from snapshot {sandbox_session.restore_snapshot_id}")
-            snapshot = SandboxSnapshot.objects.get(id=sandbox_session.restore_snapshot_id)
-            orchestrator.restore_snapshot(sandbox_session, snapshot)
+            try:
+                logger.info(f"Restoring sandbox {sandbox_session_id} from snapshot {sandbox_session.restore_snapshot_id}")
+                snapshot = SandboxSnapshot.objects.get(id=sandbox_session.restore_snapshot_id)
+                orchestrator.restore_snapshot(sandbox_session, snapshot)
+            except Exception as restore_err:
+                logger.warning(f"Failed to restore snapshot {sandbox_session.restore_snapshot_id}: {restore_err}. Starting with fresh sandbox.")
             
         logger.info(f"Provisioned and ready sandbox {sandbox_session_id} for session {session_id}")
     except Exception as e:
