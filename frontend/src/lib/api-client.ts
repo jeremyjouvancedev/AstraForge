@@ -763,12 +763,7 @@ export async function uploadAstraControlDocument(
 
   const response = await apiClient.post<DocumentUploadResponse>(
     `/astra-control/sessions/${encodeURIComponent(sessionId)}/upload_document/`,
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    }
+    formData
   );
   return response.data;
 }
