@@ -14,7 +14,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy .npmrc for custom npm registry configuration (e.g., private registries)
-COPY .npmrc /root/.npmrc
+COPY .npmrc* /root/
 
 RUN npm install -g @openai/codex \
     && if [ -f /usr/local/bin/codex ]; then mv /usr/local/bin/codex /usr/local/bin/codex-real; fi
