@@ -1,7 +1,5 @@
 import logging
 import os
-import json
-import re
 from typing import List, Optional, Any
 from pydantic import BaseModel, Field, ValidationError
 
@@ -232,7 +230,7 @@ def create_graph(
                     uploaded_docs_section += f" ({doc['description']})"
                 uploaded_docs_section += "\n"
             uploaded_docs_section += "\nIMPORTANT: These files are already available in the sandbox. You can use the 'read_file' tool to access them directly. DO NOT ask the user to upload them again or provide file paths."
-            logger.info(f"DEBUG: Agent system prompt includes uploaded docs section")
+            logger.info("DEBUG: Agent system prompt includes uploaded docs section")
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", (

@@ -21,7 +21,6 @@ import {
   uploadSandboxFile,
   readSandboxFile,
   uploadAstraControlDocument,
-  type DocumentUploadResponse,
 } from '@/lib/api-client';
 import { buildSandboxUploadPath } from '@/features/deepagent/lib/sandbox-upload';
 import { useAstraControl } from '../hooks/useAstraControl';
@@ -72,6 +71,14 @@ function summarizeSessions(sessions: AstraControlSession[]) {
     if (s.status === 'failed') failed += 1;
   });
   return { total: sessions.length, running, completed, failed };
+}
+
+function getErrorMessage(error: unknown, defaultMessage: string): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: { data?: { error?: string } } }).response;
+    return response?.data?.error || defaultMessage;
+  }
+  return defaultMessage;
 }
 
 const CAPABILITY_EXAMPLES = [
@@ -472,9 +479,9 @@ export function AstraControlPage() {
             toast.success(`Uploaded ${docFiles.length} document(s)`);
             setDocFiles([]);
             setDocDescriptions({});
-          } catch (uploadErr: any) {
+          } catch (uploadErr: unknown) {
             console.error("Failed to upload documents:", uploadErr);
-            const errorMessage = uploadErr?.response?.data?.error || "Failed to upload some documents";
+            const errorMessage = getErrorMessage(uploadErr, "Failed to upload some documents");
             toast.error(errorMessage);
           }
         } else if (retries >= maxRetries) {
@@ -600,9 +607,9 @@ export function AstraControlPage() {
         setIsDocUploadModalOpen(false);
         // Refresh session data
         await fetchSessions();
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to upload documents:", err);
-        const errorMessage = err?.response?.data?.error || "Failed to upload documents";
+        const errorMessage = getErrorMessage(err, "Failed to upload documents");
         if (errorMessage.includes("Sandbox is not ready")) {
           toast.error("Sandbox is still starting. Please wait and try again.");
         } else {
