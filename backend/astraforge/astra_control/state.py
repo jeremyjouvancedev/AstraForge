@@ -21,6 +21,8 @@ class AgentState(TypedDict):
     terminal_output: Optional[str]
     # File tree
     file_tree: List[str]
+    # Uploaded documents metadata
+    uploaded_documents: Optional[List[dict]]
     # Is validation required for tools?
     validation_required: bool
     # Is the agent waiting for user?

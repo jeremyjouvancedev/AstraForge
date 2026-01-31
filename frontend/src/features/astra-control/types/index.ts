@@ -40,8 +40,24 @@ export interface HumanInputPayload {
   };
 }
 
+export interface DocumentMetadata {
+  filename: string;
+  sandbox_path: string;
+  description?: string;
+  size_bytes: number;
+  content_type: string;
+  uploaded_at: number;
+}
+
+export interface DocumentUploadedPayload {
+  filename: string;
+  path: string;
+  description?: string;
+  timestamp: number;
+}
+
 export interface AgentEvent {
   type: string;
-  payload: AgentPayload | InterruptPayload | HumanInputPayload;
+  payload: AgentPayload | InterruptPayload | HumanInputPayload | DocumentUploadedPayload;
   timestamp: number;
 }

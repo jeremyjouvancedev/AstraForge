@@ -1,0 +1,226 @@
+# API Reference
+
+AstraForge provides a comprehensive REST API documented with OpenAPI/Swagger. The API allows you to interact with the platform programmatically, manage workflows, execute tasks, and control agent operations.
+
+## Interactive API Documentation
+
+The interactive Swagger UI is available at:
+
+**[http://localhost:8000/api/docs/](http://localhost:8000/api/docs/)**
+
+The Swagger UI provides:
+- Complete API endpoint documentation
+- Interactive request testing
+- Request/response schemas
+- Authentication requirements
+- Example payloads
+
+## OpenAPI Schema
+
+You can access the raw OpenAPI schema at:
+
+**[http://localhost:8000/api/schema/](http://localhost:8000/api/schema/)**
+
+This is useful for:
+- Generating API clients in various languages
+- Importing into API testing tools (Postman, Insomnia, etc.)
+- Automated testing and validation
+
+## Main API Endpoints
+
+### Astra Control
+Autonomous terminal control and command execution. See the [Astra Control Guide](/astra-control) for detailed usage.
+
+**Session Management:**
+- **GET** `/api/astra-control/sessions/` - List all Astra Control sessions
+- **POST** `/api/astra-control/sessions/` - Create a new session
+- **GET** `/api/astra-control/sessions/{id}/` - Get session details and state
+- **POST** `/api/astra-control/sessions/{id}/resume/` - Resume a paused session
+- **POST** `/api/astra-control/sessions/{id}/cancel/` - Cancel a running session
+
+**Interaction:**
+- **POST** `/api/astra-control/sessions/{id}/message/` - Send a message to the agent
+- **POST** `/api/astra-control/sessions/{id}/upload_document/` - Upload a document (multipart/form-data)
+- **GET** `/api/astra-control/sessions/{id}/stream/` - Stream session events (SSE)
+
+### Requests & Execution
+Agent requests and execution management:
+- **GET** `/api/requests/` - List all requests
+- **POST** `/api/requests/` - Create a new request
+- **POST** `/api/requests/plan/` - Create a plan for execution
+- **POST** `/api/requests/execute/` - Execute a request
+- **GET** `/api/requests/{id}/` - Get request details
+
+### Runs
+Execution run monitoring:
+- **GET** `/api/runs/` - List all runs
+- **GET** `/api/runs/{id}/` - Get run details
+- **GET** `/api/runs/{id}/logs/stream` - Stream run logs in real-time
+
+### Computer Use
+Computer control and automation:
+- **GET** `/api/computer-use/runs/` - List computer use runs
+- **POST** `/api/computer-use/runs/` - Create a new computer use run
+- **GET** `/api/computer-use/runs/{id}/` - Get run details
+
+### Sandbox
+Isolated execution environments:
+- **GET** `/api/sandbox/sessions/` - List sandbox sessions
+- **POST** `/api/sandbox/sessions/` - Create a new sandbox session
+- **GET** `/api/sandbox/sessions/{id}/` - Get session details
+
+### Workspaces
+Workspace management:
+- **GET** `/api/workspaces/` - List all workspaces
+- **POST** `/api/workspaces/` - Create a new workspace
+- **GET** `/api/workspaces/{id}/` - Get workspace details
+
+### Chat
+Chat session management:
+- **GET** `/api/chat/` - List chat sessions
+- **POST** `/api/chat/` - Create a new chat session
+- **GET** `/api/chat/{id}/` - Get chat details
+
+### Merge Requests
+GitLab/GitHub integration:
+- **GET** `/api/merge-requests/` - List merge requests
+- **GET** `/api/merge-requests/{id}/` - Get merge request details
+
+### Repository Links
+Repository connections:
+- **GET** `/api/repository-links/` - List repository links
+- **POST** `/api/repository-links/` - Create a new repository link
+- **GET** `/api/repository-links/{id}/` - Get repository link details
+
+### Activity Logs
+Audit trail and activity monitoring:
+- **GET** `/api/activity/` - List activity logs
+
+### API Keys
+API authentication management:
+- **GET** `/api/api-keys/` - List API keys
+- **POST** `/api/api-keys/` - Create a new API key
+- **DELETE** `/api/api-keys/{id}/` - Revoke an API key
+
+## Authentication
+
+The API uses token-based authentication. Include your authentication token in the request headers:
+
+```bash
+Authorization: Token your-api-token-here
+```
+
+## Example Usage
+
+### Create an Astra Control Session
+
+```bash
+curl -X POST http://localhost:8000/api/astra-control/sessions/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Token your-token" \
+  -d '{
+    "goal": "Install nodejs 18 and create a simple Express hello world app",
+    "model": "gpt-4",
+    "provider": "openai",
+    "reasoning_check": false,
+    "reasoning_effort": "medium",
+    "validation_required": false
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "goal": "Install nodejs 18 and create a simple Express hello world app",
+  "status": "created",
+  "sandbox_session": "sandbox-uuid",
+  "sandbox_status": "starting",
+  "created_at": "2026-01-31T10:30:00Z",
+  "updated_at": "2026-01-31T10:30:00Z"
+}
+```
+
+### Upload Document to Session
+
+```bash
+curl -X POST http://localhost:8000/api/astra-control/sessions/{session-id}/upload_document/ \
+  -H "Authorization: Token your-token" \
+  -F "file=@/path/to/document.pdf" \
+  -F "description=API requirements specification"
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Document uploaded successfully",
+  "document": {
+    "filename": "document.pdf",
+    "sandbox_path": "/workspace/uploads/document.pdf",
+    "description": "API requirements specification",
+    "size_bytes": 245632,
+    "content_type": "application/pdf",
+    "uploaded_at": 1738323000000
+  }
+}
+```
+
+### Send Message to Agent
+
+```bash
+curl -X POST http://localhost:8000/api/astra-control/sessions/{session-id}/message/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Token your-token" \
+  -d '{
+    "message": "Also add error handling for invalid input",
+    "validation_required": false
+  }'
+```
+
+### Stream Session Events
+
+```bash
+curl -X GET http://localhost:8000/api/astra-control/sessions/{session-id}/stream/ \
+  -H "Authorization: Token your-token" \
+  -H "Accept: text/event-stream"
+```
+
+**Event Format:**
+```json
+{"agent": {"role": "assistant", "content": "I'll install nodejs 18..."}}
+{"tools": {"tool_calls": [{"name": "run_command", "args": {"command": "curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -"}}]}}
+{"interrupt": {"action": "wait_for_user", "reason": "Paused for approval"}}
+```
+
+### List All Requests
+
+```bash
+curl -X GET http://localhost:8000/api/requests/ \
+  -H "Authorization: Token your-token"
+```
+
+### Execute a Request
+
+```bash
+curl -X POST http://localhost:8000/api/requests/execute/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Token your-token" \
+  -d '{
+    "prompt": "Analyze the current codebase",
+    "workspace_id": "workspace-uuid-here"
+  }'
+```
+
+### Stream Run Logs
+
+```bash
+curl -X GET http://localhost:8000/api/runs/{run-id}/logs/stream \
+  -H "Authorization: Token your-token"
+```
+
+## Development
+
+For local development, the API is accessible at `http://localhost:8000/api/`. In production, update the base URL to match your deployment domain.
+
+For more detailed information about each endpoint, parameters, and response formats, visit the [Swagger UI](http://localhost:8000/api/docs/).

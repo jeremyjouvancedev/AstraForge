@@ -91,7 +91,14 @@ def run_astra_control_session(self, task_data: dict):
                 orchestrator.restore_snapshot(sandbox_session, snapshot)
             except Exception as restore_err:
                 logger.warning(f"Failed to restore snapshot {sandbox_session.restore_snapshot_id}: {restore_err}. Starting with fresh sandbox.")
-            
+
+        # Create uploads directory in sandbox
+        try:
+            orchestrator.execute(sandbox_session, "mkdir -p /workspace/uploads")
+            logger.info(f"Created uploads directory in sandbox {sandbox_session_id}")
+        except Exception as mkdir_err:
+            logger.warning(f"Failed to create uploads directory: {mkdir_err}")
+
         logger.info(f"Provisioned and ready sandbox {sandbox_session_id} for session {session_id}")
     except Exception as e:
         logger.exception(f"Failed to provision/restore sandbox {sandbox_session_id}: {e}")
@@ -105,8 +112,22 @@ def run_astra_control_session(self, task_data: dict):
 
     # Initial state
     is_resume = task_data.get("is_resume", False)
+
+    # Load uploaded documents from session state (needed for both new and resumed sessions)
+    try:
+        session = AstraControlSession.objects.get(id=session_id)
+        uploaded_documents = session.state.get("documents", []) if isinstance(session.state, dict) else []
+        logger.info(f"DEBUG: Session {session_id} loaded {len(uploaded_documents)} uploaded documents: {[doc.get('filename') for doc in uploaded_documents]}")
+    except AstraControlSession.DoesNotExist:
+        uploaded_documents = []
+        logger.warning(f"DEBUG: Session {session_id} not found, no uploaded documents")
+
     if is_resume:
-        initial_input = {"messages": [HumanMessage(content=goal)], "is_finished": False}
+        initial_input = {
+            "messages": [HumanMessage(content=goal)],
+            "uploaded_documents": uploaded_documents,
+            "is_finished": False
+        }
     else:
         initial_input = {
             "messages": [HumanMessage(content=goal)],
@@ -118,6 +139,7 @@ def run_astra_control_session(self, task_data: dict):
             "screenshot": None,
             "terminal_output": None,
             "file_tree": [],
+            "uploaded_documents": uploaded_documents,
             "validation_required": validation_required,
             "is_finished": False
         }

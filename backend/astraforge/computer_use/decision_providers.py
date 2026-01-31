@@ -134,6 +134,26 @@ class ScriptedDecisionProvider:
         )
 
 
+def _should_disable_ssl_verify() -> bool:
+    """Check if SSL verification should be disabled (corporate proxy environments)."""
+    return os.getenv("DISABLE_SSL_VERIFY", "0").lower() in {"1", "true", "yes"}
+
+def _create_http_client():
+    """Create an HTTP client with custom SSL certificates or verification disabled."""
+    import httpx
+
+    # Check if we should disable SSL verification entirely
+    if _should_disable_ssl_verify():
+        return httpx.Client(verify=False)
+
+    # Use custom CA bundle if available (corporate environment)
+    ca_bundle = os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE")
+    if ca_bundle and os.path.exists(ca_bundle):
+        return httpx.Client(verify=ca_bundle)
+
+    return None
+
+
 @dataclass(slots=True)
 class DeepAgentDecisionProvider:
     provider: str = "openai"
@@ -143,6 +163,9 @@ class DeepAgentDecisionProvider:
     reasoning_check: bool = True
 
     def decide(self, request: DecisionRequest) -> DecisionResponse:
+        # Create HTTP client with SSL settings
+        http_client = _create_http_client()
+
         if self.provider == "ollama":
             from langchain_ollama import ChatOllama
             model_kwargs = _build_ollama_model_kwargs(
@@ -160,6 +183,7 @@ class DeepAgentDecisionProvider:
                 temperature=self.temperature,
                 api_key=os.getenv("OPENAI_API_KEY"),
                 base_url=os.getenv("OPENAI_BASE_URL") or None,
+                http_client=http_client,
             )
 
         system_prompt = (

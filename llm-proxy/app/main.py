@@ -109,6 +109,24 @@ def _ollama_chat_url() -> str:
     return f"{_ollama_base_url()}/api/chat"
 
 
+def _should_disable_ssl_verify() -> bool:
+    """Check if SSL verification should be disabled (corporate proxy environments)."""
+    return os.getenv("DISABLE_SSL_VERIFY", "0").lower() in {"1", "true", "yes"}
+
+
+def _get_ssl_verify():
+    """Get SSL verification setting for httpx clients."""
+    if _should_disable_ssl_verify():
+        return False
+
+    # Use custom CA bundle if available (corporate environment)
+    ca_bundle = os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE")
+    if ca_bundle and os.path.exists(ca_bundle):
+        return ca_bundle
+
+    return True
+
+
 def _is_reasoning_model(model: str) -> bool:
     patterns = ["gpt-oss", "devstral", "deepseek-r1", "o1-", "o3-"]
     return any(model.lower().startswith(p) for p in patterns)
@@ -179,7 +197,7 @@ async def _proxy_raw_request(
     )
     headers = _filter_headers(dict(request.headers))
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+    client = httpx.AsyncClient(timeout=httpx.Timeout(None), verify=_get_ssl_verify())
     stream_ctx = client.stream(
         request.method, upstream_url, headers=headers, content=body
     )
@@ -237,7 +255,7 @@ async def _invoke_chat(
             payload["options"]["think"] = effort
         if response_format.get("type") == "json_object":
             payload["format"] = "json"
-        async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None), verify=_get_ssl_verify()) as client:
             response = await client.post(_ollama_chat_url(), json=payload)
         if response.status_code >= 400:
             detail = response.text or "Upstream model error"
@@ -319,7 +337,7 @@ async def _proxy_openai_responses(
             iterator, status_code=status_code, headers=response_headers
         )
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, verify=_get_ssl_verify()) as client:
         response = await client.post(url, headers=headers, json=payload)
     if response.status_code >= 400:
         detail = response.text or "Upstream model error"
@@ -338,7 +356,7 @@ async def _openai_stream_iterator(
     payload: Dict[str, Any],
     timeout: httpx.Timeout,
 ) -> tuple[AsyncIterator[bytes], int, Dict[str, str]]:
-    client = httpx.AsyncClient(timeout=timeout)
+    client = httpx.AsyncClient(timeout=timeout, verify=_get_ssl_verify())
     stream_ctx = client.stream("POST", url, headers=headers, json=payload)
     try:
         upstream = await stream_ctx.__aenter__()
@@ -472,7 +490,7 @@ async def _ollama_stream_iterator(
     if not chat_payload["options"]:
         chat_payload.pop("options")
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+    client = httpx.AsyncClient(timeout=httpx.Timeout(None), verify=_get_ssl_verify())
     stream_ctx = client.stream("POST", _ollama_chat_url(), json=chat_payload)
     try:
         upstream = await stream_ctx.__aenter__()
@@ -577,7 +595,7 @@ async def _proxy_ollama_responses(
     if not chat_payload["options"]:
         chat_payload.pop("options")
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None), verify=_get_ssl_verify()) as client:
         response = await client.post(_ollama_chat_url(), json=chat_payload)
     if response.status_code >= 400:
         detail = response.text or "Upstream model error"

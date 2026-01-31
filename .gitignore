@@ -206,6 +206,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Docker Compose
+#  docker-compose.override.yml contains local customizations and should not be committed
+docker-compose.override.yml
 # Frontend artifacts
 frontend/node_modules/
 frontend/dist/
@@ -215,3 +219,7 @@ shared/openapi/schema.yaml
 
 frontend/.pnpm-store/*
 node_modules/*
+
+.vscode
+.npmrc
+.prd

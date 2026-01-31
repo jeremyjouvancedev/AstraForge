@@ -14,6 +14,27 @@ from astraforge.domain.models.request import Request
 from astraforge.sandbox.deepagent_backend import SandboxBackend
 
 
+def _should_disable_ssl_verify() -> bool:
+    """Check if SSL verification should be disabled (corporate proxy environments)."""
+    return os.getenv("DISABLE_SSL_VERIFY", "0").lower() in {"1", "true", "yes"}
+
+
+def _create_http_client():
+    """Create an HTTP client with custom SSL certificates or verification disabled."""
+    import httpx
+
+    # Check if we should disable SSL verification entirely
+    if _should_disable_ssl_verify():
+        return httpx.Client(verify=False)
+
+    # Use custom CA bundle if available (corporate environment)
+    ca_bundle = os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE")
+    if ca_bundle and os.path.exists(ca_bundle):
+        return httpx.Client(verify=ca_bundle)
+
+    return None
+
+
 def _postgres_dsn_from_db_settings(db_settings: Mapping[str, Any]) -> Optional[str]:
     """Build a Postgres DSN from Django database settings."""
     engine = str(db_settings.get("ENGINE") or "").lower()
@@ -359,6 +380,12 @@ def get_deep_agent(request: Request | None = None):
         # Only add reasoning_effort for o1/o3 reasoning models
         if reasoning_effort and _is_reasoning_model(model_name):
             azure_kwargs["model_kwargs"] = {"reasoning_effort": reasoning_effort}
+
+        # Add SSL configuration
+        http_client = _create_http_client()
+        if http_client:
+            azure_kwargs["http_client"] = http_client
+
         model = AzureChatOpenAI(**azure_kwargs)
     else:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -382,6 +409,12 @@ def get_deep_agent(request: Request | None = None):
             openai_kwargs["base_url"] = base_url
         if reasoning_effort:
             openai_kwargs["model_kwargs"] = {"reasoning_effort": reasoning_effort}
+
+        # Add SSL configuration
+        http_client = _create_http_client()
+        if http_client:
+            openai_kwargs["http_client"] = http_client
+
         model = ChatOpenAI(**openai_kwargs)
     system_prompt = os.getenv(
         "DEEPAGENT_SYSTEM_PROMPT",

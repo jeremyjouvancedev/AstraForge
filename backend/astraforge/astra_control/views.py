@@ -9,9 +9,11 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer
+from rest_framework.parsers import MultiPartParser, FormParser
 from .models import AstraControlSession
-from .serializers import AstraControlSessionSerializer
+from .serializers import AstraControlSessionSerializer, DocumentUploadSerializer
 from astraforge.sandbox.models import SandboxSession
+from astraforge.sandbox.services import SandboxOrchestrator
 from astraforge.interfaces.rest.renderers import EventStreamRenderer
 
 logger = logging.getLogger(__name__)
@@ -208,6 +210,126 @@ class AstraControlSessionViewSet(viewsets.ModelViewSet):
         
         session.save()
         return Response({"status": "ok"})
+
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_document(self, request, pk=None):
+        """Upload a document to the session's sandbox and track it in session state."""
+        session = self.get_object()
+
+        # Validate sandbox session exists and is accessible
+        if not session.sandbox_session:
+            return Response(
+                {"error": "No sandbox session associated with this Astra Control session"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate sandbox is ready for execution
+        if session.sandbox_session.status != SandboxSession.Status.READY:
+            return Response(
+                {"error": f"Sandbox is not ready for execution. Current status: {session.sandbox_session.status}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate max documents (5 documents per session)
+        if not isinstance(session.state, dict):
+            session.state = {}
+        documents = session.state.get("documents", [])
+        if len(documents) >= 5:
+            return Response(
+                {"error": "Maximum 5 documents per session. Delete existing documents first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = DocumentUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        uploaded_file = serializer.validated_data['file']
+        description = serializer.validated_data.get('description', '')
+
+        # Upload to sandbox at /workspace/uploads/
+        sandbox_path = f"/workspace/uploads/{uploaded_file.name}"
+
+        try:
+            orchestrator = SandboxOrchestrator()
+            file_content = uploaded_file.read()
+
+            # Upload file to sandbox
+            orchestrator.upload_bytes(session.sandbox_session, sandbox_path, file_content)
+
+            # Track document in session state
+            document_metadata = {
+                "filename": uploaded_file.name,
+                "sandbox_path": sandbox_path,
+                "description": description,
+                "size_bytes": uploaded_file.size,
+                "content_type": uploaded_file.content_type,
+                "uploaded_at": int(time.time() * 1000)
+            }
+            documents.append(document_metadata)
+            session.state["documents"] = documents
+            session.save()
+
+            # Publish event to Redis for real-time streaming
+            event = {
+                "document_uploaded": {
+                    "filename": uploaded_file.name,
+                    "path": sandbox_path,
+                    "description": description,
+                    "timestamp": document_metadata["uploaded_at"]
+                }
+            }
+            r = redis.from_url(settings.REDIS_URL)
+            channel = f"astra_control_stream_{session.id}"
+            r.publish(channel, json.dumps(event))
+
+            # If session is paused, auto-resume with notification
+            if session.status == AstraControlSession.Status.PAUSED:
+                notification_msg = f"New document uploaded: {uploaded_file.name}"
+                if description:
+                    notification_msg += f" - {description}"
+                notification_msg += f"\nPath: {sandbox_path}"
+
+                # Store the notification as a human input event
+                notification_event = {
+                    "human_input": {
+                        "message": notification_msg,
+                        "timestamp": document_metadata["uploaded_at"]
+                    }
+                }
+                events = session.state.get("events", [])
+                events.append(notification_event)
+                session.state["events"] = events
+                session.save()
+
+                # Publish notification
+                r.publish(channel, json.dumps(notification_event))
+
+                # Resume the session
+                r.rpush(f"astra_control_resume_{session.id}", notification_msg)
+
+                logger.info(f"Document uploaded and session {session.id} auto-resumed")
+
+                return Response({
+                    "status": "success",
+                    "message": "Document uploaded and session resumed",
+                    "document": document_metadata
+                }, status=status.HTTP_201_CREATED)
+
+            logger.info(f"Document uploaded to session {session.id}: {uploaded_file.name}")
+
+            return Response({
+                "status": "success",
+                "message": "Document uploaded successfully",
+                "document": document_metadata
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            logger.exception(f"Failed to upload document to session {session.id}: {e}")
+            return Response(
+                {"error": f"Failed to upload document: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=True, methods=["get"])
     def stream(self, request, pk=None):

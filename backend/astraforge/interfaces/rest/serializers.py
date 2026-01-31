@@ -18,6 +18,7 @@ class RequestSerializer(serializers.Serializer):
     source = serializers.CharField(default="direct_user")
     sender = serializers.EmailField(required=False, allow_blank=True)
     project_id = serializers.UUIDField()
+    prompt = serializers.CharField(trim_whitespace=False)
     llm_provider = serializers.ChoiceField(
         choices=["openai", "azure_openai", "ollama", "google"],
         required=False,

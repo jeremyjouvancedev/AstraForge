@@ -37,29 +37,60 @@ def tavily_web_search(
             "Set the TAVILY_API_KEY environment variable to enable it."
         )
 
+    # Handle custom SSL configuration for corporate environments
+    # TavilyClient uses the requests library internally
+    import requests
+    import requests.api
+    import warnings
+
+    # Determine SSL verification setting
+    ssl_verify = True
+
+    # Check if SSL verification should be disabled explicitly
+    if os.getenv("TAVILY_DISABLE_SSL_VERIFY", "0").lower() in {"1", "true", "yes"}:
+        # Disable SSL verification if explicitly requested
+        warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+        warnings.filterwarnings('ignore', module='urllib3')
+        ssl_verify = False
+    else:
+        # Otherwise, check for custom CA bundle
+        ca_bundle = os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE")
+        if ca_bundle and os.path.exists(ca_bundle):
+            # Use custom CA bundle for corporate environments
+            ssl_verify = ca_bundle
+
+    # Patch requests.request (the base function that all methods use)
+    original_request = requests.api.request
+
+    def patched_request(method, url, **kwargs):
+        # Inject our SSL verification setting if not explicitly provided
+        if 'verify' not in kwargs:
+            kwargs['verify'] = ssl_verify
+        return original_request(method, url, **kwargs)
+
+    # Patch at the api module level
+    requests.api.request = patched_request
+    requests.request = patched_request
+
     try:
+        # Initialize client and perform search
         client = TavilyClient(api_key=api_key)
 
-        # Disable SSL verification if explicitly requested via environment variable
-        # This is useful in corporate environments with SSL inspection
-        if os.getenv("TAVILY_DISABLE_SSL_VERIFY", "0").lower() in {"1", "true", "yes"}:
-            import httpx
-            # Create a custom transport with SSL verification disabled
-            transport = httpx.HTTPTransport(verify=False)
-            client._client = httpx.Client(transport=transport)
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to initialize Tavily client: {exc}"
-
-    try:
         results = client.search(
             query,
             max_results=max_results,
             include_raw_content=include_raw_content,
             topic=topic,
         )
+
+        # Return the raw Tavily result object (typically a dict with a "results" list)
+        # so the agent can decide how to post-process or render it.
+        return results
+
     except Exception as exc:  # noqa: BLE001
         return f"Tavily search failed: {exc}"
 
-    # Return the raw Tavily result object (typically a dict with a \"results\" list)
-    # so the agent can decide how to post-process or render it.
-    return results
+    finally:
+        # Always restore original request methods
+        requests.api.request = original_request
+        requests.request = original_request
