@@ -23,12 +23,19 @@ export interface AgentPayload {
   plan?: string;
   is_finished?: boolean;
   summary?: string;
+  file_tree?: string[];
 }
 
 export interface InterruptPayload {
   action: string;
   description?: string;
   timestamp: number;
+  content_preview?: string;
+  reason?: string;
+  question?: string;
+  choices?: string[];
+  command?: string;
+  cwd?: string;
   [key: string]: unknown;
 }
 
