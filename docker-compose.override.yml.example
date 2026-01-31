@@ -1,0 +1,301 @@
+# docker-compose.override.yml.example
+#
+# This file provides a template for customizing Docker builds with company-specific
+# settings like custom registries, proxies, and certificates.
+#
+# Usage:
+#   1. Copy this file to docker-compose.override.yml:
+#      cp docker-compose.override.yml.example docker-compose.override.yml
+#
+#   2. Uncomment and customize the sections you need
+#
+#   3. The override file is gitignored by default, so your changes stay local
+#
+# Note: docker-compose.override.yml is automatically applied when you run
+#       docker-compose commands without any -f flags
+
+services:
+  # ============================================================================
+  # Workspace Images Customization
+  # ============================================================================
+  # These images are used by workers to execute code in isolated sandboxes
+
+  computer-use-image:
+    build:
+      args:
+        # Custom base image from company registry
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+
+        # Corporate proxy settings
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+
+        # Python package index (PyPI mirror)
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+        # Extra CA certificates (base64 encoded or PEM format)
+        # EXTRA_CA_CERTS: |
+        #   -----BEGIN CERTIFICATE-----
+        #   MIIDXTCCAkWgAwIBAgIJAKJ...
+        #   -----END CERTIFICATE-----
+
+  astra-control-image:
+    build:
+      args:
+        # Same customization options as computer-use-image
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+  sandbox-image:
+    build:
+      args:
+        # Same customization options as computer-use-image
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+  # ============================================================================
+  # Backend Service Customization
+  # ============================================================================
+  backend:
+    build:
+      args:
+        # Custom base image from company registry
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+
+        # Corporate proxy settings
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+
+        # Python package index (PyPI mirror)
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+        # Extra CA certificates (base64 encoded or PEM format)
+        # EXTRA_CA_CERTS: |
+        #   -----BEGIN CERTIFICATE-----
+        #   MIIDXTCCAkWgAwIBAgIJAKJ...
+        #   -----END CERTIFICATE-----
+
+  backend-migrate:
+    build:
+      args:
+        # Same customization options as backend
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+  backend-worker:
+    build:
+      args:
+        # Same customization options as backend
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+  computer-use-worker:
+    build:
+      args:
+        # Same customization options as backend
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+  astra-control-worker:
+    build:
+      args:
+        # Same customization options as backend
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+  # ============================================================================
+  # LLM Proxy Service Customization
+  # ============================================================================
+  llm-proxy:
+    build:
+      args:
+        # Custom base image from company registry
+        # BASE_IMAGE: company-registry.example.com/python:3.11-slim
+
+        # Corporate proxy settings
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+
+        # Python package index (PyPI mirror)
+        # PIP_INDEX_URL: https://pypi.company.com/simple
+        # PIP_TRUSTED_HOST: pypi.company.com
+
+        # Extra CA certificates
+        # EXTRA_CA_CERTS: |
+        #   -----BEGIN CERTIFICATE-----
+        #   MIIDXTCCAkWgAwIBAgIJAKJ...
+        #   -----END CERTIFICATE-----
+
+  # ============================================================================
+  # Frontend Service Customization
+  # ============================================================================
+  frontend:
+    build:
+      args:
+        # Custom Node.js base image
+        # BASE_IMAGE: company-registry.example.com/node:20-alpine
+
+        # Corporate proxy settings
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+
+        # NPM registry mirror
+        # NPM_REGISTRY: https://npm.company.com
+
+  # ============================================================================
+  # Docs Service Customization
+  # ============================================================================
+  docs:
+    build:
+      args:
+        # Custom Node.js base image
+        # BASE_IMAGE: company-registry.example.com/node:20-alpine
+
+        # Corporate proxy settings
+        # HTTP_PROXY: http://proxy.company.com:8080
+        # HTTPS_PROXY: http://proxy.company.com:8080
+        # NO_PROXY: localhost,127.0.0.1,.company.com
+
+        # NPM registry mirror
+        # NPM_REGISTRY: https://npm.company.com
+
+        # Extra CA certificates
+        # EXTRA_CA_CERTS: |
+        #   -----BEGIN CERTIFICATE-----
+        #   MIIDXTCCAkWgAwIBAgIJAKJ...
+        #   -----END CERTIFICATE-----
+
+  # ============================================================================
+  # Pre-built Image Customization
+  # ============================================================================
+  # If you need to use custom registries for pre-built images:
+
+  # postgres:
+  #   image: company-registry.example.com/pgvector/pgvector:pg16
+
+  # redis:
+  #   image: company-registry.example.com/redis:7
+
+  # minio:
+  #   image: company-registry.example.com/minio/minio:latest
+
+  # minio-setup:
+  #   image: company-registry.example.com/minio/mc:latest
+
+# ============================================================================
+# Example: Minimal Configuration (Base Images Only)
+# ============================================================================
+# If you only need custom base images:
+
+# services:
+#   backend:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#
+#   backend-migrate:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#
+#   backend-worker:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#
+#   computer-use-worker:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#
+#   astra-control-worker:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#
+#   llm-proxy:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#
+#   frontend:
+#     build:
+#       args:
+#         NODE_BASE_IMAGE: company-registry.example.com/node:20-alpine
+#
+#   docs:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/node:20-alpine
+
+# ============================================================================
+# Example: Full Configuration with Proxy and Certificates
+# ============================================================================
+# For corporate environments with proxies and custom certificates:
+
+# services:
+#   backend:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#         HTTP_PROXY: http://proxy.company.com:8080
+#         HTTPS_PROXY: http://proxy.company.com:8080
+#         NO_PROXY: localhost,127.0.0.1,.company.com,postgres,redis,minio
+#         PIP_INDEX_URL: https://pypi.company.com/simple
+#         PIP_TRUSTED_HOST: pypi.company.com
+#         EXTRA_CA_CERTS: |
+#           -----BEGIN CERTIFICATE-----
+#           [Your company's root CA certificate here]
+#           -----END CERTIFICATE-----
+#
+#   # Apply same settings to all backend services
+#   backend-migrate:
+#     build:
+#       args:
+#         BASE_IMAGE: company-registry.example.com/python:3.11-slim
+#         HTTP_PROXY: http://proxy.company.com:8080
+#         HTTPS_PROXY: http://proxy.company.com:8080
+#         NO_PROXY: localhost,127.0.0.1,.company.com,postgres,redis,minio
+#         PIP_INDEX_URL: https://pypi.company.com/simple
+#         PIP_TRUSTED_HOST: pypi.company.com
+#
+#   # ... repeat for backend-worker, computer-use-worker, astra-control-worker, llm-proxy
+#
+#   frontend:
+#     build:
+#       args:
+#         NODE_BASE_IMAGE: company-registry.example.com/node:20-alpine
+#         HTTP_PROXY: http://proxy.company.com:8080
+#         HTTPS_PROXY: http://proxy.company.com:8080
+#         NO_PROXY: localhost,127.0.0.1,.company.com
+#         NPM_REGISTRY: https://npm.company.com

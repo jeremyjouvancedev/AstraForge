@@ -17,9 +17,10 @@ import {
   DialogDescription
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { 
-  uploadSandboxFile, 
+import {
+  uploadSandboxFile,
   readSandboxFile,
+  uploadAstraControlDocument,
 } from '@/lib/api-client';
 import { buildSandboxUploadPath } from '@/features/deepagent/lib/sandbox-upload';
 import { useAstraControl } from '../hooks/useAstraControl';
@@ -70,6 +71,14 @@ function summarizeSessions(sessions: AstraControlSession[]) {
     if (s.status === 'failed') failed += 1;
   });
   return { total: sessions.length, running, completed, failed };
+}
+
+function getErrorMessage(error: unknown, defaultMessage: string): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: { data?: { error?: string } } }).response;
+    return response?.data?.error || defaultMessage;
+  }
+  return defaultMessage;
 }
 
 const CAPABILITY_EXAMPLES = [
@@ -211,11 +220,11 @@ const markdownComponents: Components = {
     <pre
       {...props}
       className={cn(
-        "my-3 overflow-auto rounded-xl border border-white/10 bg-black/40 px-0 py-0 text-sm text-zinc-200",
+        "my-3 overflow-x-hidden overflow-y-auto rounded-xl border border-white/10 bg-black/40 px-0 py-0 text-sm text-zinc-200",
         className
       )}
     >
-      <code className="block whitespace-pre px-4 py-3 font-mono text-xs leading-relaxed text-zinc-300">
+      <code className="block whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs leading-relaxed text-zinc-300">
         {children}
       </code>
     </pre>
@@ -285,6 +294,12 @@ export function AstraControlPage() {
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+
+  // Document upload state
+  const [isDocUploadModalOpen, setIsDocUploadModalOpen] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docFiles, setDocFiles] = useState<File[]>([]);
+  const [docDescriptions, setDocDescriptions] = useState<Record<string, string>>({});
 
   const { events, status, startSession, resumeSession, cancelSession, sendMessage, fetchSessions } = useAstraControl(sessionId);
 
@@ -410,19 +425,74 @@ export function AstraControlPage() {
     if (!goal) return;
     try {
       const session = await startSession(
-        goal, 
-        llmModel, 
-        llmProvider, 
-        reasoningCheck, 
+        goal,
+        llmModel,
+        llmProvider,
+        reasoningCheck,
         reasoningEffort,
         validationRequired
       );
       // Immediately add the new session to the list so it's available for find()
       setSessions(prev => [session, ...prev]);
       setSessionId(session.id);
+
+      // Upload documents if any were selected
+      if (docFiles.length > 0) {
+        // Show a toast that documents will be uploaded once sandbox is ready
+        toast.info(`Waiting for sandbox to start before uploading ${docFiles.length} document(s)...`);
+
+        // Wait for sandbox to be ready with retries
+        const maxRetries = 30; // 30 seconds max wait
+        let retries = 0;
+        let sandboxReady = false;
+
+        while (retries < maxRetries && !sandboxReady) {
+          try {
+            // Fetch the latest session data to check sandbox status
+            const sessions = await fetchSessions();
+            const currentSession = sessions.find(s => s.id === session.id);
+
+            if (currentSession?.sandbox_status === 'ready') {
+              sandboxReady = true;
+              break;
+            } else if (currentSession?.sandbox_status === 'failed') {
+              toast.error("Sandbox failed to start. Cannot upload documents.");
+              break;
+            }
+
+            // Wait 1 second before next check
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            retries++;
+          } catch (err) {
+            console.error("Failed to check sandbox status:", err);
+            break;
+          }
+        }
+
+        if (sandboxReady) {
+          try {
+            for (let i = 0; i < docFiles.length; i++) {
+              const file = docFiles[i];
+              const description = docDescriptions[i.toString()] || '';
+              await uploadAstraControlDocument(session.id, file, description);
+            }
+            toast.success(`Uploaded ${docFiles.length} document(s)`);
+            setDocFiles([]);
+            setDocDescriptions({});
+          } catch (uploadErr: unknown) {
+            console.error("Failed to upload documents:", uploadErr);
+            const errorMessage = getErrorMessage(uploadErr, "Failed to upload some documents");
+            toast.error(errorMessage);
+          }
+        } else if (retries >= maxRetries) {
+          toast.error("Timeout waiting for sandbox to start. You can upload documents manually once it's ready.");
+        }
+      }
+
       setView('live');
     } catch (err) {
       console.error("Failed to start agent session:", err);
+      toast.error("Failed to start session");
     }
   };
 
@@ -473,15 +543,85 @@ export function AstraControlPage() {
     setPreviewFilePath(path);
     setIsPreviewLoading(true);
     setPreviewContent(null);
+
+    // Check if file is an image
+    const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(path);
+
     try {
-      const content = await readSandboxFile(activeSession.sandbox_session, path);
-      setPreviewContent(content);
+      if (isImage) {
+        // For images, we'll store a special marker and the actual image will be loaded via img src
+        setPreviewContent("__IMAGE__");
+      } else {
+        const content = await readSandboxFile(activeSession.sandbox_session, path);
+        setPreviewContent(content);
+      }
     } catch (err) {
       console.error("Failed to read file:", err);
       toast.error("Failed to read file content");
       setPreviewFilePath(null);
     } finally {
       setIsPreviewLoading(false);
+    }
+  };
+
+  const handleAddDocFiles = (files: FileList | null) => {
+    if (!files) return;
+    const newFiles = Array.from(files);
+    setDocFiles(prev => [...prev, ...newFiles]);
+  };
+
+  const handleRemoveDocFile = (index: number) => {
+    setDocFiles(prev => prev.filter((_, i) => i !== index));
+    setDocDescriptions(prev => {
+      const newDescriptions = { ...prev };
+      delete newDescriptions[index.toString()];
+      return newDescriptions;
+    });
+  };
+
+  const handleDocDescriptionChange = (index: number, description: string) => {
+    setDocDescriptions(prev => ({ ...prev, [index.toString()]: description }));
+  };
+
+  const handleUploadDocuments = async () => {
+    if (docFiles.length === 0) return;
+
+    // If there's an active session, upload immediately
+    if (activeSession?.id) {
+      // Check if sandbox is ready
+      if (activeSession.sandbox_status !== "ready") {
+        toast.error(`Cannot upload documents. Sandbox status: ${activeSession.sandbox_status || 'unknown'}`);
+        return;
+      }
+
+      setUploadingDoc(true);
+      try {
+        for (let i = 0; i < docFiles.length; i++) {
+          const file = docFiles[i];
+          const description = docDescriptions[i.toString()] || '';
+          await uploadAstraControlDocument(activeSession.id, file, description);
+        }
+        toast.success(`Successfully uploaded ${docFiles.length} document(s)`);
+        setDocFiles([]);
+        setDocDescriptions({});
+        setIsDocUploadModalOpen(false);
+        // Refresh session data
+        await fetchSessions();
+      } catch (err: unknown) {
+        console.error("Failed to upload documents:", err);
+        const errorMessage = getErrorMessage(err, "Failed to upload documents");
+        if (errorMessage.includes("Sandbox is not ready")) {
+          toast.error("Sandbox is still starting. Please wait and try again.");
+        } else {
+          toast.error(errorMessage);
+        }
+      } finally {
+        setUploadingDoc(false);
+      }
+    } else {
+      // If no active session, just close the modal - documents are staged
+      toast.success(`${docFiles.length} document(s) ready to upload`);
+      setIsDocUploadModalOpen(false);
     }
   };
 
@@ -560,14 +700,14 @@ export function AstraControlPage() {
               <div className="space-y-4">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Execution Goal</label>
                 <div className="flex space-x-3">
-                  <Input 
-                    value={goal} 
-                    onChange={(e) => setGoal(e.target.value)} 
+                  <Input
+                    value={goal}
+                    onChange={(e) => setGoal(e.target.value)}
                     placeholder="e.g. Install nodejs and create a hello world app"
                     className="h-12 bg-black/40 border-white/10 rounded-xl focus:ring-blue-500/50 transition-all"
                   />
-                  <Button 
-                    onClick={handleStart} 
+                  <Button
+                    onClick={handleStart}
                     disabled={!goal}
                     className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-900/20 transition-all"
                   >
@@ -575,7 +715,50 @@ export function AstraControlPage() {
                   </Button>
                 </div>
               </div>
-              
+
+              <div className="pt-6 border-t border-white/5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="h-4 w-4 text-zinc-500" />
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                      Documents (Optional)
+                    </label>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsDocUploadModalOpen(true)}
+                    className="h-8 px-4 rounded-lg text-xs"
+                  >
+                    <Upload className="h-3 w-3 mr-2" />
+                    Add Documents
+                  </Button>
+                </div>
+                {docFiles.length > 0 && (
+                  <div className="space-y-2">
+                    {docFiles.map((file, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-3 rounded-lg bg-white/5 border border-white/5">
+                        <FileText className="h-4 w-4 text-blue-400" />
+                        <span className="text-sm text-zinc-300 flex-1">{file.name}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveDocFile(idx)}
+                          className="h-6 w-6 p-0 hover:bg-red-500/20"
+                        >
+                          <span className="text-red-400">×</span>
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {docFiles.length === 0 && (
+                  <p className="text-xs text-zinc-500 italic">
+                    Upload documents (PDF, CSV, code files, etc.) to provide context for the agent.
+                  </p>
+                )}
+              </div>
+
               <div className="pt-6 border-t border-white/5">
                 <div className="flex items-center gap-2 mb-6">
                   <Settings2 className="h-4 w-4 text-zinc-500" />
@@ -816,18 +999,18 @@ export function AstraControlPage() {
 
                           {/* Tool Proposals */}
                           {msg.tool_calls?.map((tc, tcIdx: number) => (
-                            <div key={`${i}-tc-${tcIdx}`} className="flex gap-4 ml-12 animate-in fade-in zoom-in-95 duration-300">
-                              <div className="p-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 h-fit mt-1">
+                            <div key={`${i}-tc-${tcIdx}`} className="flex gap-4 ml-12 animate-in fade-in zoom-in-95 duration-300 max-w-[90%]">
+                              <div className="p-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 h-fit mt-1 shrink-0">
                                 <Code2 className="h-3 w-3 text-purple-400" />
                               </div>
-                              <div className="space-y-1.5 flex-1">
+                              <div className="space-y-1.5 flex-1 min-w-0 overflow-hidden">
                                 <div className="text-[9px] font-bold text-purple-400 uppercase tracking-widest flex items-center gap-2">
                                   Proposing Action
                                   <div className="h-1 w-1 rounded-full bg-purple-500 animate-pulse" />
                                 </div>
-                                <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl font-mono text-[11px] text-zinc-400 overflow-x-auto">
-                                  <span className="text-purple-300 font-bold">{tc.name}</span>
-                                  <span className="text-zinc-600 ml-2">({JSON.stringify(tc.args)})</span>
+                                <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl font-mono text-[11px] text-zinc-400 overflow-hidden">
+                                  <div className="text-purple-300 font-bold">{tc.name}</div>
+                                  <div className="text-zinc-600 mt-1 break-all whitespace-pre-wrap">{JSON.stringify(tc.args, null, 2)}</div>
                                 </div>
                               </div>
                             </div>
@@ -1257,29 +1440,42 @@ export function AstraControlPage() {
 
                   
 
-                                                {latestInterrupt.action === 'write_file' && (
+                                                {latestInterrupt.action === 'write_file' && (() => {
+                                                  const filePath = latestInterrupt.path as string || '';
+                                                  const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePath);
+                                                  const isPdf = /\.pdf$/i.test(filePath);
 
-                                                  <div className="space-y-2">
+                                                  return (
+                                                    <div className="space-y-2">
+                                                      <div className="flex items-center justify-between">
+                                                        <div className="text-[10px] font-bold text-zinc-500 uppercase">Target Path</div>
+                                                        <span className="text-[10px] font-mono text-zinc-400">{filePath}</span>
+                                                      </div>
 
-                                                    <div className="flex items-center justify-between">
-
-                                                      <div className="text-[10px] font-bold text-zinc-500 uppercase">Target Path</div>
-
-                                                      <span className="text-[10px] font-mono text-zinc-400">{latestInterrupt.path}</span>
-
+                                                      {isImage || isPdf ? (
+                                                        <div className="space-y-2">
+                                                          <div className="text-[10px] font-bold text-zinc-500 uppercase">File Type</div>
+                                                          <div className="p-4 bg-black/40 rounded-xl border border-white/5 text-xs text-amber-300">
+                                                            <div className="flex items-center gap-2">
+                                                              <FileText className="h-4 w-4" />
+                                                              <span>
+                                                                {isImage ? 'Image file' : 'PDF document'} - Preview not available for binary files.
+                                                                File will be written to: <span className="font-mono text-blue-300">{filePath}</span>
+                                                              </span>
+                                                            </div>
+                                                          </div>
+                                                        </div>
+                                                      ) : (
+                                                        <>
+                                                          <div className="text-[10px] font-bold text-zinc-500 uppercase">Content Preview</div>
+                                                          <div className="p-4 bg-black/40 rounded-xl border border-white/5 font-mono text-xs text-emerald-300 overflow-x-hidden max-h-[300px] overflow-y-auto custom-scrollbar">
+                                                            <pre className="whitespace-pre-wrap break-words">{latestInterrupt.content_preview}</pre>
+                                                          </div>
+                                                        </>
+                                                      )}
                                                     </div>
-
-                                                    <div className="text-[10px] font-bold text-zinc-500 uppercase">Content Preview</div>
-
-                                                    <div className="p-4 bg-black/40 rounded-xl border border-white/5 font-mono text-xs text-emerald-300 overflow-x-auto">
-
-                                                      <pre className="whitespace-pre-wrap">{latestInterrupt.content_preview}</pre>
-
-                                                    </div>
-
-                                                  </div>
-
-                                                )}
+                                                  );
+                                                })()}
 
                   
 
@@ -1827,7 +2023,19 @@ export function AstraControlPage() {
                     </div>
                                         ) : (
                                           <div>
-                                            {previewFilePath?.endsWith('.md') ? (
+                                            {previewContent === "__IMAGE__" ? (
+                                              <div className="flex items-center justify-center">
+                                                <img
+                                                  src={`/api/sandbox/sessions/${encodeURIComponent(activeSession?.sandbox_session || '')}/files/content/?path=${encodeURIComponent(previewFilePath || '')}`}
+                                                  alt={previewFilePath?.split('/').pop() || 'Preview'}
+                                                  className="max-w-full max-h-[60vh] object-contain rounded-lg"
+                                                  onError={() => {
+                                                    console.error('Failed to load image');
+                                                    toast.error('Failed to load image');
+                                                  }}
+                                                />
+                                              </div>
+                                            ) : previewFilePath?.endsWith('.md') ? (
                                               typeof previewContent === 'string' && previewContent.trim() !== '' ? (
                                                 <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
                                                   {previewContent}
@@ -1845,10 +2053,10 @@ export function AstraControlPage() {
 
                 <DialogFooter className="sm:justify-between items-center border-t border-white/5 pt-4">
                   <div className="text-[10px] text-zinc-500 italic">
-                    {previewContent ? `${previewContent.length} characters` : ""}
+                    {previewContent && previewContent !== "__IMAGE__" ? `${previewContent.length} characters` : ""}
                   </div>
-                  <Button 
-                    variant="secondary" 
+                  <Button
+                    variant="secondary"
                     onClick={() => setPreviewFilePath(null)}
                     className="rounded-xl h-9 px-6 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-white/5"
                   >
@@ -1857,6 +2065,90 @@ export function AstraControlPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
+      {/* Document Upload Modal */}
+      <Dialog open={isDocUploadModalOpen} onOpenChange={setIsDocUploadModalOpen}>
+        <DialogContent className="bg-zinc-900 border-white/10 text-zinc-100 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <Upload className="h-5 w-5 text-blue-400" />
+              Upload Documents
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Add documents (PDF, CSV, code files, etc.) to provide context for the agent. Max 5 files, 10MB each.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center">
+              <input
+                type="file"
+                multiple
+                onChange={(e) => handleAddDocFiles(e.target.files)}
+                className="hidden"
+                id="doc-file-input"
+                accept=".pdf,.txt,.csv,.json,.md,.py,.js,.jsx,.ts,.tsx,.java,.c,.cpp,.h,.hpp,.html,.css,.xml,.yaml,.yml,.toml,.ini,.conf,.sh,.bash,.sql,.log,.png,.jpg,.jpeg,.gif,.svg,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.tar,.gz"
+              />
+              <label htmlFor="doc-file-input" className="cursor-pointer">
+                <Upload className="h-12 w-12 mx-auto mb-4 text-zinc-500" />
+                <p className="text-sm text-zinc-400 mb-2">Click to select files or drag and drop</p>
+                <p className="text-xs text-zinc-500">PDF, TXT, CSV, JSON, Code files, Images</p>
+              </label>
+            </div>
+
+            {docFiles.length > 0 && (
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {docFiles.map((file, idx) => (
+                  <div key={idx} className="p-4 rounded-lg bg-white/5 border border-white/5 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <FileText className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-zinc-200 truncate">{file.name}</p>
+                        <p className="text-xs text-zinc-500">{(file.size / 1024).toFixed(2)} KB</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveDocFile(idx)}
+                        className="h-8 w-8 p-0 hover:bg-red-500/20 flex-shrink-0"
+                      >
+                        <span className="text-red-400">×</span>
+                      </Button>
+                    </div>
+                    <Input
+                      placeholder="Optional: Add description or context for this file"
+                      value={docDescriptions[idx.toString()] || ''}
+                      onChange={(e) => handleDocDescriptionChange(idx, e.target.value)}
+                      className="bg-black/40 border-white/10 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setIsDocUploadModalOpen(false);
+                setDocFiles([]);
+                setDocDescriptions({});
+              }}
+              className="rounded-xl h-9 px-6"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUploadDocuments}
+              disabled={docFiles.length === 0 || uploadingDoc}
+              className="rounded-xl h-9 px-6 bg-blue-600 hover:bg-blue-500"
+            >
+              {uploadingDoc ? 'Uploading...' : `Upload ${docFiles.length} File${docFiles.length !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

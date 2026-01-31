@@ -1,0 +1,418 @@
+# Astra Control
+
+**Astra Control is an autonomous terminal agent that can execute complex tasks in isolated sandbox environments.**
+
+Astra Control provides an AI-powered agent that can understand goals, create execution plans, run shell commands, write files, browse the web, and interact with you when needed - all within a secure, isolated Ubuntu sandbox environment.
+
+## What is Astra Control?
+
+Astra Control is an autonomous agent system that:
+
+- **Understands Natural Language Goals**: Describe what you want to accomplish in plain English
+- **Creates Smart Plans**: Automatically breaks down complex tasks into manageable steps
+- **Executes Autonomously**: Runs commands, writes code, and manages files without manual intervention
+- **Requests Approval When Needed**: Can pause and ask for your approval before executing sensitive operations
+- **Handles Documents**: Upload files (PDFs, code, data files) to provide context for the agent
+- **Provides Full Transparency**: See every command, file change, and decision in real-time
+
+## Key Features
+
+### 🤖 Autonomous Execution
+The agent can execute complex, multi-step tasks without constant supervision. It adapts its approach based on results and handles errors intelligently.
+
+### 📋 Dynamic Planning
+Astra Control creates and updates execution plans as it works, showing you exactly what it's doing and what's coming next.
+
+### 📄 Document Upload
+Upload documents (PDF, CSV, code files, images, etc.) to provide context. The agent can read and work with these files automatically.
+
+### ✅ Interactive Approval System
+Configure validation levels:
+- **No Validation**: Agent executes freely (fastest)
+- **Risk-Based Validation**: Agent pauses only for potentially risky operations
+- **Full Validation**: You approve every tool execution (maximum control)
+
+### 🔧 Powerful Tool Set
+The agent has access to:
+- **Shell commands**: Run any terminal command in the sandbox
+- **File operations**: Read, write, and manage files
+- **Python REPL**: Execute Python code directly
+- **Web browsing**: Open URLs and interact with web pages using Playwright
+- **File tree exploration**: Navigate and understand directory structures
+
+### 🔒 Secure Sandboxing
+Every session runs in an isolated Docker or Kubernetes sandbox with:
+- Read-only root filesystem
+- Isolated network (configurable)
+- Resource limits
+- No access to host system
+
+## Getting Started
+
+### Starting a Session
+
+1. **Navigate to Astra Control** in the AstraForge UI
+2. **Enter your goal**: Describe what you want to accomplish
+   ```
+   Example: "Install Node.js 18 and create a simple Express API with a /health endpoint"
+   ```
+3. **(Optional) Upload documents**: Add any files the agent should reference
+4. **Configure settings** (optional):
+   - Choose LLM model and provider
+   - Enable reasoning mode for complex tasks
+   - Set validation requirements
+5. **Start the session**: Watch as the agent creates a plan and begins execution
+
+### Example Goals
+
+**Development Tasks:**
+```
+Create a Python FastAPI app with CRUD endpoints for a todo list,
+including SQLite database and pytest tests
+```
+
+**Data Analysis:**
+```
+Download the CSV from example.com/data.csv, clean it,
+and generate a summary report with key statistics
+```
+
+**System Administration:**
+```
+Set up a PostgreSQL database, create a user 'appuser',
+and initialize the schema from schema.sql
+```
+
+**Web Automation:**
+```
+Go to the GitHub trending page, extract the top 5 repositories,
+and save their names and descriptions to trending.json
+```
+
+## Working with Documents
+
+### Uploading Documents
+
+You can upload documents either:
+
+1. **Before starting a session**: Upload files that will be available when the agent starts
+2. **During an active session**: Upload files while the agent is running
+
+**Supported file types:**
+- Documents: PDF, TXT, MD, CSV, JSON
+- Code: PY, JS, TS, JAVA, C, CPP, HTML, CSS, etc.
+- Images: PNG, JPG, GIF, SVG, WEBP
+- Office: DOCX, XLSX, PPTX
+- Archives: ZIP, TAR, GZ
+
+**Limits:**
+- Maximum 5 files per session
+- Maximum 10MB per file
+
+### Document Workflow
+
+1. Click **"Add Documents"** button
+2. Select files or drag-and-drop
+3. **(Optional)** Add descriptions to provide context
+4. Upload immediately (active session) or stage for session start
+
+**The agent will:**
+- Automatically detect uploaded documents
+- Read them when relevant to the goal
+- Reference them in its planning
+- Not ask you to provide files that are already uploaded
+
+### Document Locations
+
+Uploaded documents are stored in the sandbox at:
+```
+/workspace/uploads/
+```
+
+The agent can access them directly:
+```bash
+cat /workspace/uploads/data.csv
+python /workspace/uploads/script.py
+```
+
+## Interaction Modes
+
+### Autonomous Mode (Default)
+
+The agent executes continuously until:
+- The goal is completed
+- An error occurs that requires your input
+- A validation checkpoint is reached
+- It needs clarification
+
+### Interactive Approval Mode
+
+When validation is enabled, the agent will:
+
+1. **Propose an action** (e.g., "write_file", "run_command")
+2. **Show you the details** (file contents, command to run)
+3. **Wait for your approval**
+
+You can:
+- ✅ **Approve**: Let the agent proceed
+- ❌ **Deny**: Stop the action and provide feedback
+- 💬 **Send a message**: Give additional instructions
+
+### Asking Questions
+
+The agent can pause to ask you questions when:
+- Multiple approaches are possible
+- It needs missing information
+- Clarification would improve results
+
+You'll see a question prompt and can respond directly in the UI.
+
+## Advanced Configuration
+
+### LLM Settings
+
+**Provider Options:**
+- OpenAI (GPT-4, GPT-4 Turbo, GPT-3.5)
+- Azure OpenAI (with custom endpoint)
+- Ollama (local models)
+- Any OpenAI-compatible API
+
+**Model Selection:**
+Choose based on your needs:
+- **GPT-4**: Best quality, complex reasoning
+- **GPT-3.5-turbo**: Faster, lower cost
+- **Local models**: Privacy, no API costs
+
+### Reasoning Mode
+
+Enable extended reasoning for complex tasks:
+
+**Reasoning Effort:**
+- **Low**: Quick decisions, simpler tasks
+- **Medium**: Balanced (default)
+- **High**: Deep analysis, complex problems
+
+**Reasoning Check:**
+- Enable to have the LLM verify its own work
+- Useful for critical tasks requiring accuracy
+
+### Validation Settings
+
+**Validation Required:**
+- ✅ **Enabled**: You approve every tool execution
+- ❌ **Disabled**: Agent executes autonomously
+
+Use validation when:
+- Learning how the agent works
+- Executing sensitive operations
+- Working with production systems
+- Needing full control
+
+## Understanding the UI
+
+### Status Indicators
+
+**Session Status:**
+- 🟢 **Running**: Agent is actively executing
+- ⏸️ **Paused**: Waiting for your input
+- ✅ **Completed**: Goal achieved successfully
+- ❌ **Failed**: Encountered an error
+- 🟡 **Created**: Session initialized, not started
+
+**Sandbox Status:**
+- 🔵 **Starting**: Sandbox is being provisioned
+- 🟢 **Ready**: Sandbox is operational
+- ❌ **Failed**: Sandbox failed to start
+- ⚫ **Terminated**: Sandbox has been stopped
+
+### Event Timeline
+
+The timeline shows all events in chronological order:
+
+**Event Types:**
+- 🤖 **Agent Thinking**: The agent's reasoning and plans
+- 🔧 **Tool Proposal**: Actions the agent wants to take
+- ⚙️ **Tool Result**: Output from executed tools
+- ⏸️ **Interrupt**: Waiting for your approval
+- 💬 **Human Input**: Your messages and responses
+
+### Plan View
+
+The plan shows:
+- **Current step** being executed
+- **Completed steps** with checkmarks
+- **Pending steps** to be executed
+- **Plan updates** as the agent learns
+
+### File Browser
+
+Browse the sandbox filesystem:
+- Navigate directories
+- Preview file contents
+- See file metadata
+- Download files
+
+Supports preview for:
+- Text files
+- Code files
+- Markdown (rendered)
+- Images
+
+### Terminal Output
+
+View real-time terminal output:
+- Command execution logs
+- Standard output and error
+- Exit codes
+- Working directories
+
+### Screenshots
+
+When the agent uses the browser:
+- Automatic screenshots after each action
+- Visual confirmation of web interactions
+- Debugging support for automation issues
+
+## Best Practices
+
+### Writing Effective Goals
+
+**Do:**
+- Be specific about what you want to achieve
+- Mention technologies or tools if relevant
+- Include success criteria
+- Provide context when needed
+
+**Don't:**
+- Be too vague ("do something with data")
+- Skip important requirements
+- Assume the agent knows your project structure
+
+**Good Examples:**
+```
+✅ Install PostgreSQL 14, create a database named 'myapp',
+   and set up a user with SELECT/INSERT permissions
+
+✅ Analyze the CSV file I uploaded, remove duplicate rows,
+   calculate summary statistics, and save the cleaned data
+
+✅ Create a Python script that monitors disk usage
+   and sends an alert if it exceeds 80%
+```
+
+**Poor Examples:**
+```
+❌ Set up a database
+❌ Fix my code
+❌ Do some data analysis
+```
+
+### Document Upload Tips
+
+1. **Add descriptions**: Help the agent understand context
+   ```
+   File: sales_data.csv
+   Description: Q4 2025 sales data with customer IDs and revenue
+   ```
+
+2. **Upload before starting**: More efficient than uploading mid-session
+
+3. **Use clear filenames**: `customer_requirements.pdf` is better than `doc1.pdf`
+
+4. **Check file sizes**: Keep under 10MB; split large datasets if needed
+
+### Working with the Agent
+
+1. **Let it work**: Give the agent time to complete multi-step tasks
+2. **Provide feedback**: If it makes a mistake, explain what's wrong
+3. **Use validation for learning**: Start with validation enabled to understand the agent's capabilities
+4. **Save important work**: Download files from the sandbox before the session expires
+5. **Monitor progress**: Watch the plan to see what's coming next
+
+### Security Considerations
+
+**Safe to do:**
+- Install packages and dependencies
+- Process uploaded data files
+- Test code and scripts
+- Web scraping and API calls
+- File manipulation
+
+**Be cautious:**
+- Uploading sensitive credentials (use environment variables instead)
+- Processing confidential data (sandboxes are isolated but logs are stored)
+- Running untested code from unknown sources
+- Long-running processes (sessions have timeouts)
+
+## Troubleshooting
+
+### Common Issues
+
+**"Sandbox failed to start"**
+- Check Docker/Kubernetes is running
+- Verify resource availability
+- Check logs: `docker logs astraforge-backend`
+
+**"Agent keeps asking for the same file"**
+- Ensure file is uploaded successfully
+- Check sandbox status is "ready"
+- Verify file is in `/workspace/uploads/`
+
+**"Agent is stuck/not progressing"**
+- Check if waiting for approval (validation mode)
+- Look for error messages in terminal output
+- Send a message to prompt the agent
+
+**"Session expired/terminated"**
+- Sessions have idle timeouts (configurable)
+- Save work before closing browser
+- Download important files immediately
+
+**"Cannot upload document"**
+- Verify sandbox is in "ready" state
+- Check file size (max 10MB)
+- Ensure file type is supported
+- Verify you haven't exceeded 5 files per session
+
+### Getting Help
+
+If you encounter issues:
+
+1. Check the [Operations & Testing](/operations) guide
+2. Review backend logs: `docker logs astraforge-backend`
+3. Check sandbox logs: `docker logs <sandbox-container-id>`
+4. Open an issue on GitHub with:
+   - Session ID
+   - Goal description
+   - Error messages
+   - Timeline of events
+
+## API Integration
+
+Prefer to integrate programmatically? See the [API Reference](/api-reference) for complete endpoint documentation.
+
+**Quick example:**
+
+```python
+import requests
+
+# Create a session
+response = requests.post(
+    "http://localhost:8000/api/astra-control/sessions/",
+    json={
+        "goal": "List all Python files in /workspace",
+        "validation_required": False
+    },
+    headers={"Authorization": "Token your-api-key"}
+)
+
+session_id = response.json()["id"]
+print(f"Session created: {session_id}")
+```
+
+## What's Next?
+
+- [API Reference](/api-reference): Complete API documentation
+- [Sandbox Overview](/sandbox-overview): Understanding the sandbox environment
+- [Configuration](/configuration): Environment variables and settings
+- [Architecture](/architecture): System design and components

@@ -1,15 +1,82 @@
-FROM node:20-alpine
+ARG BASE_IMAGE=node:20-alpine
+FROM ${BASE_IMAGE}
 
-WORKDIR /app
+# Company-specific customization arguments
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG NO_PROXY=""
+ARG NPM_REGISTRY=""
+ARG EXTRA_CA_CERTS=""
 
+ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY}
+
+USER root
+
+# Install extra CA certificates if provided
+# Simply create the cert file - Node will use it via NODE_EXTRA_CA_CERTS
+RUN if [ -n "${EXTRA_CA_CERTS}" ]; then \
+        mkdir -p /etc/ssl/certs && \
+        echo "${EXTRA_CA_CERTS}" > /etc/ssl/certs/company-ca.crt; \
+    fi
+
+EXPOSE 5174
+
+WORKDIR /tmp
+
+# Set NODE_EXTRA_CA_CERTS BEFORE any npm operations
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/company-ca.crt
 ENV PNPM_HOME="/pnpm"
 ENV PATH="${PNPM_HOME}:${PATH}"
 
-RUN corepack enable && corepack prepare pnpm@9.12.2 --activate
+# Copy .npmrc first if it exists to configure registry before installing pnpm
+COPY .npmrc* ./
 
+# Configure npm registry if provided
+RUN if [ -n "${NPM_REGISTRY}" ]; then \
+        npm config set registry "${NPM_REGISTRY}"; \
+    fi
+
+RUN npm install -g pnpm@9.12.2
+
+# Configure pnpm to use the same registry as npm if NPM_REGISTRY is set
+RUN if [ -n "${NPM_REGISTRY}" ]; then \
+        pnpm config set registry "${NPM_REGISTRY}"; \
+    fi
+
+# Ensure www-data user exists and setup permissions
+RUN if ! id www-data > /dev/null 2>&1; then \
+      if command -v apk > /dev/null 2>&1; then \
+        adduser -D -H -s /sbin/nologin www-data 2>/dev/null || adduser -D -H -s /sbin/nologin -G www-data www-data; \
+      elif adduser --help 2>&1 | grep -q '\--disabled-password'; then \
+        adduser --disabled-password --gecos '' www-data; \
+      else \
+        useradd -r www-data; \
+      fi; \
+    fi && \
+    mkdir -p /var/www && chmod 777 /var/www
+
+USER www-data
+
+# Set the working directory in the container
+WORKDIR /var/www
+
+# Copy the package.json and pnpm-lock.yaml files to the working directory
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
 
-EXPOSE 5174
+# Copy .npmrc to working directory for pnpm to use
+COPY .npmrc* ./
+
+# Configure pnpm registry for www-data user if NPM_REGISTRY is set
+RUN if [ -n "${NPM_REGISTRY}" ]; then \
+        pnpm config set registry "${NPM_REGISTRY}"; \
+    fi
+
+# Install dependencies
+RUN --mount=type=cache,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY --chown=www-data:www-data . .
+
+USER root
 
 CMD ["pnpm", "dev", "--host", "0.0.0.0", "--port", "5174"]

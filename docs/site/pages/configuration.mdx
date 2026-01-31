@@ -23,6 +23,32 @@ Key environment variables for running AstraForge across backend, sandbox, and th
 - `CODEX_WORKSPACE_PROXY_URL` – URL the workspace containers use to reach the proxy (often the service DNS name on the sandbox network).
 - `CODEX_WORKSPACE_KEEP_ALIVE` – set `1` to skip tearing down Codex workspaces after each run (useful for debugging).
 
+### Azure OpenAI Support
+
+For Azure OpenAI deployments:
+
+- `AZURE_OPENAI_API_KEY` – Azure OpenAI API key
+- `AZURE_OPENAI_ENDPOINT` – Azure OpenAI endpoint URL (e.g., `https://your-resource.openai.azure.com/`)
+- `AZURE_OPENAI_API_VERSION` – API version (e.g., `2024-02-15-preview`)
+- `AZURE_OPENAI_DEPLOYMENT_NAME` – Deployment name for the model
+
+When Azure environment variables are set, the system will automatically use Azure OpenAI instead of standard OpenAI.
+
+## Astra Control
+
+Configuration specific to Astra Control autonomous agent sessions:
+
+- `ASTRA_CONTROL_DEFAULT_MODEL` – Default LLM model for Astra Control (defaults to system LLM_MODEL)
+- `ASTRA_CONTROL_DEFAULT_PROVIDER` – Default provider (`openai`, `ollama`, `azure`) (defaults to system LLM_PROVIDER)
+- `ASTRA_CONTROL_DEFAULT_REASONING_EFFORT` – Default reasoning effort: `low`, `medium`, or `high` (default: `medium`)
+- `ASTRA_CONTROL_VALIDATION_REQUIRED` – Default validation mode: `true` requires user approval for all tools (default: `false`)
+- `ASTRA_CONTROL_MAX_STEPS` – Maximum execution steps per session (default: `50`)
+- `ASTRA_CONTROL_SESSION_TIMEOUT_SEC` – Session idle timeout in seconds (default: `3600`)
+- `ASTRA_CONTROL_UPLOAD_MAX_SIZE_MB` – Maximum document upload size in MB (default: `10`)
+- `ASTRA_CONTROL_UPLOAD_MAX_FILES` – Maximum documents per session (default: `5`)
+
+Users can override these defaults when creating sessions via the UI or API.
+
 If you run Ollama on your laptop and need containers to reach it, install it
 from https://ollama.com/download, pull the model you plan to use (default
 `devstral-small-2:24b`), then start the daemon with:

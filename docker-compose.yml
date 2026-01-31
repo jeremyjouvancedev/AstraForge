@@ -2,12 +2,49 @@ services:
   computer-use-image:
     build:
       context: ./computer_use
+      args:
+        BASE_IMAGE: python:3.11-slim
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: ""
+        PIP_INDEX_URL: ""
+        PIP_TRUSTED_HOST: ""
+        EXTRA_CA_CERTS: ""
     image: astraforge/computer-use:latest
 
   astra-control-image:
     build:
       context: ./astra_control_sandbox
+      args:
+        BASE_IMAGE: python:3.11-slim
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: ""
+        PIP_INDEX_URL: ""
+        PIP_TRUSTED_HOST: ""
+        EXTRA_CA_CERTS: ""
     image: astraforge/astra-control:latest
+
+  sandbox-image:
+    build:
+      context: ./sandbox
+      args:
+        BASE_IMAGE: python:3.11-slim
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: ""
+        PIP_INDEX_URL: ""
+        PIP_TRUSTED_HOST: ""
+        EXTRA_CA_CERTS: ""
+    image: astraforge/sandbox-daemon:latest
+
+  computer-use-init:
+    image: busybox
+    command: sh -c "mkdir -p /var/lib/astraforge/computer-use && chown -R 1000:999 /var/lib/astraforge/computer-use && chmod -R 775 /var/lib/astraforge/computer-use"
+    volumes:
+      - computer-use-traces:/var/lib/astraforge/computer-use
+    networks:
+      - astraforge
 
   backend-migrate:
     build:
@@ -30,6 +67,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      computer-use-init:
+        condition: service_completed_successfully
     networks:
       - astraforge
 
@@ -105,6 +144,7 @@ services:
       context: ./backend
     command: uvicorn astraforge.config.asgi:application --host 0.0.0.0 --port 8001 --reload
     privileged: true
+    user: "1000:999"
     env_file:
       - .env
     environment:
@@ -135,6 +175,8 @@ services:
       OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
       COMPUTER_USE_IMAGE: ${COMPUTER_USE_IMAGE:-astraforge/computer-use:latest}
       COMPUTER_USE_TRACE_DIR: /var/lib/astraforge/computer-use
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_DISABLE_SSL_VERIFY: ${TAVILY_DISABLE_SSL_VERIFY:-0}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/auth/csrf/"]
       interval: 5s
@@ -148,6 +190,8 @@ services:
       minio-setup:
         condition: service_completed_successfully
       backend-migrate:
+        condition: service_completed_successfully
+      computer-use-init:
         condition: service_completed_successfully
       llm-proxy:
         condition: service_healthy
@@ -166,6 +210,7 @@ services:
       context: ./backend
     command: celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.core,astraforge.default --beat
     privileged: true
+    user: "1000:999"
     env_file:
       - .env
     environment:
@@ -196,6 +241,8 @@ services:
       OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
       COMPUTER_USE_IMAGE: ${COMPUTER_USE_IMAGE:-astraforge/computer-use:latest}
       COMPUTER_USE_TRACE_DIR: /var/lib/astraforge/computer-use
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_DISABLE_SSL_VERIFY: ${TAVILY_DISABLE_SSL_VERIFY:-0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -204,6 +251,8 @@ services:
       minio-setup:
         condition: service_completed_successfully
       backend-migrate:
+        condition: service_completed_successfully
+      computer-use-init:
         condition: service_completed_successfully
       llm-proxy:
         condition: service_healthy
@@ -220,6 +269,7 @@ services:
       context: ./backend
     command: celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.computer_use
     privileged: true
+    user: "1000:999"
     env_file:
       - .env
     environment:
@@ -250,6 +300,8 @@ services:
       OLLAMA_REASONING_CHECK: ${OLLAMA_REASONING_CHECK:-true}
       COMPUTER_USE_IMAGE: ${COMPUTER_USE_IMAGE:-astraforge/computer-use:latest}
       COMPUTER_USE_TRACE_DIR: /var/lib/astraforge/computer-use
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_DISABLE_SSL_VERIFY: ${TAVILY_DISABLE_SSL_VERIFY:-0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -258,6 +310,8 @@ services:
       minio-setup:
         condition: service_completed_successfully
       backend-migrate:
+        condition: service_completed_successfully
+      computer-use-init:
         condition: service_completed_successfully
       llm-proxy:
         condition: service_healthy
@@ -274,6 +328,7 @@ services:
       context: ./backend
     command: celery -A astraforge.config.celery_app worker --loglevel=info -Q astraforge.astra_control
     privileged: true
+    user: "1000:999"
     env_file:
       - .env
     environment:
@@ -283,10 +338,16 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-devstral-small-2:24b}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-02-15-preview}
       INTERNAL_API_URL: http://backend:8001/api
       SANDBOX_DOCKER_SECCOMP: ""
       SANDBOX_DOCKER_READ_ONLY: "0"
       SANDBOX_DOCKER_USER: "sandbox"
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_DISABLE_SSL_VERIFY: ${TAVILY_DISABLE_SSL_VERIFY:-0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -312,6 +373,9 @@ services:
     environment:
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-02-15-preview}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-devstral-small-2:24b}
@@ -352,8 +416,8 @@ services:
       dockerfile: Dockerfile.dev
     command: sh -c "pnpm install --frozen-lockfile && pnpm dev --host 0.0.0.0 --port 5174"
     volumes:
-      - ./frontend:/app
-      - frontend-node-modules:/app/node_modules
+      - ./frontend:/var/www
+      - frontend-node-modules:/var/www/node_modules
     environment:
       VITE_API_URL: http://backend:8001
       CI: "true"

@@ -67,7 +67,8 @@ class SandboxPlaywrightAdapter:
 
         import urllib.request
         import json
-        
+        import ssl
+
         url = "https://api.tavily.com/search"
         data = {
             "api_key": api_key,
@@ -76,14 +77,26 @@ class SandboxPlaywrightAdapter:
             "include_answer": True,
             "max_results": 5
         }
-        
+
         try:
             req = urllib.request.Request(
                 url,
                 data=json.dumps(data).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=15) as response:
+
+            # Handle SSL verification for corporate proxy environments
+            ssl_context = None
+            if os.getenv("TAVILY_DISABLE_SSL_VERIFY", "0").lower() in ("1", "true", "yes"):
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+            elif os.getenv("SSL_CERT_FILE"):
+                ca_bundle = os.getenv("SSL_CERT_FILE")
+                if os.path.exists(ca_bundle):
+                    ssl_context = ssl.create_default_context(cafile=ca_bundle)
+
+            with urllib.request.urlopen(req, timeout=15, context=ssl_context) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
                 
                 # Format results as a readable string for the agent
@@ -444,6 +457,9 @@ def setup_browser(config):
     
     PLAYWRIGHT = sync_playwright().start()
     
+    # Check if SSL verification should be disabled for corporate proxy environments
+    ignore_https_errors = os.getenv('DISABLE_SSL_VERIFY', '0').lower() in ('1', 'true', 'yes')
+
     BROWSER_CONTEXT = PLAYWRIGHT.chromium.launch_persistent_context(
         user_data_dir,
         headless=True,
@@ -451,6 +467,7 @@ def setup_browser(config):
         viewport={"width": int(viewport.get("w", 1280)), "height": int(viewport.get("h", 720))},
         extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
         args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        ignore_https_errors=ignore_https_errors,
     )
     BROWSER_CONTEXT.set_default_navigation_timeout(nav_timeout)
     BROWSER_CONTEXT.set_default_timeout(action_timeout)

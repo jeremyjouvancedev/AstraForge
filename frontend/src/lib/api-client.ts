@@ -61,7 +61,7 @@ export interface CreateRequestInput {
   sender?: string;
   source?: string;
   tenantId?: string;
-  llmProvider?: "openai" | "ollama" | "google";
+  llmProvider?: "openai" | "ollama" | "google" | "azure_openai";
   llmModel?: string;
   reasoningEffort?: "low" | "medium" | "high";
   reasoningCheck?: boolean;
@@ -679,6 +679,7 @@ export interface AstraControlSession {
   goal: string;
   status: "created" | "running" | "paused" | "completed" | "failed";
   sandbox_session?: string;
+  sandbox_status?: "starting" | "ready" | "failed" | "terminated";
   created_at: string;
   updated_at: string;
 }
@@ -731,6 +732,38 @@ export async function sendAstraControlMessage(id: string, message: string, valid
   const response = await apiClient.post<{ status: string }>(
     `/astra-control/sessions/${encodeURIComponent(id)}/message/`,
     { message, validation_required }
+  );
+  return response.data;
+}
+
+export interface DocumentUploadResponse {
+  status: string;
+  message: string;
+  document: {
+    filename: string;
+    sandbox_path: string;
+    description: string;
+    size_bytes: number;
+    content_type: string;
+    uploaded_at: number;
+  };
+}
+
+export async function uploadAstraControlDocument(
+  sessionId: string,
+  file: File,
+  description?: string
+): Promise<DocumentUploadResponse> {
+  await ensureCsrfToken();
+  const formData = new FormData();
+  formData.append('file', file);
+  if (description) {
+    formData.append('description', description);
+  }
+
+  const response = await apiClient.post<DocumentUploadResponse>(
+    `/astra-control/sessions/${encodeURIComponent(sessionId)}/upload_document/`,
+    formData
   );
   return response.data;
 }

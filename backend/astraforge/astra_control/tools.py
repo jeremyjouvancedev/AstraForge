@@ -137,6 +137,7 @@ class SandboxToolset:
 python - << 'PY'
 import sys
 import json
+import os
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:
@@ -146,17 +147,24 @@ except ImportError:
 url = {url!r}
 try:
     with sync_playwright() as p:
+        # Always ignore HTTPS errors for corporate proxy environments
+        # The parent process has DISABLE_SSL_VERIFY set
+        ignore_https_errors = True
+
         browser = p.chromium.launch(headless=True)
-        # Use a persistent context if we want to support cookies/state? 
+        # Use a persistent context if we want to support cookies/state?
         # For now, just a simple new page.
-        page = browser.new_page()
-        page.goto(url, wait_until="networkidle", timeout=30000)
+        context = browser.new_context(ignore_https_errors=ignore_https_errors)
+        page = context.new_page()
+        # Use 'domcontentloaded' instead of 'networkidle' for faster page loads
+        # and increase timeout to 60 seconds for slow networks
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
         title = page.title()
         text = page.inner_text("body")
-        
-        # Save state for subsequent actions? 
+
+        # Save state for subsequent actions?
         # Persistent context would be better but requires more setup.
-        
+
         browser.close()
         print(f"TITLE: {{title}}")
         print("CONTENT_START")
@@ -184,17 +192,22 @@ PY
         script = f"""
 python - << 'PY'
 import sys
+import os
 from playwright.sync_api import sync_playwright
 
 url = {url!r}
 selector = {selector!r}
 try:
     with sync_playwright() as p:
+        # Always ignore HTTPS errors for corporate proxy environments
+        ignore_https_errors = True
+
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url, wait_until="networkidle")
+        context = browser.new_context(ignore_https_errors=ignore_https_errors)
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
         page.click(selector)
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
         text = page.inner_text("body")
         print("CONTENT_AFTER_CLICK")
         print(text[:5000])
@@ -219,6 +232,7 @@ PY
         script = f"""
 python - << 'PY'
 import sys
+import os
 from playwright.sync_api import sync_playwright
 
 url = {url!r}
@@ -226,13 +240,17 @@ selector = {selector!r}
 text = {text!r}
 try:
     with sync_playwright() as p:
+        # Always ignore HTTPS errors for corporate proxy environments
+        ignore_https_errors = True
+
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url, wait_until="networkidle")
+        context = browser.new_context(ignore_https_errors=ignore_https_errors)
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
         page.type(selector, text)
         if {press_enter}:
             page.keyboard.press("Enter")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
         content = page.inner_text("body")
         print("CONTENT_AFTER_TYPE")
         print(content[:5000])

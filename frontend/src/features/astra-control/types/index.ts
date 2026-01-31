@@ -23,12 +23,19 @@ export interface AgentPayload {
   plan?: string;
   is_finished?: boolean;
   summary?: string;
+  file_tree?: string[];
 }
 
 export interface InterruptPayload {
   action: string;
   description?: string;
   timestamp: number;
+  content_preview?: string;
+  reason?: string;
+  question?: string;
+  choices?: string[];
+  command?: string;
+  cwd?: string;
   [key: string]: unknown;
 }
 
@@ -40,8 +47,24 @@ export interface HumanInputPayload {
   };
 }
 
+export interface DocumentMetadata {
+  filename: string;
+  sandbox_path: string;
+  description?: string;
+  size_bytes: number;
+  content_type: string;
+  uploaded_at: number;
+}
+
+export interface DocumentUploadedPayload {
+  filename: string;
+  path: string;
+  description?: string;
+  timestamp: number;
+}
+
 export interface AgentEvent {
   type: string;
-  payload: AgentPayload | InterruptPayload | HumanInputPayload;
+  payload: AgentPayload | InterruptPayload | HumanInputPayload | DocumentUploadedPayload;
   timestamp: number;
 }
